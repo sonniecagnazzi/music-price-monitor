@@ -27,7 +27,8 @@ const BROWSER_HEADERS: HeadersInit = {
     'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36',
   accept:
     'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8',
-  'accept-language': 'fr-FR,fr;q=0.9,it-IT,it;q=0.8,en-US;q=0.7,en;q=0.6,de;q=0.5',
+  'accept-language':
+    'de-DE,de;q=0.9,fr-FR,fr;q=0.8,it-IT,it;q=0.7,en-US;q=0.6,en;q=0.5',
   'cache-control': 'no-cache',
   pragma: 'no-cache',
   'upgrade-insecure-requests': '1'
@@ -79,7 +80,20 @@ export function normalizePrice(raw: string): number | null {
   return Math.round(value * 100) / 100;
 }
 
-function extractFromJsonLd($: cheerio.CheerioAPI): number | null {
+function cleanContext(value: string): string {
+  return value
+    .replace(/\s+/g, ' ')
+    .replace(/\n+/g, ' ')
+    .trim()
+    .slice(0, 500);
+}
+
+function makeSource(source: string, context?: string): string {
+  if (!context) return source;
+  return `${source} | contesto: ${cleanContext(context)}`;
+}
+
+function extractFromJsonLd($: cheerio.CheerioAPI): ScrapeResult | null {
   const scripts = $('script[type="application/ld+json"]').toArray();
 
   for (const script of scripts) {
@@ -90,8 +104,8 @@ function extractFromJsonLd($: cheerio.CheerioAPI): number | null {
       const candidates = Array.isArray(parsed) ? parsed : [parsed];
 
       for (const item of candidates) {
-        const price = findOfferPrice(item);
-        if (price !== null) return price;
+        const result = findOfferPrice(item, raw);
+        if (result.price !== null) return result;
       }
     } catch {
       continue;
@@ -101,52 +115,87 @@ function extractFromJsonLd($: cheerio.CheerioAPI): number | null {
   return null;
 }
 
-function findOfferPrice(value: unknown): number | null {
-  if (!value || typeof value !== 'object') return null;
+function findOfferPrice(value: unknown, context = ''): ScrapeResult {
+  if (!value || typeof value !== 'object') {
+    return { price: null, source: 'json-ld-none', error: null };
+  }
 
   const record = value as Record<string, unknown>;
 
   if (typeof record.price === 'string' || typeof record.price === 'number') {
-    return normalizePrice(String(record.price));
+    const price = normalizePrice(String(record.price));
+
+    if (price !== null) {
+      return {
+        price,
+        source: makeSource('json-ld-price', context || JSON.stringify(record)),
+        error: null
+      };
+    }
   }
 
   if (
     typeof record.lowPrice === 'string' ||
     typeof record.lowPrice === 'number'
   ) {
-    return normalizePrice(String(record.lowPrice));
+    const price = normalizePrice(String(record.lowPrice));
+
+    if (price !== null) {
+      return {
+        price,
+        source: makeSource(
+          'json-ld-lowPrice',
+          context || JSON.stringify(record)
+        ),
+        error: null
+      };
+    }
   }
 
   if (
     typeof record.highPrice === 'string' ||
     typeof record.highPrice === 'number'
   ) {
-    return normalizePrice(String(record.highPrice));
+    const price = normalizePrice(String(record.highPrice));
+
+    if (price !== null) {
+      return {
+        price,
+        source: makeSource(
+          'json-ld-highPrice',
+          context || JSON.stringify(record)
+        ),
+        error: null
+      };
+    }
   }
 
   const offers = record.offers;
 
   if (Array.isArray(offers)) {
     for (const offer of offers) {
-      const price = findOfferPrice(offer);
-      if (price !== null) return price;
+      const result = findOfferPrice(offer, context || JSON.stringify(offer));
+
+      if (result.price !== null) return result;
     }
   } else if (offers && typeof offers === 'object') {
-    const price = findOfferPrice(offers);
-    if (price !== null) return price;
+    const result = findOfferPrice(offers, context || JSON.stringify(offers));
+
+    if (result.price !== null) return result;
   }
 
   for (const nested of Object.values(record)) {
     if (nested && typeof nested === 'object') {
-      const price = findOfferPrice(nested);
-      if (price !== null) return price;
+      const result = findOfferPrice(nested, context);
+
+      if (result.price !== null) return result;
     }
   }
 
-  return null;
+  return { price: null, source: 'json-ld-none', error: null };
 }
 
-function extractWithSelectors($: cheerio.CheerioAPI): number | null {
+function extractWithSelectors($: cheerio.CheerioAPI): ScrapeResult | null {
   for (const selector of PRICE_SELECTORS) {
     const nodes = $(selector).toArray().slice(0, 40);
 
@@ -161,7 +210,13 @@ function extractWithSelectors($: cheerio.CheerioAPI): number | null {
 
       const price = normalizePrice(content);
 
-      if (price !== null) return price;
+      if (price !== null && price < 300) {
+        return {
+          price,
+          source: makeSource(`css:${selector}`, content),
+          error: null
+        };
+      }
     }
   }
 
@@ -175,19 +230,45 @@ function isLikelyShippingOrNoise(context: string): boolean {
     'livraison gratuite',
     'livraison offerte',
     'frais de livraison',
+    'frais de port',
+    'port offert',
     'shipping',
     'delivery',
+    'free shipping',
     'spedizione',
+    'spedizione gratuita',
+    'spese di spedizione',
+    'versand',
+    'kostenloser versand',
+    'versandkostenfrei',
+    'versandkosten',
+    'gratisversand',
+    'kostenlose lieferung',
+    'ab 19',
+    'ab 19€',
+    'ab 19 €',
+    'dès 19',
+    'dès 19€',
+    'dès 19 €',
+    'da 19',
+    'da 19€',
+    'da 19 €',
     'newsletter',
     'paypal',
     'visa',
     'mastercard',
     'amazon',
     'recommandé pour vous',
-    'plus de michael jackson',
+    'empfohlen',
+    'mehr von',
+    'plus de',
     'besoin d’aide',
     'conditions générales',
-    'protection des données'
+    'protection des données',
+    'datenschutz',
+    'widerruf',
+    'agb',
+    'impressum'
   ];
 
   return badWords.some((word) => lower.includes(word));
@@ -198,25 +279,47 @@ function scoreCandidate(price: number, context: string, index: number): number {
   let score = 0;
 
   if (price > 0 && price < 300) score += 10;
-  if (lower.includes('en stock')) score += 40;
-  if (lower.includes('tva incluse')) score += 35;
+
+  if (lower.includes('in stock')) score += 45;
+  if (lower.includes('en stock')) score += 45;
+  if (lower.includes('auf lager')) score += 45;
+  if (lower.includes('disponibile')) score += 45;
+  if (lower.includes('sofort lieferbar')) score += 45;
+
+  if (lower.includes('inkl. mwst')) score += 40;
+  if (lower.includes('inklusive mwst')) score += 40;
+  if (lower.includes('tva incluse')) score += 40;
+  if (lower.includes('iva inclusa')) score += 40;
+
+  if (lower.includes('warenkorb')) score += 35;
+  if (lower.includes('in den warenkorb')) score += 35;
   if (lower.includes('ajouter au panier')) score += 35;
-  if (lower.includes('choisissez l')) score += 30;
+  if (lower.includes('aggiungi al carrello')) score += 35;
+
+  if (lower.includes('gebraucht')) score += 25;
+  if (lower.includes('sehr guter zustand')) score += 25;
+  if (lower.includes('guter zustand')) score += 20;
   if (lower.includes('très bon état')) score += 25;
   if (lower.includes('bon état')) score += 20;
-  if (lower.includes('état')) score += 15;
-  if (lower.includes('prix')) score += 15;
-  if (lower.includes('price')) score += 15;
-  if (lower.includes('offer')) score += 10;
+  if (lower.includes('usato')) score += 20;
 
-  if (isLikelyShippingOrNoise(context)) score -= 80;
+  if (lower.includes('preis')) score += 20;
+  if (lower.includes('prix')) score += 20;
+  if (lower.includes('prezzo')) score += 20;
+  if (lower.includes('price')) score += 20;
 
-  if (index < 10000) score += 5;
+  if (isLikelyShippingOrNoise(context)) score -= 140;
+
+  // Penalità morbida: 19 è spesso una soglia commerciale/spedizione,
+  // ma non lo eliminiamo sempre perché potrebbe essere davvero il prezzo.
+  if (price === 19 || price === 19.0) score -= 60;
+
+  if (index < 12000) score += 5;
 
   return score;
 }
 
-function extractSmartPriceFromText(text: string): number | null {
+function extractSmartPriceFromText(text: string): ScrapeResult | null {
   const normalizedText = text.replace(/\u00a0/g, ' ');
   const priceRegex = /(?:€\s*)?(\d{1,4}(?:[.,]\d{2}))\s*€/g;
   const candidates: PriceCandidate[] = [];
@@ -229,8 +332,8 @@ function extractSmartPriceFromText(text: string): number | null {
 
     if (price !== null) {
       const index = match.index;
-      const start = Math.max(0, index - 220);
-      const end = Math.min(normalizedText.length, index + 220);
+      const start = Math.max(0, index - 300);
+      const end = Math.min(normalizedText.length, index + 300);
       const context = normalizedText.slice(start, end);
       const score = scoreCandidate(price, context, index);
 
@@ -246,25 +349,56 @@ function extractSmartPriceFromText(text: string): number | null {
   }
 
   const valid = candidates
-    .filter((candidate) => candidate.score > -30)
-    .sort((a, b) => b.score - a.score || a.index - b.index);
+    .filter((candidate) => candidate.score > -80)
+    .sort((a, b) => b.score - a.score || a.price - b.price || a.index - b.index);
 
-  return valid[0]?.price || null;
+  const best = valid[0];
+
+  if (!best) return null;
+
+  return {
+    price: best.price,
+    source: makeSource(`regex-smart score=${best.score}`, best.context),
+    error: null
+  };
 }
 
-function extractWithRegex(text: string): number | null {
+function extractWithRegex(text: string): ScrapeResult | null {
   const structuredPatterns = [
-    /"price"\s*:\s*"?(\\d{1,4}(?:[.,]\\d{2}))"?/i,
-    /"lowPrice"\s*:\s*"?(\\d{1,4}(?:[.,]\\d{2}))"?/i,
-    /(?:price|preis|prix|prezzo|price current|prix actuel|actuel)[^0-9]{0,160}(\\d{1,4}(?:[.,]\\d{2}))/i
+    {
+      name: 'structured-price',
+      pattern: /"price"\s*:\s*"?(\\d{1,4}(?:[.,]\\d{2}))"?/i
+    },
+    {
+      name: 'structured-lowPrice',
+      pattern: /"lowPrice"\s*:\s*"?(\\d{1,4}(?:[.,]\\d{2}))"?/i
+    },
+    {
+      name: 'label-price',
+      pattern:
+        /(?:price|preis|prix|prezzo|actuel|aktuell)[^0-9]{0,160}(\\d{1,4}(?:[.,]\\d{2}))/i
+    }
   ];
 
-  for (const pattern of structuredPatterns) {
-    const match = text.match(pattern);
+  for (const item of structuredPatterns) {
+    const match = text.match(item.pattern);
 
     if (match?.[1]) {
       const price = normalizePrice(match[1]);
-      if (price !== null) return price;
+
+      if (price !== null && price < 300) {
+        const index = match.index || 0;
+        const context = text.slice(
+          Math.max(0, index - 250),
+          Math.min(text.length, index + 250)
+        );
+
+        return {
+          price,
+          source: makeSource(item.name, context),
+          error: null
+        };
+      }
     }
   }
 
@@ -383,37 +517,29 @@ async function fetchViaJinaSearch(url: string): Promise<{
 }
 
 function extractPriceFromHtml(html: string): ScrapeResult {
-  const $ = cheerio.load(html);
+  const selected = extractWithSelectors(cheerio.load(html));
+  if (selected !== null) return selected;
 
-  const selected = extractWithSelectors($);
-  if (selected !== null) {
-    return { price: selected, source: 'css', error: null };
-  }
-
-  const jsonLd = extractFromJsonLd($);
-  if (jsonLd !== null) {
-    return { price: jsonLd, source: 'json-ld', error: null };
-  }
+  const jsonLd = extractFromJsonLd(cheerio.load(html));
+  if (jsonLd !== null) return jsonLd;
 
   const regex = extractWithRegex(html);
-  if (regex !== null) {
-    return { price: regex, source: 'regex-html', error: null };
-  }
+  if (regex !== null) return { ...regex, source: `html:${regex.source}` };
 
   return {
     price: null,
-    source: 'none',
+    source: 'html-none',
     error: 'Prezzo non trovato nell’HTML della pagina.'
   };
 }
 
 function extractPriceFromText(text: string, source: string): ScrapeResult {
-  const price = extractWithRegex(text);
+  const result = extractWithRegex(text);
 
-  if (price !== null) {
+  if (result !== null) {
     return {
-      price,
-      source,
+      price: result.price,
+      source: `${source}:${result.source}`,
       error: null
     };
   }
@@ -469,7 +595,7 @@ export async function scrapePrice(url: string): Promise<ScrapeResult> {
     return {
       price: null,
       source: 'all-fallbacks-failed',
-      error: `Prezzo non trovato. HTTP diretto: ${direct.status} ${direct.statusText}. Reader: ${reader.status} ${reader.statusText}. Search: ${search.status} ${search.statusText}.`
+      error: `Prezzo non trovato. HTTP diretto: ${direct.status} ${direct.statusText}. Reader e Search non hanno trovato prezzi validi.`
     };
   } catch (error) {
     const message =
