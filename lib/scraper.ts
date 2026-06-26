@@ -36,9 +36,16 @@ const BROWSER_HEADERS: HeadersInit = {
 const JINA_HEADERS: HeadersInit = {
   'user-agent':
     'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36',
-  accept: 'text/plain, text/markdown, */*',
+  accept: 'text/plain, text/markdown, application/json, */*',
   'x-no-cache': 'true'
 };
+
+interface PriceCandidate {
+  price: number;
+  context: string;
+  index: number;
+  score: number;
+}
 
 export function normalizePrice(raw: string): number | null {
   const cleaned = raw
@@ -161,17 +168,96 @@ function extractWithSelectors($: cheerio.CheerioAPI): number | null {
   return null;
 }
 
-function extractWithRegex(text: string): number | null {
-  const patterns = [
-    /"price"\s*:\s*"?(\\d{1,4}(?:[.,]\\d{2}))"?/i,
-    /"lowPrice"\s*:\s*"?(\\d{1,4}(?:[.,]\\d{2}))"?/i,
-    /(?:price|preis|prix|prezzo|price current|prix actuel|actuel)[^0-9]{0,160}(\\d{1,4}(?:[.,]\\d{2}))/i,
-    /(\\d{1,4}(?:[.,]\\d{2}))\\s*€/i,
-    /€\\s*(\\d{1,4}(?:[.,]\\d{2}))/i,
-    /\\b(\\d{1,4}[.,]\\d{2})\\b/i
+function isLikelyShippingOrNoise(context: string): boolean {
+  const lower = context.toLowerCase();
+
+  const badWords = [
+    'livraison gratuite',
+    'livraison offerte',
+    'frais de livraison',
+    'shipping',
+    'delivery',
+    'spedizione',
+    'newsletter',
+    'paypal',
+    'visa',
+    'mastercard',
+    'amazon',
+    'recommandé pour vous',
+    'plus de michael jackson',
+    'besoin d’aide',
+    'conditions générales',
+    'protection des données'
   ];
 
-  for (const pattern of patterns) {
+  return badWords.some((word) => lower.includes(word));
+}
+
+function scoreCandidate(price: number, context: string, index: number): number {
+  const lower = context.toLowerCase();
+  let score = 0;
+
+  if (price > 0 && price < 300) score += 10;
+  if (lower.includes('en stock')) score += 40;
+  if (lower.includes('tva incluse')) score += 35;
+  if (lower.includes('ajouter au panier')) score += 35;
+  if (lower.includes('choisissez l')) score += 30;
+  if (lower.includes('très bon état')) score += 25;
+  if (lower.includes('bon état')) score += 20;
+  if (lower.includes('état')) score += 15;
+  if (lower.includes('prix')) score += 15;
+  if (lower.includes('price')) score += 15;
+  if (lower.includes('offer')) score += 10;
+
+  if (isLikelyShippingOrNoise(context)) score -= 80;
+
+  // Leggero bonus ai prezzi che compaiono prima delle sezioni footer/recommendation,
+  // ma non troppo forte perché molti siti caricano dati in fondo.
+  if (index < 10000) score += 5;
+
+  return score;
+}
+
+function extractSmartPriceFromText(text: string): number | null {
+  const normalizedText = text.replace(/\u00a0/g, ' ');
+  const priceRegex = /(?:€\s*)?(\d{1,4}(?:[.,]\d{2}))\s*€/g;
+  const candidates: PriceCandidate[] = [];
+
+  for (const match of normalizedText.matchAll(priceRegex)) {
+    const rawPrice = match[1];
+    const price = normalizePrice(rawPrice);
+
+    if (price === null) continue;
+
+    const index = match.index || 0;
+    const start = Math.max(0, index - 220);
+    const end = Math.min(normalizedText.length, index + 220);
+    const context = normalizedText.slice(start, end);
+    const score = scoreCandidate(price, context, index);
+
+    candidates.push({
+      price,
+      context,
+      index,
+      score
+    });
+  }
+
+  const valid = candidates
+    .filter((candidate) => candidate.score > -30)
+    .sort((a, b) => b.score - a.score || a.index - b.index);
+
+  return valid[0]?.price || null;
+}
+
+function extractWithRegex(text: string): number | null {
+  const structuredPatterns = [
+    /"price"\s*:\s*"?(\\d{1,4}(?:[.,]\\d{2}))"?/i,
+    /"lowPrice"\s*:\s*"?(\\d{1,4}(?:[.,]\\d{2}))"?/i,
+    /(?:price|preis|prix|prezzo|price current|prix actuel|actuel)[^0-9]{0,160}(\\d{1,4}(?:[.,]\\d{2}))/i
+  ];
+
+  for (const pattern of structuredPatterns) {
     const match = text.match(pattern);
 
     if (match?.[1]) {
@@ -180,7 +266,7 @@ function extractWithRegex(text: string): number | null {
     }
   }
 
-  return null;
+  return extractSmartPriceFromText(text);
 }
 
 function buildReferer(url: string): string {
@@ -194,6 +280,10 @@ function buildReferer(url: string): string {
 
 function buildJinaReaderUrl(url: string): string {
   return `https://r.jina.ai/${url}`;
+}
+
+function buildJinaSearchUrl(url: string): string {
+  return `https://s.jina.ai/?q=${encodeURIComponent(url)}`;
 }
 
 async function fetchDirectHtml(url: string): Promise<{
@@ -259,6 +349,37 @@ async function fetchViaJinaReader(url: string): Promise<{
   };
 }
 
+async function fetchViaJinaSearch(url: string): Promise<{
+  ok: boolean;
+  status: number;
+  statusText: string;
+  text: string | null;
+}> {
+  const searchUrl = buildJinaSearchUrl(url);
+
+  const response = await fetch(searchUrl, {
+    headers: JINA_HEADERS,
+    cache: 'no-store',
+    redirect: 'follow'
+  });
+
+  if (!response.ok) {
+    return {
+      ok: false,
+      status: response.status,
+      statusText: response.statusText,
+      text: null
+    };
+  }
+
+  return {
+    ok: true,
+    status: response.status,
+    statusText: response.statusText,
+    text: await response.text()
+  };
+}
+
 function extractPriceFromHtml(html: string): ScrapeResult {
   const $ = cheerio.load(html);
 
@@ -284,22 +405,21 @@ function extractPriceFromHtml(html: string): ScrapeResult {
   };
 }
 
-function extractPriceFromReaderText(text: string): ScrapeResult {
+function extractPriceFromText(text: string, source: string): ScrapeResult {
   const price = extractWithRegex(text);
 
   if (price !== null) {
     return {
       price,
-      source: 'jina-reader',
+      source,
       error: null
     };
   }
 
   return {
     price: null,
-    source: 'jina-reader-none',
-    error:
-      'Prezzo non trovato neanche nel fallback Jina Reader. Il sito potrebbe nascondere il prezzo o bloccare anche il proxy reader.'
+    source: `${source}-none`,
+    error: `Prezzo non trovato nel fallback ${source}.`
   };
 }
 
@@ -313,54 +433,41 @@ export async function scrapePrice(url: string): Promise<ScrapeResult> {
       if (directResult.price !== null) {
         return directResult;
       }
-
-      const readerAfterNoPrice = await fetchViaJinaReader(url);
-
-      if (readerAfterNoPrice.ok && readerAfterNoPrice.text) {
-        const readerResult = extractPriceFromReaderText(readerAfterNoPrice.text);
-
-        if (readerResult.price !== null) {
-          return readerResult;
-        }
-      }
-
-      return directResult;
     }
 
     const reader = await fetchViaJinaReader(url);
 
     if (reader.ok && reader.text) {
-      const readerResult = extractPriceFromReaderText(reader.text);
+      const readerResult = extractPriceFromText(reader.text, 'jina-reader');
 
       if (readerResult.price !== null) {
         return readerResult;
       }
+    }
 
-      if (direct.status === 403) {
-        return {
-          price: null,
-          source: 'http-403-jina-none',
-          error:
-            'HTTP 403 Forbidden dal sito originale. Ho provato anche il fallback Jina Reader, ma non ho trovato un prezzo leggibile.'
-        };
+    const search = await fetchViaJinaSearch(url);
+
+    if (search.ok && search.text) {
+      const searchResult = extractPriceFromText(search.text, 'jina-search');
+
+      if (searchResult.price !== null) {
+        return searchResult;
       }
-
-      return readerResult;
     }
 
     if (direct.status === 403) {
       return {
         price: null,
-        source: 'http-403',
+        source: 'http-403-all-fallbacks-failed',
         error:
-          'HTTP 403 Forbidden: il sito ha bloccato la richiesta automatica dal server e anche il fallback Jina Reader non ha restituito contenuto utile.'
+          'HTTP 403 Forbidden dal sito originale. Ho provato anche Jina Reader e Jina Search, ma non ho trovato un prezzo leggibile.'
       };
     }
 
     return {
       price: null,
-      source: 'http',
-      error: `HTTP ${direct.status} ${direct.statusText}. Fallback Jina Reader: HTTP ${reader.status} ${reader.statusText}.`
+      source: 'all-fallbacks-failed',
+      error: `Prezzo non trovato. HTTP diretto: ${direct.status} ${direct.statusText}. Reader: ${reader.status} ${reader.statusText}. Search: ${search.status} ${search.statusText}.`
     };
   } catch (error) {
     const message =
