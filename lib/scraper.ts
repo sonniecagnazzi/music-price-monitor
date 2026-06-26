@@ -211,8 +211,6 @@ function scoreCandidate(price: number, context: string, index: number): number {
 
   if (isLikelyShippingOrNoise(context)) score -= 80;
 
-  // Leggero bonus ai prezzi che compaiono prima delle sezioni footer/recommendation,
-  // ma non troppo forte perché molti siti caricano dati in fondo.
   if (index < 10000) score += 5;
 
   return score;
@@ -223,24 +221,28 @@ function extractSmartPriceFromText(text: string): number | null {
   const priceRegex = /(?:€\s*)?(\d{1,4}(?:[.,]\d{2}))\s*€/g;
   const candidates: PriceCandidate[] = [];
 
-  for (const match of normalizedText.matchAll(priceRegex)) {
+  let match = priceRegex.exec(normalizedText);
+
+  while (match !== null) {
     const rawPrice = match[1];
     const price = normalizePrice(rawPrice);
 
-    if (price === null) continue;
+    if (price !== null) {
+      const index = match.index;
+      const start = Math.max(0, index - 220);
+      const end = Math.min(normalizedText.length, index + 220);
+      const context = normalizedText.slice(start, end);
+      const score = scoreCandidate(price, context, index);
 
-    const index = match.index || 0;
-    const start = Math.max(0, index - 220);
-    const end = Math.min(normalizedText.length, index + 220);
-    const context = normalizedText.slice(start, end);
-    const score = scoreCandidate(price, context, index);
+      candidates.push({
+        price,
+        context,
+        index,
+        score
+      });
+    }
 
-    candidates.push({
-      price,
-      context,
-      index,
-      score
-    });
+    match = priceRegex.exec(normalizedText);
   }
 
   const valid = candidates
