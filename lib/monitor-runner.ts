@@ -1,10 +1,6 @@
 import { createClient } from '@supabase/supabase-js';
 import { env } from '@/lib/env';
 import { scrapePrice } from '@/lib/scraper';
-import {
-  scrapeAmazonPrice,
-  type AmazonMarketplace
-} from '@/lib/amazon-scraper';
 import { sendPriceAlert } from '@/lib/email';
 import type { Monitor, Settings } from '@/lib/types';
 
@@ -76,17 +72,6 @@ function hasConfiguredSite(url: string | null, target: number | null): boolean {
   return Boolean(url && target && target > 0);
 }
 
-function hasConfiguredAmazon(
-  asin: string | null,
-  target: number | null
-): boolean {
-  return Boolean(asin && target && target > 0);
-}
-
-function isAmazonCheck(check: SiteCheck): boolean {
-  return check.site.startsWith('Amazon ');
-}
-
 async function checkStoreSite(
   site: 'Medimops' | 'Momox',
   url: string | null,
@@ -135,58 +120,6 @@ async function checkStoreSite(
   }
 }
 
-async function checkAmazonSite(
-  asin: string | null,
-  target: number | null,
-  marketplace: AmazonMarketplace
-): Promise<SiteCheck> {
-  const site = `Amazon ${marketplace}`;
-
-  if (!hasConfiguredAmazon(asin, target)) {
-    return {
-      site,
-      price: null,
-      target,
-      error: null,
-      source: null,
-      isBelowTarget: false,
-      skipped: true
-    };
-  }
-
-  try {
-    const result = await scrapeAmazonPrice(asin as string, marketplace);
-    const price = result.price;
-    const isBelowTarget =
-      price !== null && target !== null && price <= target;
-
-    return {
-      site,
-      price,
-      target,
-      error: result.error,
-      source: result.source,
-      isBelowTarget,
-      skipped: false
-    };
-  } catch (error) {
-    const message =
-      error instanceof Error
-        ? error.message
-        : 'Errore scraping Amazon sconosciuto';
-
-    return {
-      site,
-      price: null,
-      target,
-      error: message,
-      source: `${site}:exception`,
-      isBelowTarget: false,
-      skipped: false
-    };
-  }
-}
-
 function buildMessage(checks: SiteCheck[]) {
   return checks
     .filter((check) => !check.skipped)
@@ -209,34 +142,9 @@ function buildDetailMessage(checks: SiteCheck[]) {
     .filter((check) => {
       if (check.skipped) return false;
 
-      /*
-        TEMP DEBUG AMAZON:
-        Mostriamo SEMPRE il dettaglio Amazon:
-        - anche se ha trovato un prezzo
-        - anche se il prezzo è sbagliato
-        - anche se non ha trovato nulla
-
-        Così nel datagrid puoi copiare il contesto reale ricevuto da Vercel.
-      */
-      if (isAmazonCheck(check)) return true;
-
-      /*
-        Per Momox/Medimops continuiamo a mostrare solo errori veri.
-      */
       return check.price === null && Boolean(check.error);
     })
     .map((check) => {
-      if (isAmazonCheck(check)) {
-        return [
-          `${check.site}`,
-          `price=${check.price === null ? '-' : check.price}`,
-          `target=${check.target === null ? '-' : check.target}`,
-          `belowTarget=${check.isBelowTarget ? 'yes' : 'no'}`,
-          `error=${check.error || '-'}`,
-          `source=${check.source || '-'}`
-        ].join(' | ');
-      }
-
       return `${check.site}: ${check.error || 'prezzo non trovato'}; fonte ${check.source || '-'}`;
     })
     .join(' || ');
@@ -305,6 +213,7 @@ export async function runMonitor(
 
   let alertsSent = 0;
   let errors = 0;
+  let checked = 0;
 
   for (const monitor of monitorsToCheck) {
     const checkedAt = new Date().toISOString();
@@ -322,33 +231,26 @@ export async function runMonitor(
         monitor.momox_target_price
       );
 
-      const amazonFrCheck = await checkAmazonSite(
-        monitor.amazon_asin,
-        monitor.amazon_target_price,
-        'FR'
-      );
-
-      const amazonDeCheck = await checkAmazonSite(
-        monitor.amazon_asin,
-        monitor.amazon_target_price,
-        'DE'
-      );
-
-      const amazonItCheck = await checkAmazonSite(
-        monitor.amazon_asin,
-        monitor.amazon_target_price,
-        'IT'
-      );
-
-      const checks = [
-        medimopsCheck,
-        momoxCheck,
-        amazonFrCheck,
-        amazonDeCheck,
-        amazonItCheck
-      ];
+      const checks = [medimopsCheck, momoxCheck];
 
       const configuredChecks = checks.filter((check) => !check.skipped);
+
+      if (configuredChecks.length === 0) {
+        details.push({
+          id: monitor.id,
+          artist: monitor.artist,
+          album: monitor.album,
+          status: 'ok',
+          price: null,
+          error: null,
+          alertSent: false,
+          message: 'Medimops/Momox non configurati: monitor saltato'
+        });
+
+        continue;
+      }
+
+      checked += 1;
 
       const realErrorChecks = configuredChecks.filter(
         (check) => check.price === null && Boolean(check.error)
@@ -385,9 +287,6 @@ export async function runMonitor(
         ...monitor,
         medimops_current_price: medimopsCheck.price,
         momox_current_price: momoxCheck.price,
-        amazon_fr_current_price: amazonFrCheck.price,
-        amazon_de_current_price: amazonDeCheck.price,
-        amazon_it_current_price: amazonItCheck.price,
         current_price: lowestPrice
       };
 
@@ -424,9 +323,6 @@ export async function runMonitor(
         .update({
           medimops_current_price: medimopsCheck.price,
           momox_current_price: momoxCheck.price,
-          amazon_fr_current_price: amazonFrCheck.price,
-          amazon_de_current_price: amazonDeCheck.price,
-          amazon_it_current_price: amazonItCheck.price,
           current_price: lowestPrice,
           last_checked_at: checkedAt,
           last_status: nextStatus,
@@ -488,7 +384,7 @@ export async function runMonitor(
 
   return {
     total: monitorsToCheck.length,
-    checked: monitorsToCheck.length,
+    checked,
     alertsSent,
     errors,
     details,
