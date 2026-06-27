@@ -1,6 +1,11 @@
 name: Music Price Monitor
 
 on:
+  push:
+    branches:
+      - main
+    paths:
+      - '.github/workflows/monitor.yml'
   schedule:
     - cron: '*/5 * * * *'
   workflow_dispatch:
