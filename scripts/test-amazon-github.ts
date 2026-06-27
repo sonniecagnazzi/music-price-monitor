@@ -11,8 +11,8 @@ const TEST_CASES: TestCase[] = [
     label: 'Primo record - B07JBCR129',
     asin: 'B07JBCR129',
     expected: {
-      FR: null,
-      DE: 9.99,
+      FR: 9.0,
+      DE: 9.85,
       IT: 8.99
     }
   },
