@@ -1,101 +1,189 @@
-import { createServiceClient } from './supabase-server';
-import { scrapePrice } from './scraper';
-import { sendPriceAlert } from './email';
-import type { LastStatus, Monitor, Settings } from './types';
-import { env } from './env';
+import { createServiceClient } from '@/lib/supabase-admin';
+import { env } from '@/lib/env';
+import { scrapePrice } from '@/lib/scraper';
+import { sendPriceAlert } from '@/lib/email';
+import type { Monitor, Settings } from '@/lib/types';
 
-const WAIT_MS_BETWEEN_REQUESTS = 1200;
+export type RunMonitorOptions = {
+  monitorId?: string;
+};
 
-export interface RunSummary {
-  total: number;
-  checked: number;
-  alertsSent: number;
-  errors: number;
-  details: Array<{ id: string; artist: string; album: string; status: LastStatus; message: string }>;
+function getGlobalAlertEmail(settings: Settings | null): string {
+  return settings?.global_alert_email || env.defaultAlertEmail();
 }
 
-function sleep(ms: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, ms));
+function getMonitorAlertEmail(
+  monitor: Monitor,
+  globalAlertEmail: string
+): string {
+  return monitor.alert_email || globalAlertEmail;
 }
 
-export async function runMonitor(options: { monitorId?: string; onlyActive?: boolean } = {}): Promise<RunSummary> {
+function shouldSendAlert(monitor: Monitor, price: number): boolean {
+  return price <= monitor.target_price && !monitor.alert_sent;
+}
+
+function shouldResetAlert(monitor: Monitor, price: number): boolean {
+  return price > monitor.target_price && monitor.alert_sent;
+}
+
+export async function runMonitor(options: RunMonitorOptions = {}) {
   const supabase = createServiceClient();
-  const settingsResult = await supabase.from('settings').select('*').eq('id', 1).maybeSingle<Settings>();
-  const globalEmail = settingsResult.data?.alert_email || env.defaultAlertEmail();
 
-  let query = supabase.from('monitors').select('*').order('artist', { ascending: true });
-  if (options.monitorId) query = query.eq('id', options.monitorId);
-  if (options.onlyActive !== false) query = query.eq('is_active', true);
+  const settingsResult = await supabase
+    .from('settings')
+    .select('*')
+    .eq('id', 1)
+    .maybeSingle<Settings>();
 
-  const { data, error } = await query.returns<Monitor[]>();
-  if (error) throw new Error(`Errore lettura monitor: ${error.message}`);
+  const globalEmail = getGlobalAlertEmail(settingsResult.data || null);
 
-  const monitors = data || [];
-  const summary: RunSummary = { total: monitors.length, checked: 0, alertsSent: 0, errors: 0, details: [] };
+  let query = supabase
+    .from('monitors')
+    .select('*')
+    .order('artist', { ascending: true });
 
-  for (const monitor of monitors) {
-    const checkedAt = new Date().toISOString();
-    const scrape = await scrapePrice(monitor.url);
-    let status: LastStatus = 'error';
-    let alertSent = monitor.alert_sent;
-    let message = scrape.error || 'OK';
-    let emailError: string | null = null;
-
-    if (scrape.price !== null) {
-      const belowTarget = scrape.price <= monitor.target_price;
-      status = belowTarget ? 'below_target' : 'ok';
-      message = belowTarget ? 'Prezzo sotto target' : 'Prezzo aggiornato';
-      if (!belowTarget) alertSent = false;
-
-      if (belowTarget && !monitor.alert_sent) {
-        const recipient = monitor.alert_email || globalEmail;
-        if (recipient) {
-          const email = await sendPriceAlert(monitor, scrape.price, recipient);
-          if (email.ok) {
-            alertSent = true;
-            summary.alertsSent += 1;
-          } else {
-            emailError = email.error;
-            message = `Prezzo sotto target, ma email non inviata: ${email.error}`;
-          }
-        } else {
-          emailError = 'Nessuna email configurata';
-          message = 'Prezzo sotto target, ma manca email destinatario';
-        }
-      }
-    } else {
-      summary.errors += 1;
-    }
-
-    const update = {
-      current_price: scrape.price,
-      last_checked_at: checkedAt,
-      last_status: status,
-      last_error: emailError || scrape.error,
-      alert_sent: alertSent,
-      updated_at: checkedAt
-    };
-
-    const { error: updateError } = await supabase.from('monitors').update(update).eq('id', monitor.id);
-    if (updateError) {
-      summary.errors += 1;
-      message = `Errore aggiornamento DB: ${updateError.message}`;
-      status = 'error';
-    }
-
-    await supabase.from('price_checks').insert({
-      monitor_id: monitor.id,
-      checked_at: checkedAt,
-      price: scrape.price,
-      status,
-      error: emailError || scrape.error,
-      source: scrape.source
-    });
-
-    summary.checked += 1;
-    summary.details.push({ id: monitor.id, artist: monitor.artist, album: monitor.album, status, message });
-    if (monitors.length > 1) await sleep(WAIT_MS_BETWEEN_REQUESTS);
+  if (options.monitorId) {
+    query = query.eq('id', options.monitorId);
   }
 
-  return summary;
+  const { data: monitors, error } = await query.returns<Monitor[]>();
+
+  if (error) {
+    throw new Error(error.message);
+  }
+
+  const activeMonitors = (monitors || []).filter(
+    (monitor) => monitor.is_active
+  );
+
+  const results = [];
+
+  for (const monitor of activeMonitors) {
+    const checkedAt = new Date().toISOString();
+
+    try {
+      const scrapeResult = await scrapePrice(monitor.url);
+
+      if (scrapeResult.price === null) {
+        await supabase.from('price_checks').insert({
+          monitor_id: monitor.id,
+          checked_at: checkedAt,
+          price: null,
+          status: 'error',
+          error_message: scrapeResult.error,
+          source: scrapeResult.source
+        });
+
+        await supabase
+          .from('monitors')
+          .update({
+            last_checked_at: checkedAt,
+            last_status: 'error',
+            last_error: scrapeResult.error,
+            updated_at: checkedAt
+          })
+          .eq('id', monitor.id);
+
+        results.push({
+          id: monitor.id,
+          artist: monitor.artist,
+          album: monitor.album,
+          status: 'error',
+          price: null,
+          error: scrapeResult.error
+        });
+
+        continue;
+      }
+
+      const price = scrapeResult.price;
+      const isBelowTarget = price <= monitor.target_price;
+      const nextStatus = isBelowTarget ? 'below_target' : 'ok';
+      const alertEmail = getMonitorAlertEmail(monitor, globalEmail);
+
+      let alertSent = monitor.alert_sent;
+
+      if (shouldSendAlert(monitor, price) && alertEmail) {
+        await sendPriceAlert({
+          to: alertEmail,
+          monitor,
+          price,
+          source: scrapeResult.source
+        });
+
+        alertSent = true;
+      } else if (shouldResetAlert(monitor, price)) {
+        alertSent = false;
+      }
+
+      await supabase.from('price_checks').insert({
+        monitor_id: monitor.id,
+        checked_at: checkedAt,
+        price,
+        status: nextStatus,
+        error_message: null,
+        source: scrapeResult.source
+      });
+
+      await supabase
+        .from('monitors')
+        .update({
+          current_price: price,
+          last_checked_at: checkedAt,
+          last_status: nextStatus,
+          last_error: null,
+          alert_sent: alertSent,
+          updated_at: checkedAt
+        })
+        .eq('id', monitor.id);
+
+      results.push({
+        id: monitor.id,
+        artist: monitor.artist,
+        album: monitor.album,
+        status: nextStatus,
+        price,
+        error: null
+      });
+    } catch (error) {
+      const message =
+        error instanceof Error
+          ? error.message
+          : 'Errore sconosciuto durante controllo';
+
+      await supabase.from('price_checks').insert({
+        monitor_id: monitor.id,
+        checked_at: checkedAt,
+        price: null,
+        status: 'error',
+        error_message: message,
+        source: 'exception'
+      });
+
+      await supabase
+        .from('monitors')
+        .update({
+          last_checked_at: checkedAt,
+          last_status: 'error',
+          last_error: message,
+          updated_at: checkedAt
+        })
+        .eq('id', monitor.id);
+
+      results.push({
+        id: monitor.id,
+        artist: monitor.artist,
+        album: monitor.album,
+        status: 'error',
+        price: null,
+        error: message
+      });
+    }
+  }
+
+  return {
+    checked: activeMonitors.length,
+    results
+  };
 }
