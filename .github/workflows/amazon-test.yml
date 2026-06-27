@@ -1,28 +1,229 @@
-name: Amazon Test From GitHub
+type AmazonTest = {
+  country: "FR" | "DE";
+  domain: string;
+  asin: string;
+  expected: string;
+};
 
-on:
-  workflow_dispatch:
+const tests: AmazonTest[] = [
+  {
+    country: "FR",
+    domain: "www.amazon.fr",
+    asin: "B0DVH4P8DB",
+    expected: "-",
+  },
+  {
+    country: "DE",
+    domain: "www.amazon.de",
+    asin: "B0DVH4P8DB",
+    expected: "-",
+  },
+];
 
-jobs:
-  amazon-test:
-    runs-on: ubuntu-latest
+function normalizePrice(value: string | null | undefined): string {
+  return String(value ?? "")
+    .replace(/\u00a0/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
 
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
+function isMissingExpected(value: string | null | undefined): boolean {
+  const normalized = normalizePrice(value);
+  return normalized === "" || normalized === "-";
+}
 
-      - name: Setup Node 24
-        uses: actions/setup-node@v4
-        with:
-          node-version: '24'
+function isValidPrice(value: string | null | undefined): boolean {
+  const normalized = normalizePrice(value);
 
-      - name: Enable Yarn
-        run: |
-          corepack enable
-          corepack prepare yarn@1.22.22 --activate
+  if (!normalized || normalized === "-") {
+    return false;
+  }
 
-      - name: Install dependencies
-        run: yarn install --network-timeout 300000 --ignore-engines --non-interactive --no-progress
+  const hasNumber = /\d/.test(normalized);
+  const hasEuro = normalized.includes("€");
 
-      - name: Run Amazon test
-        run: yarn tsx scripts/test-amazon-github.ts
+  return hasNumber && hasEuro;
+}
+
+function decodeHtmlEntities(value: string): string {
+  return value
+    .replace(/&nbsp;/g, " ")
+    .replace(/&#160;/g, " ")
+    .replace(/&amp;/g, "&")
+    .replace(/&quot;/g, '"')
+    .replace(/&#34;/g, '"')
+    .replace(/&#39;/g, "'")
+    .replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">");
+}
+
+function cleanPrice(value: string): string {
+  return decodeHtmlEntities(value)
+    .replace(/\s+/g, " ")
+    .replace(/\s*€/, " €")
+    .trim();
+}
+
+function extractPriceFromHtml(html: string): string | null {
+  const decoded = decodeHtmlEntities(html);
+
+  const metaPriceMatches = [
+    /<meta[^>]+property=["']product:price:amount["'][^>]+content=["']([^"']+)["']/i,
+    /<meta[^>]+content=["']([^"']+)["'][^>]+property=["']product:price:amount["']/i,
+  ];
+
+  for (const regex of metaPriceMatches) {
+    const match = decoded.match(regex);
+
+    if (match?.[1]) {
+      const amount = match[1].replace(".", ",").trim();
+
+      if (amount && /\d/.test(amount)) {
+        return `${amount} €`;
+      }
+    }
+  }
+
+  const priceSelectors = [
+    /<span[^>]*class=["'][^"']*a-price-whole[^"']*["'][^>]*>(.*?)<\/span>\s*<span[^>]*class=["'][^"']*a-price-fraction[^"']*["'][^>]*>(.*?)<\/span>/is,
+    /<span[^>]*id=["']priceblock_ourprice["'][^>]*>(.*?)<\/span>/is,
+    /<span[^>]*id=["']priceblock_dealprice["'][^>]*>(.*?)<\/span>/is,
+    /<span[^>]*id=["']price_inside_buybox["'][^>]*>(.*?)<\/span>/is,
+    /<span[^>]*class=["'][^"']*a-offscreen[^"']*["'][^>]*>(.*?)<\/span>/is,
+  ];
+
+  for (const regex of priceSelectors) {
+    const match = decoded.match(regex);
+
+    if (!match) {
+      continue;
+    }
+
+    if (match.length >= 3) {
+      const whole = cleanPrice(match[1]).replace(/[^\d]/g, "");
+      const fraction = cleanPrice(match[2]).replace(/[^\d]/g, "");
+
+      if (whole && fraction) {
+        return `${whole},${fraction} €`;
+      }
+    }
+
+    if (match[1]) {
+      const candidate = cleanPrice(match[1])
+        .replace(/<[^>]+>/g, "")
+        .trim();
+
+      if (isValidPrice(candidate)) {
+        return candidate;
+      }
+    }
+  }
+
+  const euroPriceRegex = /(\d{1,4}(?:[.,]\d{2})\s*€)/g;
+  const euroMatches = [...decoded.matchAll(euroPriceRegex)]
+    .map((match) => cleanPrice(match[1]))
+    .filter((price) => isValidPrice(price));
+
+  if (euroMatches.length > 0) {
+    return euroMatches[0];
+  }
+
+  return null;
+}
+
+async function fetchAmazonHtml(test: AmazonTest): Promise<string> {
+  const url = `https://${test.domain}/dp/${test.asin}`;
+
+  const response = await fetch(url, {
+    headers: {
+      "accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+      "accept-language": test.country === "FR" ? "fr-FR,fr;q=0.9,en;q=0.8" : "de-DE,de;q=0.9,en;q=0.8",
+      "cache-control": "no-cache",
+      "pragma": "no-cache",
+      "user-agent":
+        "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36",
+    },
+  });
+
+  console.log(`HTTP ${test.country}: ${response.status} ${response.statusText}`);
+  console.log(`URL ${test.country}: ${url}`);
+
+  const html = await response.text();
+
+  console.log(`HTML length ${test.country}: ${html.length}`);
+
+  return html;
+}
+
+function comparePrice(actual: string | null, expected: string): boolean {
+  const normalizedActual = normalizePrice(actual);
+  const normalizedExpected = normalizePrice(expected);
+
+  if (isMissingExpected(normalizedExpected)) {
+    return isValidPrice(normalizedActual);
+  }
+
+  return normalizedActual === normalizedExpected;
+}
+
+async function runSingleTest(test: AmazonTest): Promise<boolean> {
+  console.log("");
+  console.log(`>>> Test Amazon ${test.country} / ${test.asin}`);
+
+  try {
+    const html = await fetchAmazonHtml(test);
+    const actual = extractPriceFromHtml(html);
+    const expected = test.expected;
+
+    const ok = comparePrice(actual, expected);
+
+    console.log(`RESULT ${test.country}`);
+    console.log(`actual=${actual ?? "-"}`);
+    console.log(`expected=${expected}`);
+    console.log(`ok=${ok ? "YES" : "NO"}`);
+
+    if (!ok) {
+      console.log("");
+      console.log(`DEBUG ${test.country}`);
+      console.log(`actual raw=${JSON.stringify(actual)}`);
+      console.log(`expected raw=${JSON.stringify(expected)}`);
+      console.log(`actual normalized=${JSON.stringify(normalizePrice(actual))}`);
+      console.log(`expected normalized=${JSON.stringify(normalizePrice(expected))}`);
+      console.log(`actual valid price=${isValidPrice(actual) ? "YES" : "NO"}`);
+      console.log(`expected missing=${isMissingExpected(expected) ? "YES" : "NO"}`);
+    }
+
+    return ok;
+  } catch (error) {
+    console.log(`RESULT ${test.country}`);
+    console.log("actual=-");
+    console.log(`expected=${test.expected}`);
+    console.log("ok=NO");
+    console.log("");
+    console.log(`ERROR ${test.country}`);
+    console.log(error);
+
+    return false;
+  }
+}
+
+async function main(): Promise<void> {
+  let allOk = true;
+
+  for (const test of tests) {
+    const ok = await runSingleTest(test);
+
+    if (!ok) {
+      allOk = false;
+    }
+  }
+
+  console.log("");
+  console.log(`FINAL RESULT: ${allOk ? "OK" : "KO"}`);
+
+  if (!allOk) {
+    process.exit(1);
+  }
+}
+
+main();
