@@ -5,7 +5,6 @@ import type {
   LastStatus,
   Monitor,
   MonitorInput,
-  MonitorSite,
   MonitorType
 } from '@/lib/types';
 import { formatDate, formatEuro, toNumberFromItalianInput } from '@/lib/format';
@@ -13,27 +12,30 @@ import { formatDate, formatEuro, toNumberFromItalianInput } from '@/lib/format';
 type SortKey =
   | 'artist'
   | 'album'
-  | 'site'
-  | 'target_price'
-  | 'current_price'
+  | 'type'
+  | 'medimops_target_price'
+  | 'medimops_current_price'
+  | 'momox_target_price'
+  | 'momox_current_price'
   | 'last_checked_at'
   | 'release_year'
   | 'ean_code';
 
-type MultiFilterKey = 'status' | 'type' | 'site' | 'is_active';
+type MultiFilterKey = 'status' | 'type' | 'is_active';
 
 type FormState = {
   id?: string;
   type: MonitorType;
-  site: MonitorSite;
   artist: string;
   album: string;
   edition: string;
   ean_code: string;
   release_year: string;
   country: string;
-  url: string;
-  target_price: string;
+  medimops_url: string;
+  medimops_target_price: string;
+  momox_url: string;
+  momox_target_price: string;
   alert_email: string;
   is_active: boolean;
 };
@@ -42,15 +44,16 @@ type MultiFilters = Record<MultiFilterKey, string[]>;
 
 const emptyForm: FormState = {
   type: 'CD',
-  site: 'Momox',
   artist: '',
   album: '',
   edition: '',
   ean_code: '',
   release_year: '',
   country: '',
-  url: '',
-  target_price: '0,00',
+  medimops_url: '',
+  medimops_target_price: '',
+  momox_url: '',
+  momox_target_price: '',
   alert_email: '',
   is_active: true
 };
@@ -58,7 +61,6 @@ const emptyForm: FormState = {
 const emptyMultiFilters: MultiFilters = {
   status: [],
   type: [],
-  site: [],
   is_active: []
 };
 
@@ -262,6 +264,40 @@ function normalizeEan(value: string): string {
   return value.replace(/\D/g, '').slice(0, 32);
 }
 
+function targetInputToNumber(value: string): number | null {
+  const trimmed = value.trim();
+
+  if (!trimmed) return null;
+
+  return toNumberFromItalianInput(trimmed);
+}
+
+function numberToItalianInput(value: number | null | undefined): string {
+  if (value === null || value === undefined) return '';
+
+  return String(value).replace('.', ',');
+}
+
+function isSiteInTarget(
+  currentPrice: number | null,
+  targetPrice: number | null
+): boolean {
+  return (
+    currentPrice !== null &&
+    targetPrice !== null &&
+    currentPrice <= targetPrice
+  );
+}
+
+function sitePriceClass(
+  currentPrice: number | null,
+  targetPrice: number | null
+) {
+  return isSiteInTarget(currentPrice, targetPrice)
+    ? 'font-semibold text-green-700'
+    : 'font-semibold';
+}
+
 export default function Dashboard() {
   const [monitors, setMonitors] = useState<Monitor[]>([]);
   const [form, setForm] = useState<FormState>(emptyForm);
@@ -304,7 +340,6 @@ export default function Dashboard() {
         })
       ),
       type: uniqueSorted(monitors.map((monitor) => monitor.type)),
-      site: uniqueSorted(monitors.map((monitor) => monitor.site)),
       is_active: uniqueSorted(
         monitors.map((monitor) => (monitor.is_active ? 'Sì' : 'No'))
       )
@@ -335,13 +370,6 @@ export default function Dashboard() {
         }
 
         if (
-          multiFilters.site.length > 0 &&
-          !multiFilters.site.includes(monitor.site)
-        ) {
-          return false;
-        }
-
-        if (
           multiFilters.is_active.length > 0 &&
           !multiFilters.is_active.includes(activeLabel)
         ) {
@@ -361,6 +389,7 @@ export default function Dashboard() {
       .sort((a, b) => {
         const left = a[sortKey] ?? '';
         const right = b[sortKey] ?? '';
+
         const result =
           typeof left === 'number' && typeof right === 'number'
             ? left - right
@@ -385,7 +414,6 @@ export default function Dashboard() {
     setForm({
       id: monitor.id,
       type: monitor.type,
-      site: monitor.site,
       artist: monitor.artist,
       album: monitor.album,
       edition: monitor.edition || '',
@@ -395,8 +423,12 @@ export default function Dashboard() {
           ? ''
           : String(monitor.release_year),
       country: monitor.country || '',
-      url: monitor.url,
-      target_price: String(monitor.target_price).replace('.', ','),
+      medimops_url: monitor.medimops_url || '',
+      medimops_target_price: numberToItalianInput(
+        monitor.medimops_target_price
+      ),
+      momox_url: monitor.momox_url || '',
+      momox_target_price: numberToItalianInput(monitor.momox_target_price),
       alert_email: monitor.alert_email || '',
       is_active: monitor.is_active
     });
@@ -412,7 +444,6 @@ export default function Dashboard() {
 
     const input: MonitorInput = {
       type: form.type,
-      site: form.site,
       artist: form.artist,
       album: form.album,
       edition: form.edition || null,
@@ -421,8 +452,13 @@ export default function Dashboard() {
       country: form.country.trim()
         ? form.country.trim().toUpperCase().slice(0, 3)
         : null,
-      url: form.url,
-      target_price: toNumberFromItalianInput(form.target_price),
+
+      medimops_url: form.medimops_url.trim() || null,
+      medimops_target_price: targetInputToNumber(form.medimops_target_price),
+
+      momox_url: form.momox_url.trim() || null,
+      momox_target_price: targetInputToNumber(form.momox_target_price),
+
       alert_email: form.alert_email || null,
       is_active: form.is_active
     };
@@ -551,7 +587,9 @@ export default function Dashboard() {
           `Controllo datagrid completato: ${checked - failed} ok, ${failed} errori.`
         );
       } else {
-        setMessage(`Controllo datagrid completato: ${checked} record controllati.`);
+        setMessage(
+          `Controllo datagrid completato: ${checked} record controllati.`
+        );
       }
     } catch (error) {
       setMessage(
@@ -571,15 +609,23 @@ export default function Dashboard() {
 
   function badge(
     status: LastStatus | null,
-    current: number | null,
-    target: number
+    medimopsCurrentPrice: number | null,
+    medimopsTargetPrice: number | null,
+    momoxCurrentPrice: number | null,
+    momoxTargetPrice: number | null
   ) {
-    const value = status || 'never_checked';
+    const medimopsInTarget = isSiteInTarget(
+      medimopsCurrentPrice,
+      medimopsTargetPrice
+    );
+    const momoxInTarget = isSiteInTarget(momoxCurrentPrice, momoxTargetPrice);
+    const value =
+      medimopsInTarget || momoxInTarget ? 'below_target' : status || 'never_checked';
 
     const cls =
       value === 'error'
         ? 'bg-red-100 text-red-800'
-        : value === 'below_target' || (current !== null && current <= target)
+        : value === 'below_target'
           ? 'bg-green-100 text-green-800'
           : value === 'ok'
             ? 'bg-blue-100 text-blue-800'
@@ -633,7 +679,7 @@ export default function Dashboard() {
               onClick={checkVisibleRows}
             >
               <CheckIcon />
-              Controlla Tutto
+              Controlla tutto il datagrid
             </button>
 
             <select
@@ -643,9 +689,15 @@ export default function Dashboard() {
             >
               <option value="artist">Artista</option>
               <option value="album">Album</option>
-              <option value="site">Sito</option>
-              <option value="current_price">Prezzo attuale</option>
-              <option value="target_price">Prezzo target</option>
+              <option value="type">Tipo</option>
+              <option value="medimops_current_price">
+                Medimops prezzo attuale
+              </option>
+              <option value="medimops_target_price">
+                Medimops prezzo target
+              </option>
+              <option value="momox_current_price">Momox prezzo attuale</option>
+              <option value="momox_target_price">Momox prezzo target</option>
               <option value="last_checked_at">Data ultimo rilievo</option>
               <option value="ean_code">EAN</option>
               <option value="release_year">Anno</option>
@@ -672,7 +724,7 @@ export default function Dashboard() {
             </button>
           </div>
 
-          <div className="grid gap-3 md:grid-cols-2 lg:grid-cols-4">
+          <div className="grid gap-3 md:grid-cols-2 lg:grid-cols-3">
             <MultiSelectFilter
               label="Stato"
               value={multiFilters.status}
@@ -688,15 +740,6 @@ export default function Dashboard() {
               options={multiFilterOptions.type}
               onChange={(value) =>
                 setMultiFilters({ ...multiFilters, type: value })
-              }
-            />
-
-            <MultiSelectFilter
-              label="Sito"
-              value={multiFilters.site}
-              options={multiFilterOptions.site}
-              onChange={(value) =>
-                setMultiFilters({ ...multiFilters, site: value })
               }
             />
 
@@ -718,9 +761,12 @@ export default function Dashboard() {
               ['edition', 'Filtro label'],
               ['release_year', 'Filtro anno'],
               ['country', 'Filtro country'],
-              ['url', 'Filtro URL'],
-              ['target_price', 'Filtro prezzo target'],
-              ['current_price', 'Filtro prezzo attuale'],
+              ['medimops_url', 'Filtro Medimops URL'],
+              ['momox_url', 'Filtro Momox URL'],
+              ['medimops_target_price', 'Filtro Medimops target'],
+              ['medimops_current_price', 'Filtro Medimops attuale'],
+              ['momox_target_price', 'Filtro Momox target'],
+              ['momox_current_price', 'Filtro Momox attuale'],
               ['last_checked_at', 'Filtro ultimo rilievo']
             ].map(([key, placeholder]) => (
               <input
@@ -748,9 +794,10 @@ export default function Dashboard() {
                   'Tipo',
                   'Artista',
                   'Album',
-                  'Sito',
-                  'Prezzo Attuale',
-                  'Prezzo Target',
+                  'Medimops Target',
+                  'Medimops Attuale',
+                  'Momox Target',
+                  'Momox Attuale',
                   'Ultimo Rilievo',
                   'EAN',
                   'Label',
@@ -766,10 +813,6 @@ export default function Dashboard() {
 
             <tbody>
               {filtered.map((monitor) => {
-                const under =
-                  monitor.current_price !== null &&
-                  monitor.current_price <= monitor.target_price;
-
                 return (
                   <tr key={monitor.id} className="border-b align-top">
                     <td className="p-2">
@@ -806,38 +849,72 @@ export default function Dashboard() {
                     </td>
 
                     <td className="p-2">
-                      <a
-                        className="inline-flex h-9 w-9 items-center justify-center rounded-lg border text-blue-700 hover:bg-blue-50"
-                        href={monitor.url}
-                        target="_blank"
-                        rel="noreferrer"
-                        title="Apri URL"
-                        aria-label="Apri URL"
-                      >
-                        <ExternalLinkIcon />
-                      </a>
+                      <div className="flex items-center gap-2">
+                        {monitor.medimops_url && (
+                          <a
+                            className="inline-flex h-9 w-9 items-center justify-center rounded-lg border text-blue-700 hover:bg-blue-50"
+                            href={monitor.medimops_url}
+                            target="_blank"
+                            rel="noreferrer"
+                            title="Apri Medimops"
+                            aria-label="Apri Medimops"
+                          >
+                            <span className="sr-only">Medimops</span>
+                            <ExternalLinkIcon />
+                          </a>
+                        )}
+
+                        {monitor.momox_url && (
+                          <a
+                            className="inline-flex h-9 w-9 items-center justify-center rounded-lg border text-purple-700 hover:bg-purple-50"
+                            href={monitor.momox_url}
+                            target="_blank"
+                            rel="noreferrer"
+                            title="Apri Momox"
+                            aria-label="Apri Momox"
+                          >
+                            <span className="sr-only">Momox</span>
+                            <ExternalLinkIcon />
+                          </a>
+                        )}
+                      </div>
                     </td>
 
                     <td className="p-2">
                       {badge(
                         monitor.last_status,
-                        monitor.current_price,
-                        monitor.target_price
+                        monitor.medimops_current_price,
+                        monitor.medimops_target_price,
+                        monitor.momox_current_price,
+                        monitor.momox_target_price
                       )}
                     </td>
                     <td className="p-2">{monitor.is_active ? 'Sì' : 'No'}</td>
                     <td className="p-2">{monitor.type}</td>
                     <td className="p-2 font-medium">{monitor.artist}</td>
                     <td className="p-2">{monitor.album}</td>
-                    <td className="p-2">{monitor.site}</td>
-                    <td
-                      className={`p-2 font-semibold ${
-                        under ? 'text-green-700' : ''
-                      }`}
-                    >
-                      {formatEuro(monitor.current_price)}
+                    <td className="p-2">
+                      {formatEuro(monitor.medimops_target_price)}
                     </td>
-                    <td className="p-2">{formatEuro(monitor.target_price)}</td>
+                    <td
+                      className={`p-2 ${sitePriceClass(
+                        monitor.medimops_current_price,
+                        monitor.medimops_target_price
+                      )}`}
+                    >
+                      {formatEuro(monitor.medimops_current_price)}
+                    </td>
+                    <td className="p-2">
+                      {formatEuro(monitor.momox_target_price)}
+                    </td>
+                    <td
+                      className={`p-2 ${sitePriceClass(
+                        monitor.momox_current_price,
+                        monitor.momox_target_price
+                      )}`}
+                    >
+                      {formatEuro(monitor.momox_current_price)}
+                    </td>
                     <td className="p-2">
                       {formatDate(monitor.last_checked_at)}
                     </td>
@@ -851,7 +928,7 @@ export default function Dashboard() {
 
               {filtered.length === 0 && (
                 <tr>
-                  <td className="p-4 text-center text-slate-500" colSpan={15}>
+                  <td className="p-4 text-center text-slate-500" colSpan={16}>
                     Nessun monitor trovato.
                   </td>
                 </tr>
@@ -863,15 +940,15 @@ export default function Dashboard() {
 
       {isFormOpen && (
         <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-slate-900/50 p-4 sm:items-center">
-          <div className="w-full max-w-5xl rounded-2xl bg-white p-6 shadow-xl">
+          <div className="w-full max-w-6xl rounded-2xl bg-white p-6 shadow-xl">
             <div className="mb-5 flex items-start justify-between gap-4">
               <div>
                 <h2 className="text-xl font-semibold">
                   {form.id ? 'Modifica monitor' : 'Nuovo monitor'}
                 </h2>
                 <p className="mt-1 text-sm text-slate-500">
-                  Inserisci i dati del disco da monitorare. L’email specifica è
-                  opzionale: se la lasci vuota usa l’email predefinita.
+                  Inserisci i dati del disco e almeno un URL con prezzo target
+                  tra Medimops e Momox.
                 </p>
               </div>
 
@@ -884,175 +961,210 @@ export default function Dashboard() {
               </button>
             </div>
 
-            <form
-              onSubmit={saveMonitor}
-              className="grid gap-3 md:grid-cols-2 lg:grid-cols-3"
-            >
-              <label className="text-sm font-medium">
-                Tipo
-                <select
-                  className="mt-1 w-full rounded-lg border p-2"
-                  value={form.type}
-                  onChange={(event) =>
-                    setForm({
-                      ...form,
-                      type: event.target.value as MonitorType
-                    })
-                  }
-                >
-                  <option>CD</option>
-                  <option>LP</option>
-                </select>
-              </label>
+            <form onSubmit={saveMonitor} className="space-y-5">
+              <div className="grid gap-3 md:grid-cols-2 lg:grid-cols-4">
+                <label className="text-sm font-medium">
+                  Tipo
+                  <select
+                    className="mt-1 w-full rounded-lg border p-2"
+                    value={form.type}
+                    onChange={(event) =>
+                      setForm({
+                        ...form,
+                        type: event.target.value as MonitorType
+                      })
+                    }
+                  >
+                    <option>CD</option>
+                    <option>LP</option>
+                  </select>
+                </label>
 
-              <label className="text-sm font-medium">
-                Sito
-                <select
-                  className="mt-1 w-full rounded-lg border p-2"
-                  value={form.site}
-                  onChange={(event) =>
-                    setForm({
-                      ...form,
-                      site: event.target.value as MonitorSite
-                    })
-                  }
-                >
-                  <option>Momox</option>
-                  <option>Medimops</option>
-                </select>
-              </label>
+                <label className="text-sm font-medium">
+                  Artista
+                  <input
+                    required
+                    className="mt-1 w-full rounded-lg border p-2"
+                    value={form.artist}
+                    onChange={(event) =>
+                      setForm({ ...form, artist: event.target.value })
+                    }
+                  />
+                </label>
 
-              <label className="text-sm font-medium">
-                Artista
-                <input
-                  required
-                  className="mt-1 w-full rounded-lg border p-2"
-                  value={form.artist}
-                  onChange={(event) =>
-                    setForm({ ...form, artist: event.target.value })
-                  }
-                />
-              </label>
+                <label className="text-sm font-medium">
+                  Album
+                  <input
+                    required
+                    className="mt-1 w-full rounded-lg border p-2"
+                    value={form.album}
+                    onChange={(event) =>
+                      setForm({ ...form, album: event.target.value })
+                    }
+                  />
+                </label>
 
-              <label className="text-sm font-medium">
-                Album
-                <input
-                  required
-                  className="mt-1 w-full rounded-lg border p-2"
-                  value={form.album}
-                  onChange={(event) =>
-                    setForm({ ...form, album: event.target.value })
-                  }
-                />
-              </label>
+                <label className="text-sm font-medium">
+                  Label
+                  <input
+                    className="mt-1 w-full rounded-lg border p-2"
+                    value={form.edition}
+                    onChange={(event) =>
+                      setForm({ ...form, edition: event.target.value })
+                    }
+                  />
+                </label>
 
-              <label className="text-sm font-medium">
-                Label
-                <input
-                  className="mt-1 w-full rounded-lg border p-2"
-                  value={form.edition}
-                  onChange={(event) =>
-                    setForm({ ...form, edition: event.target.value })
-                  }
-                />
-              </label>
+                <label className="text-sm font-medium">
+                  EAN
+                  <input
+                    inputMode="numeric"
+                    maxLength={32}
+                    className="mt-1 w-full rounded-lg border p-2"
+                    value={form.ean_code}
+                    onChange={(event) =>
+                      setForm({
+                        ...form,
+                        ean_code: normalizeEan(event.target.value)
+                      })
+                    }
+                  />
+                </label>
 
-              <label className="text-sm font-medium">
-                EAN
-                <input
-                  inputMode="numeric"
-                  maxLength={32}
-                  className="mt-1 w-full rounded-lg border p-2"
-                  value={form.ean_code}
-                  onChange={(event) =>
-                    setForm({
-                      ...form,
-                      ean_code: normalizeEan(event.target.value)
-                    })
-                  }
-                />
-              </label>
+                <label className="text-sm font-medium">
+                  Anno
+                  <input
+                    type="number"
+                    inputMode="numeric"
+                    min="1900"
+                    max="2100"
+                    className="mt-1 w-full rounded-lg border p-2"
+                    value={form.release_year}
+                    onChange={(event) =>
+                      setForm({ ...form, release_year: event.target.value })
+                    }
+                  />
+                </label>
 
-              <label className="text-sm font-medium">
-                Anno
-                <input
-                  type="number"
-                  inputMode="numeric"
-                  min="1900"
-                  max="2100"
-                  className="mt-1 w-full rounded-lg border p-2"
-                  value={form.release_year}
-                  onChange={(event) =>
-                    setForm({ ...form, release_year: event.target.value })
-                  }
-                />
-              </label>
+                <label className="text-sm font-medium">
+                  Country
+                  <input
+                    maxLength={3}
+                    className="mt-1 w-full rounded-lg border p-2 uppercase"
+                    value={form.country}
+                    onChange={(event) =>
+                      setForm({
+                        ...form,
+                        country: event.target.value.toUpperCase().slice(0, 3)
+                      })
+                    }
+                  />
+                </label>
+              </div>
 
-              <label className="text-sm font-medium">
-                Country
-                <input
-                  maxLength={3}
-                  className="mt-1 w-full rounded-lg border p-2 uppercase"
-                  value={form.country}
-                  onChange={(event) =>
-                    setForm({
-                      ...form,
-                      country: event.target.value.toUpperCase().slice(0, 3)
-                    })
-                  }
-                />
-              </label>
+              <div className="rounded-xl border bg-slate-50 p-4">
+                <h3 className="mb-3 text-sm font-semibold text-slate-700">
+                  Medimops
+                </h3>
 
-              <label className="text-sm font-medium lg:col-span-2">
-                URL
-                <input
-                  required
-                  type="url"
-                  className="mt-1 w-full rounded-lg border p-2"
-                  value={form.url}
-                  onChange={(event) =>
-                    setForm({ ...form, url: event.target.value })
-                  }
-                />
-              </label>
+                <div className="grid gap-3 lg:grid-cols-[1fr_220px]">
+                  <label className="text-sm font-medium">
+                    URL Medimops
+                    <input
+                      type="url"
+                      className="mt-1 w-full rounded-lg border bg-white p-2"
+                      value={form.medimops_url}
+                      onChange={(event) =>
+                        setForm({
+                          ...form,
+                          medimops_url: event.target.value
+                        })
+                      }
+                    />
+                  </label>
 
-              <label className="text-sm font-medium">
-                Prezzo Target
-                <input
-                  required
-                  className="mt-1 w-full rounded-lg border p-2"
-                  value={form.target_price}
-                  onChange={(event) =>
-                    setForm({ ...form, target_price: event.target.value })
-                  }
-                />
-              </label>
+                  <label className="text-sm font-medium">
+                    Prezzo Target Medimops
+                    <input
+                      className="mt-1 w-full rounded-lg border bg-white p-2"
+                      placeholder="es. 10,00"
+                      value={form.medimops_target_price}
+                      onChange={(event) =>
+                        setForm({
+                          ...form,
+                          medimops_target_price: event.target.value
+                        })
+                      }
+                    />
+                  </label>
+                </div>
+              </div>
 
-              <label className="text-sm font-medium">
-                Email specifica, opzionale
-                <input
-                  type="email"
-                  className="mt-1 w-full rounded-lg border p-2"
-                  placeholder="Lascia vuoto per usare l’email predefinita"
-                  value={form.alert_email}
-                  onChange={(event) =>
-                    setForm({ ...form, alert_email: event.target.value })
-                  }
-                />
-              </label>
+              <div className="rounded-xl border bg-slate-50 p-4">
+                <h3 className="mb-3 text-sm font-semibold text-slate-700">
+                  Momox
+                </h3>
 
-              <label className="flex items-center gap-2 text-sm font-medium">
-                <input
-                  type="checkbox"
-                  checked={form.is_active}
-                  onChange={(event) =>
-                    setForm({ ...form, is_active: event.target.checked })
-                  }
-                />
-                Attivo
-              </label>
+                <div className="grid gap-3 lg:grid-cols-[1fr_220px]">
+                  <label className="text-sm font-medium">
+                    URL Momox
+                    <input
+                      type="url"
+                      className="mt-1 w-full rounded-lg border bg-white p-2"
+                      value={form.momox_url}
+                      onChange={(event) =>
+                        setForm({
+                          ...form,
+                          momox_url: event.target.value
+                        })
+                      }
+                    />
+                  </label>
 
-              <div className="flex gap-3 lg:col-span-3">
+                  <label className="text-sm font-medium">
+                    Prezzo Target Momox
+                    <input
+                      className="mt-1 w-full rounded-lg border bg-white p-2"
+                      placeholder="es. 10,00"
+                      value={form.momox_target_price}
+                      onChange={(event) =>
+                        setForm({
+                          ...form,
+                          momox_target_price: event.target.value
+                        })
+                      }
+                    />
+                  </label>
+                </div>
+              </div>
+
+              <div className="grid gap-3 md:grid-cols-2 lg:grid-cols-3">
+                <label className="text-sm font-medium">
+                  Email specifica, opzionale
+                  <input
+                    type="email"
+                    className="mt-1 w-full rounded-lg border p-2"
+                    placeholder="Lascia vuoto per usare l’email predefinita"
+                    value={form.alert_email}
+                    onChange={(event) =>
+                      setForm({ ...form, alert_email: event.target.value })
+                    }
+                  />
+                </label>
+
+                <label className="flex items-center gap-2 text-sm font-medium">
+                  <input
+                    type="checkbox"
+                    checked={form.is_active}
+                    onChange={(event) =>
+                      setForm({ ...form, is_active: event.target.checked })
+                    }
+                  />
+                  Attivo
+                </label>
+              </div>
+
+              <div className="flex gap-3">
                 <button
                   disabled={busy}
                   className="rounded-lg bg-blue-700 px-5 py-2 font-semibold text-white hover:bg-blue-800 disabled:opacity-50"
