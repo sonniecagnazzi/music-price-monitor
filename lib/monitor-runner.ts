@@ -188,7 +188,11 @@ function buildMessage(checks: SiteCheck[]) {
     .filter((check) => !check.skipped)
     .map((check) => {
       if (check.price === null) {
-        return `${check.site}: errore ${check.error || 'prezzo non trovato'}; fonte ${check.source || '-'}`;
+        if (check.error) {
+          return `${check.site}: errore ${check.error}; fonte ${check.source || '-'}`;
+        }
+
+        return `${check.site}: nessuna offerta valida; fonte ${check.source || '-'}`;
       }
 
       return `${check.site}: prezzo ${check.price}, target ${check.target}; fonte ${check.source || '-'}`;
@@ -198,7 +202,7 @@ function buildMessage(checks: SiteCheck[]) {
 
 function buildErrorMessage(checks: SiteCheck[]) {
   return checks
-    .filter((check) => !check.skipped && check.price === null)
+    .filter((check) => !check.skipped && check.price === null && check.error)
     .map(
       (check) =>
         `${check.site}: ${check.error || 'prezzo non trovato'}; fonte ${check.source || '-'}`
@@ -206,9 +210,9 @@ function buildErrorMessage(checks: SiteCheck[]) {
     .join(' | ');
 }
 
-function hasAnyPartialError(checks: SiteCheck[]) {
+function hasAnyRealError(checks: SiteCheck[]) {
   return checks.some(
-    (check) => !check.skipped && check.price === null && check.error !== null
+    (check) => !check.skipped && check.price === null && Boolean(check.error)
   );
 }
 
@@ -314,8 +318,8 @@ export async function runMonitor(
 
       const configuredChecks = checks.filter((check) => !check.skipped);
 
-      const checkedWithError = configuredChecks.filter(
-        (check) => check.price === null && check.error !== null
+      const realErrorChecks = configuredChecks.filter(
+        (check) => check.price === null && Boolean(check.error)
       );
 
       const belowTargetChecks = configuredChecks.filter(
@@ -324,18 +328,18 @@ export async function runMonitor(
 
       const hasAnyPrice = configuredChecks.some((check) => check.price !== null);
       const hasAnyBelowTarget = belowTargetChecks.length > 0;
-      const hasAllErrors =
+      const hasRealError = hasAnyRealError(checks);
+      const hasAllRealErrors =
         configuredChecks.length > 0 &&
-        checkedWithError.length === configuredChecks.length;
-      const hasPartialError = hasAnyPartialError(checks);
+        realErrorChecks.length === configuredChecks.length;
 
-      const nextStatus: MonitorRunStatus = hasAllErrors
+      const nextStatus: MonitorRunStatus = hasAllRealErrors
         ? 'error'
         : hasAnyBelowTarget
           ? 'below_target'
           : 'ok';
 
-      if (hasAllErrors || hasPartialError) {
+      if (hasRealError) {
         errors += 1;
       }
 
@@ -372,11 +376,7 @@ export async function runMonitor(
       }
 
       const fullMessage = buildMessage(checks);
-      const visibleErrorMessage = hasPartialError
-        ? buildErrorMessage(checks)
-        : hasAllErrors
-          ? fullMessage
-          : null;
+      const visibleErrorMessage = hasRealError ? buildErrorMessage(checks) : null;
 
       await supabase.from('price_checks').insert({
         monitor_id: monitor.id,
