@@ -85,8 +85,18 @@ const statusLabels: Record<LastStatus | 'never_checked', string> = {
 function EditIcon() {
   return (
     <svg aria-hidden="true" className="h-4 w-4" viewBox="0 0 24 24" fill="none">
-      <path d="M4 20h4.5L19 9.5 14.5 5 4 15.5V20Z" stroke="currentColor" strokeWidth="1.8" strokeLinejoin="round" />
-      <path d="M13.5 6 18 10.5" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
+      <path
+        d="M4 20h4.5L19 9.5 14.5 5 4 15.5V20Z"
+        stroke="currentColor"
+        strokeWidth="1.8"
+        strokeLinejoin="round"
+      />
+      <path
+        d="M13.5 6 18 10.5"
+        stroke="currentColor"
+        strokeWidth="1.8"
+        strokeLinecap="round"
+      />
     </svg>
   );
 }
@@ -94,8 +104,19 @@ function EditIcon() {
 function CheckIcon() {
   return (
     <svg aria-hidden="true" className="h-4 w-4" viewBox="0 0 24 24" fill="none">
-      <path d="M21 12a9 9 0 1 1-2.64-6.36" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
-      <path d="M8.5 12.5 11 15l7-7" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
+      <path
+        d="M21 12a9 9 0 1 1-2.64-6.36"
+        stroke="currentColor"
+        strokeWidth="1.8"
+        strokeLinecap="round"
+      />
+      <path
+        d="M8.5 12.5 11 15l7-7"
+        stroke="currentColor"
+        strokeWidth="1.8"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
     </svg>
   );
 }
@@ -103,10 +124,30 @@ function CheckIcon() {
 function TrashIcon() {
   return (
     <svg aria-hidden="true" className="h-4 w-4" viewBox="0 0 24 24" fill="none">
-      <path d="M4 7h16" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
-      <path d="M10 11v6M14 11v6" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
-      <path d="M6.5 7 7.5 21h9L17.5 7" stroke="currentColor" strokeWidth="1.8" strokeLinejoin="round" />
-      <path d="M9 7V4h6v3" stroke="currentColor" strokeWidth="1.8" strokeLinejoin="round" />
+      <path
+        d="M4 7h16"
+        stroke="currentColor"
+        strokeWidth="1.8"
+        strokeLinecap="round"
+      />
+      <path
+        d="M10 11v6M14 11v6"
+        stroke="currentColor"
+        strokeWidth="1.8"
+        strokeLinecap="round"
+      />
+      <path
+        d="M6.5 7 7.5 21h9L17.5 7"
+        stroke="currentColor"
+        strokeWidth="1.8"
+        strokeLinejoin="round"
+      />
+      <path
+        d="M9 7V4h6v3"
+        stroke="currentColor"
+        strokeWidth="1.8"
+        strokeLinejoin="round"
+      />
     </svg>
   );
 }
@@ -114,7 +155,12 @@ function TrashIcon() {
 function CloseIcon() {
   return (
     <svg aria-hidden="true" className="h-5 w-5" viewBox="0 0 24 24" fill="none">
-      <path d="M6 6l12 12M18 6 6 18" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+      <path
+        d="M6 6l12 12M18 6 6 18"
+        stroke="currentColor"
+        strokeWidth="2"
+        strokeLinecap="round"
+      />
     </svg>
   );
 }
@@ -122,7 +168,13 @@ function CloseIcon() {
 function ChevronDownIcon() {
   return (
     <svg aria-hidden="true" className="h-4 w-4" viewBox="0 0 24 24" fill="none">
-      <path d="m6 9 6 6 6-6" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
+      <path
+        d="m6 9 6 6 6-6"
+        stroke="currentColor"
+        strokeWidth="1.8"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
     </svg>
   );
 }
@@ -404,6 +456,23 @@ function LinkedPrice({
     >
       {formatEuro(value)}
     </a>
+  );
+}
+
+function DetailCell({ value }: { value: string | null }) {
+  if (!value) {
+    return <span className="text-slate-400">-</span>;
+  }
+
+  return (
+    <details className="max-w-80">
+      <summary className="cursor-pointer whitespace-nowrap text-xs font-semibold text-red-700 underline decoration-dotted underline-offset-4">
+        Vedi errore
+      </summary>
+      <div className="mt-2 max-h-40 overflow-y-auto rounded-lg border border-red-200 bg-red-50 p-2 text-xs leading-relaxed text-red-900">
+        {value}
+      </div>
+    </details>
   );
 }
 
@@ -920,7 +989,8 @@ export default function Dashboard() {
                 ['amazon_fr_current_price', 'Filtro Amazon FR €'],
                 ['amazon_de_current_price', 'Filtro Amazon DE €'],
                 ['amazon_it_current_price', 'Filtro Amazon IT €'],
-                ['last_checked_at', 'Filtro ultimo rilievo']
+                ['last_checked_at', 'Filtro ultimo rilievo'],
+                ['last_error', 'Filtro dettaglio errore']
               ].map(([key, placeholder]) => (
                 <input
                   key={key}
@@ -943,6 +1013,7 @@ export default function Dashboard() {
                 {[
                   'Azioni',
                   'Stato',
+                  'Dettaglio',
                   'Attivo',
                   'Tipo',
                   'Artista',
@@ -1019,6 +1090,9 @@ export default function Dashboard() {
                     </td>
 
                     <td className="p-2">{badge(monitor)}</td>
+                    <td className="p-2">
+                      <DetailCell value={monitor.last_error} />
+                    </td>
                     <td className="p-2">{monitor.is_active ? 'Sì' : 'No'}</td>
                     <td className="p-2">{monitor.type}</td>
                     <td className="p-2 font-medium">{monitor.artist}</td>
@@ -1107,7 +1181,7 @@ export default function Dashboard() {
 
               {filtered.length === 0 && (
                 <tr>
-                  <td className="p-4 text-center text-slate-500" colSpan={21}>
+                  <td className="p-4 text-center text-slate-500" colSpan={22}>
                     Nessun monitor trovato.
                   </td>
                 </tr>
