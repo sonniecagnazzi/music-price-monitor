@@ -13,6 +13,24 @@ type SettingsWithLegacyEmail = Settings & {
   alert_email?: string | null;
 };
 
+type MonitorRunResult = {
+  id: string;
+  artist: string;
+  album: string;
+  status: 'ok' | 'below_target' | 'error';
+  price: number | null;
+  error: string | null;
+  alertSent: boolean;
+};
+
+export type MonitorRunSummary = {
+  total: number;
+  checked: number;
+  alertsSent: number;
+  errors: number;
+  results: MonitorRunResult[];
+};
+
 function getSupabaseAdmin() {
   return createClient(env.supabaseUrl(), env.supabaseServiceRoleKey(), {
     auth: {
@@ -44,7 +62,9 @@ function shouldResetAlert(monitor: Monitor, price: number): boolean {
   return price > monitor.target_price && monitor.alert_sent;
 }
 
-export async function runMonitor(options: RunMonitorOptions = {}) {
+export async function runMonitor(
+  options: RunMonitorOptions = {}
+): Promise<MonitorRunSummary> {
   const supabase = getSupabaseAdmin();
 
   const settingsResult = await supabase
@@ -75,7 +95,10 @@ export async function runMonitor(options: RunMonitorOptions = {}) {
   }
 
   const monitorsToCheck = monitors || [];
-  const results = [];
+  const results: MonitorRunResult[] = [];
+
+  let alertsSent = 0;
+  let errors = 0;
 
   for (const monitor of monitorsToCheck) {
     const checkedAt = new Date().toISOString();
@@ -84,6 +107,8 @@ export async function runMonitor(options: RunMonitorOptions = {}) {
       const scrapeResult = await scrapePrice(monitor.url);
 
       if (scrapeResult.price === null) {
+        errors += 1;
+
         await supabase.from('price_checks').insert({
           monitor_id: monitor.id,
           checked_at: checkedAt,
@@ -109,7 +134,8 @@ export async function runMonitor(options: RunMonitorOptions = {}) {
           album: monitor.album,
           status: 'error',
           price: null,
-          error: scrapeResult.error
+          error: scrapeResult.error,
+          alertSent: false
         });
 
         continue;
@@ -121,6 +147,7 @@ export async function runMonitor(options: RunMonitorOptions = {}) {
       const alertEmail = getMonitorAlertEmail(monitor, globalEmail);
 
       let alertSent = monitor.alert_sent;
+      let alertSentNow = false;
 
       if (shouldSendAlert(monitor, price) && alertEmail) {
         await sendPriceAlert({
@@ -131,6 +158,8 @@ export async function runMonitor(options: RunMonitorOptions = {}) {
         });
 
         alertSent = true;
+        alertSentNow = true;
+        alertsSent += 1;
       } else if (shouldResetAlert(monitor, price)) {
         alertSent = false;
       }
@@ -162,9 +191,12 @@ export async function runMonitor(options: RunMonitorOptions = {}) {
         album: monitor.album,
         status: nextStatus,
         price,
-        error: null
+        error: null,
+        alertSent: alertSentNow
       });
     } catch (error) {
+      errors += 1;
+
       const message =
         error instanceof Error
           ? error.message
@@ -195,13 +227,17 @@ export async function runMonitor(options: RunMonitorOptions = {}) {
         album: monitor.album,
         status: 'error',
         price: null,
-        error: message
+        error: message,
+        alertSent: false
       });
     }
   }
 
   return {
+    total: monitorsToCheck.length,
     checked: monitorsToCheck.length,
+    alertsSent,
+    errors,
     results
   };
 }
