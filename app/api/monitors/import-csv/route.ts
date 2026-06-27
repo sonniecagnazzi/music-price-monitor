@@ -12,14 +12,29 @@ type ImportMonitorRow = {
   ean_code: string;
   release_year: number | null;
   country: string | null;
+
   medimops_url: string | null;
   medimops_target_price: number;
+  medimops_current_price: null;
+
   momox_url: string | null;
   momox_target_price: number;
+  momox_current_price: null;
+
   amazon_asin: null;
   amazon_target_price: null;
+  amazon_fr_current_price: null;
+  amazon_de_current_price: null;
+  amazon_it_current_price: null;
+
   alert_email: null;
   is_active: boolean;
+  alert_sent: boolean;
+
+  site: 'Medimops' | 'Momox';
+  url: string;
+  target_price: number;
+  current_price: null;
 };
 
 const REQUIRED_HEADERS = [
@@ -240,6 +255,9 @@ function validateAndMapRows(rows: CsvRow[]): ImportMonitorRow[] {
       );
     }
 
+    const legacySite: 'Medimops' | 'Momox' = medimopsUrl ? 'Medimops' : 'Momox';
+    const legacyUrl = medimopsUrl || momoxUrl || '';
+
     mappedRows.push({
       type,
       artist,
@@ -248,14 +266,29 @@ function validateAndMapRows(rows: CsvRow[]): ImportMonitorRow[] {
       ean_code: ean,
       release_year: yearAndLabel.release_year,
       country,
+
       medimops_url: medimopsUrl,
       medimops_target_price: target,
+      medimops_current_price: null,
+
       momox_url: momoxUrl,
       momox_target_price: target,
+      momox_current_price: null,
+
       amazon_asin: null,
       amazon_target_price: null,
+      amazon_fr_current_price: null,
+      amazon_de_current_price: null,
+      amazon_it_current_price: null,
+
       alert_email: null,
-      is_active: true
+      is_active: true,
+      alert_sent: false,
+
+      site: legacySite,
+      url: legacyUrl,
+      target_price: target,
+      current_price: null
     });
   });
 
@@ -307,7 +340,7 @@ export async function POST(request: NextRequest) {
       );
 
       throw new Error(
-        `Riga ${rowIndex + 2}: EAN già presente nel database. EAN: ${duplicatedExistingEan}. Nessuna riga è stata importata.`
+        `Riga ${rowIndex + 2}: EAN già presente nel database. EAN: ${duplicatedExistingEan}.`
       );
     }
 
