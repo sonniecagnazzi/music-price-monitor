@@ -58,12 +58,6 @@ function cleanContext(value: string, maxLength = 1200): string {
   return cleanText(value).slice(0, maxLength);
 }
 
-function makeSource(source: string, context?: string): string {
-  if (!context) return source;
-
-  return `${source} | contesto: ${cleanContext(context)}`;
-}
-
 function buildJinaReaderUrl(url: string): string {
   return `https://r.jina.ai/${url}`;
 }
@@ -72,155 +66,50 @@ function buildJinaSearchUrl(url: string): string {
   return `https://s.jina.ai/?q=${encodeURIComponent(url)}`;
 }
 
-function getContext(text: string, index: number, before = 600, after = 1000) {
+function getContext(text: string, index: number, before = 500, after = 700) {
   return text.slice(
     Math.max(0, index - before),
     Math.min(text.length, index + after)
   );
 }
 
-function getNearContext(text: string, index: number, before = 120, after = 160) {
-  return text.slice(
-    Math.max(0, index - before),
-    Math.min(text.length, index + after)
+function hasUsdPrice(text: string): boolean {
+  return /\bUSD\b|\$\s*\d{1,5}(?:[.,]\d{2})|\d{1,5}(?:[.,]\d{2})\s*USD/i.test(
+    text
   );
 }
 
-function compactText(value: string): string {
-  return cleanText(value)
-    .toLowerCase()
-    .replace(/[^a-z0-9àèéìíîòóùúäöüßçñ]+/gi, ' ');
+function hasEuroPrice(text: string): boolean {
+  return /€\s*\d{1,5}(?:[.,]\d{2})|\d{1,5}(?:[.,]\d{2})\s*€/i.test(text);
 }
 
-function trimToRelevantAmazonArea(text: string): string {
-  const normalized = text.replace(/\u00a0/g, ' ');
-  const lower = normalized.toLowerCase();
+function parseEuroPrice(raw: string): number | null {
+  if (!hasEuroPrice(raw)) return null;
 
-  const stopMarkers = [
-    'spesso comprati insieme',
-    'i clienti che hanno visto',
-    'prodotti correlati',
-    'descrizione prodotto',
-    'dettagli prodotto',
-    'tracklist',
-
-    'fréquemment achetés ensemble',
-    'les clients ayant consulté',
-    'description du produit',
-    'détails du produit',
-
-    'wird oft zusammen gekauft',
-    'kunden, die diesen artikel angesehen',
-    'produktbeschreibungen',
-    'produktinformation',
-
-    'frequently bought together',
-    'customers who viewed',
-    'product description',
-    'product details'
-  ];
-
-  const indexes = stopMarkers
-    .map((marker) => lower.indexOf(marker))
-    .filter((index) => index > 0)
-    .sort((a, b) => a - b);
-
-  if (indexes.length === 0) return normalized;
-
-  return normalized.slice(0, indexes[0]);
+  return normalizePrice(raw);
 }
 
-function hasAmazonSellerSignal(context: string): boolean {
-  const lower = cleanText(context).toLowerCase();
-
-  const sellerPatterns = [
-    /speditore\s*\/\s*venditore\s*amazon/i,
-    /venditore\s*\/?\s*amazon/i,
-    /venduto\s+da\s+amazon/i,
-    /venduto\s+e\s+spedito\s+da\s+amazon/i,
-    /venduto\s+da\s+amazon\s+eu\s+sarl/i,
-
-    /expéditeur\s*\/\s*vendeur\s*amazon/i,
-    /expediteur\s*\/\s*vendeur\s*amazon/i,
-    /vendeur\s*\/?\s*amazon/i,
-    /vendu\s+par\s+amazon/i,
-    /vendu\s+et\s+expédié\s+par\s+amazon/i,
-    /vendu\s+et\s+expedie\s+par\s+amazon/i,
-    /vendu\s+par\s+amazon\s+eu\s+sarl/i,
-
-    /verkäufer\s*\/?\s*amazon/i,
-    /verkaeufer\s*\/?\s*amazon/i,
-    /verkauf\s+durch\s+amazon/i,
-    /verkauft\s+von\s+amazon/i,
-    /verkauf\s+und\s+versand\s+durch\s+amazon/i,
-    /verkauft\s+und\s+versendet\s+durch\s+amazon/i,
-
-    /seller\s*\/?\s*amazon/i,
-    /sold\s+by\s+amazon/i,
-    /sold\s+and\s+shipped\s+by\s+amazon/i,
-    /sold\s+and\s+dispatched\s+by\s+amazon/i
-  ];
-
-  if (sellerPatterns.some((pattern) => pattern.test(context))) {
-    return true;
-  }
-
-  const compact = compactText(lower);
-
-  return (
-    compact.includes('speditore venditore amazon') ||
-    compact.includes('venditore amazon') ||
-    compact.includes('expediteur vendeur amazon') ||
-    compact.includes('expéditeur vendeur amazon') ||
-    compact.includes('vendeur amazon') ||
-    compact.includes('verkäufer amazon') ||
-    compact.includes('verkaeufer amazon') ||
-    compact.includes('seller amazon')
-  );
-}
-
-function hasAmazonShippingSignal(context: string): boolean {
-  const lower = cleanText(context).toLowerCase();
-
-  return (
-    lower.includes('spedito da amazon') ||
-    lower.includes('speditore amazon') ||
-    lower.includes('expédié par amazon') ||
-    lower.includes('expedie par amazon') ||
-    lower.includes('expéditeur amazon') ||
-    lower.includes('expediteur amazon') ||
-    lower.includes('versand durch amazon') ||
-    lower.includes('ships from amazon') ||
-    lower.includes('dispatches from amazon')
-  );
-}
-
-function hasOnlyShippingAmazonSignal(context: string): boolean {
-  return hasAmazonShippingSignal(context) && !hasAmazonSellerSignal(context);
-}
-
-function hasNewConditionSignal(context: string): boolean {
-  const lower = cleanText(context).toLowerCase();
-
-  return (
-    /\bnuovo\b/i.test(lower) ||
-    /\bneuf\b/i.test(lower) ||
-    /\bneu\b/i.test(lower) ||
-    /\bnew\b/i.test(lower)
-  );
-}
-
-function hasUsedConditionSignal(context: string): boolean {
+function isDeliveryContext(context: string): boolean {
   const lower = cleanText(context).toLowerCase();
 
   const signals = [
-    'usato',
-    'usata',
-    'used',
-    "d'occasion",
-    'd’occasion',
-    'occasion',
-    'gebraucht'
+    'consegna a',
+    'consegna prevista',
+    'costo di consegna',
+    'costi di consegna',
+    'spese di spedizione',
+    'delivery',
+    'delivery fee',
+    'shipping',
+    'shipping fee',
+    'livraison',
+    'frais de livraison',
+    'livraison à',
+    'versand',
+    'versandkosten',
+    'lieferung',
+    'lieferkosten',
+    'zustellung'
   ];
 
   return signals.some((signal) => lower.includes(signal));
@@ -229,152 +118,77 @@ function hasUsedConditionSignal(context: string): boolean {
 function isBadSectionContext(context: string): boolean {
   const lower = cleanText(context).toLowerCase();
 
-  const badSignals = [
+  const signals = [
     'spesso comprati insieme',
     'questo articolo:',
     'i clienti che hanno visto',
-    'autorip',
-    'descrizione prodotto',
-    'dettagli prodotto',
-
-    'fréquemment achetés ensemble',
-    'cet article:',
-    'les clients ayant consulté',
-    'description du produit',
-    'détails du produit',
-
-    'wird oft zusammen gekauft',
-    'dieser artikel:',
-    'kunden, die diesen artikel angesehen',
-    'produktbeschreibungen',
-    'produktinformation',
-
     'frequently bought together',
     'this item:',
     'customers who viewed',
-    'product description',
-    'product details'
-  ];
-
-  return badSignals.some((signal) => lower.includes(signal));
-}
-
-function isDeliveryPriceNearContext(context: string): boolean {
-  const lower = cleanText(context).toLowerCase();
-
-  const deliverySignals = [
-    'consegna a',
-    'consegna prevista',
-    'costo di consegna',
-    'costi di consegna',
-    'spese di spedizione',
-
-    'frais de livraison',
-    'livraison à',
-    'livraison prévue',
-
-    'delivery fee',
-    'shipping fee',
-
-    'versandkosten',
-    'lieferkosten',
-    'zustellung'
-  ];
-
-  return deliverySignals.some((signal) => lower.includes(signal));
-}
-
-function isInstallmentOrPromoNearContext(context: string): boolean {
-  const lower = cleanText(context).toLowerCase();
-
-  const badSignals = [
-    'mese',
-    'mensile',
-    'mensili',
-    'par mois',
-    'monat',
-    'monthly',
-    'rate',
-    'rata',
-    'finanziamento',
-    'coupon',
-    'prime video',
-    'kindle',
-    'audible',
-    'gift card',
-    'buono regalo',
-    'carte cadeau',
-    'geschenkgutschein'
-  ];
-
-  return badSignals.some((signal) => lower.includes(signal));
-}
-
-function hasUnavailableSignals(context: string): boolean {
-  const lower = cleanText(context).toLowerCase();
-
-  const signals = [
-    'attualmente non disponibile',
-    'non disponibile',
-    'momentanément indisponible',
-    'indisponible',
-    'currently unavailable',
-    'derzeit nicht verfügbar',
-    'nicht verfügbar'
+    'fréquemment achetés ensemble',
+    'cet article:',
+    'les clients ayant consulté',
+    'wird oft zusammen gekauft',
+    'dieser artikel:',
+    'kunden, die diesen artikel angesehen'
   ];
 
   return signals.some((signal) => lower.includes(signal));
 }
 
-function isAcceptableSoldByAmazonCandidate(
-  context: string,
-  nearContext: string,
-  requireNewCondition: boolean
-): boolean {
-  if (!hasAmazonSellerSignal(context)) return false;
-  if (requireNewCondition && !hasNewConditionSignal(context)) return false;
-  if (hasOnlyShippingAmazonSignal(context)) return false;
-  if (hasUnavailableSignals(context)) return false;
-  if (hasUsedConditionSignal(nearContext)) return false;
-  if (isBadSectionContext(context)) return false;
-  if (isDeliveryPriceNearContext(nearContext)) return false;
-  if (isInstallmentOrPromoNearContext(nearContext)) return false;
+function isOfferListingContext(context: string): boolean {
+  const lower = cleanText(context).toLowerCase();
 
-  return true;
+  const signals = [
+    'other sellers on amazon',
+    'new & used',
+    'new and used',
+    'from€',
+    'from €',
+    'fromeur',
+
+    'altri venditori',
+    'nuovo e usato',
+    'nuovi e usati',
+    'da€',
+    'da €',
+
+    'autres vendeurs',
+    'neuf et occasion',
+    'neuf & occasion',
+    'à partir de€',
+    'à partir de €',
+
+    'andere verkäufer',
+    'neu und gebraucht',
+    'neu & gebraucht',
+    'ab€',
+    'ab €'
+  ];
+
+  return signals.some((signal) => lower.includes(signal));
 }
 
-function scoreAmazonCandidate(
-  price: number,
-  context: string,
-  nearContext: string,
-  index: number,
-  source: string
-): number {
-  let score = 0;
+function isCoreProductPriceContext(context: string): boolean {
+  const lower = cleanText(context).toLowerCase();
 
-  if (price > 0 && price < 1000) score += 10;
+  const signals = [
+    'amazon choice',
+    "amazon's choice",
+    'lowest price in last 30 days',
+    'was:',
+    'free returns',
+    'retours gratuits',
+    'retournez cet article gratuitement',
+    'retours',
+    'return this item for free',
+    'the prices of products sold on amazon include vat',
+    'prices for items sold by amazon include vat',
+    'i prezzi dei prodotti venduti su amazon includono l’iva',
+    'i prezzi dei prodotti venduti su amazon includono iva'
+  ];
 
-  if (source.includes('buybox-container')) score += 900;
-  if (source.includes('selector-coreprice')) score += 780;
-  if (source.includes('selector-split-a-price')) score += 760;
-  if (source.includes('main-buybox-line')) score += 700;
-  if (source.includes('strict-sold-by-amazon')) score += 600;
-
-  if (hasAmazonSellerSignal(context)) score += 700;
-  if (hasAmazonShippingSignal(context)) score += 80;
-  if (hasNewConditionSignal(context)) score += 120;
-
-  if (isBadSectionContext(context)) score -= 1200;
-  if (hasOnlyShippingAmazonSignal(context)) score -= 700;
-  if (hasUnavailableSignals(context)) score -= 800;
-  if (hasUsedConditionSignal(nearContext)) score -= 500;
-  if (isDeliveryPriceNearContext(nearContext)) score -= 900;
-  if (isInstallmentOrPromoNearContext(nearContext)) score -= 700;
-  if (price < 2) score -= 500;
-
-  if (index < 80000) score += 5;
-
-  return score;
+  return signals.some((signal) => lower.includes(signal));
 }
 
 function addCandidate(
@@ -388,141 +202,313 @@ function addCandidate(
   if (price === null || price <= 0 || price >= 1000) return;
 
   const context = contextOverride || getContext(fullText, index);
-  const nearContext = getNearContext(fullText, index);
 
-  const score = scoreAmazonCandidate(
-    price,
-    context,
-    nearContext,
-    index,
-    source
-  );
+  let score = 10;
+
+  if (source.includes('offer-listing')) score += 1000;
+  if (source.includes('reader')) score += 120;
+  if (source.includes('direct')) score += 80;
+  if (source.includes('core-price')) score += 120;
+
+  if (isOfferListingContext(context)) score += 500;
+  if (isCoreProductPriceContext(context)) score += 150;
+
+  if (isDeliveryContext(context)) score -= 600;
+  if (isBadSectionContext(context)) score -= 800;
+  if (hasUsdPrice(context) && !hasEuroPrice(context)) score -= 1000;
 
   candidates.push({
     price,
     index,
+    score,
     context,
-    source,
-    score
+    source
   });
 }
 
-function findFirstPriceAfterCondition(block: string): {
-  price: number | null;
-  index: number;
-} {
-  const conditionRegex = /\b(Nuovo|Neuf|Neu|New)\b/i;
-  const conditionMatch = conditionRegex.exec(block);
-
-  if (!conditionMatch) {
-    return {
-      price: null,
-      index: -1
-    };
-  }
-
-  const afterCondition = block.slice(conditionMatch.index);
-  const searchArea = afterCondition.slice(0, 300);
-  const priceRegex = /(?:€\s*)?(\d{1,5}(?:[.,]\d{2}))\s*€/i;
-  const priceMatch = priceRegex.exec(searchArea);
-
-  if (!priceMatch) {
-    return {
-      price: null,
-      index: -1
-    };
-  }
-
-  return {
-    price: normalizePrice(priceMatch[1]),
-    index: conditionMatch.index + priceMatch.index
-  };
-}
-
-function extractStrictSoldByAmazonFromText(
+function extractOfferListingCandidates(
   text: string,
   sourcePrefix: string
 ): PriceCandidate[] {
-  const relevantText = trimToRelevantAmazonArea(text.replace(/\u00a0/g, ' '));
+  const normalized = text.replace(/\u00a0/g, ' ');
   const candidates: PriceCandidate[] = [];
 
-  const conditionToSellerPattern =
-    /\b(?:Nuovo|Neuf|Neu|New)\b[\s\S]{0,1400}?(?:Speditore\s*\/\s*Venditore\s*Amazon|Venditore\s*Amazon|Venduto\s+da\s+Amazon|Venduto\s+e\s+spedito\s+da\s+Amazon|Expéditeur\s*\/\s*Vendeur\s*Amazon|Expediteur\s*\/\s*Vendeur\s*Amazon|Vendeur\s*Amazon|Vendu\s+par\s+Amazon|Vendu\s+et\s+expédié\s+par\s+Amazon|Verkäufer\s*Amazon|Verkaeufer\s*Amazon|Verkauf\s+durch\s+Amazon|Verkauft\s+von\s+Amazon|Seller\s*Amazon|Sold\s+by\s+Amazon)/gi;
+  /*
+    Casi visti dal debug reale di Vercel:
 
-  let blockMatch = conditionToSellerPattern.exec(relevantText);
+    FR:
+    Other sellers on Amazon ... New & Used (11) from€9.00€9.00+ €10.56 delivery
 
-  while (blockMatch !== null) {
-    const block = blockMatch[0];
-    const priceResult = findFirstPriceAfterCondition(block);
-
-    if (priceResult.price !== null) {
-      addCandidate(
-        candidates,
-        relevantText,
-        priceResult.price,
-        blockMatch.index + priceResult.index,
-        `${sourcePrefix}:main-buybox-line`,
-        block
-      );
+    IT:
+    Other sellers on Amazon ... New & Used (12) from€8.99€8.99+ €11.66 delivery
+  */
+  const patterns = [
+    {
+      source: 'offer-listing-new-used-from',
+      pattern:
+        /(?:Other sellers on Amazon|Altri venditori|Autres vendeurs|Andere Verkäufer)[\s\S]{0,900}?(?:New\s*&\s*Used|New\s+and\s+Used|Nuovo\s+e\s+usato|Nuovi\s+e\s+usati|Neuf\s+et\s+occasion|Neuf\s*&\s*occasion|Neu\s+und\s+gebraucht|Neu\s*&\s*Gebraucht)[\s\S]{0,220}?(?:from|da|à partir de|ab)\s*€\s*(\d{1,5}(?:[.,]\d{2}))/gi
+    },
+    {
+      source: 'offer-listing-new-used-from-no-space',
+      pattern:
+        /(?:Other sellers on Amazon|Altri venditori|Autres vendeurs|Andere Verkäufer)[\s\S]{0,900}?(?:New\s*&\s*Used|New\s+and\s+Used|Nuovo\s+e\s+usato|Nuovi\s+e\s+usati|Neuf\s+et\s+occasion|Neuf\s*&\s*occasion|Neu\s+und\s+gebraucht|Neu\s*&\s*Gebraucht)[\s\S]{0,220}?(?:from|da|à partir de|ab)\s*€?(\d{1,5}(?:[.,]\d{2}))\s*€/gi
+    },
+    {
+      source: 'offer-listing-generic-from',
+      pattern:
+        /(?:New\s*&\s*Used|New\s+and\s+Used|Nuovo\s+e\s+usato|Nuovi\s+e\s+usati|Neuf\s+et\s+occasion|Neuf\s*&\s*occasion|Neu\s+und\s+gebraucht|Neu\s*&\s*Gebraucht)\s*\(\d+\)[\s\S]{0,180}?(?:from|da|à partir de|ab)\s*€\s*(\d{1,5}(?:[.,]\d{2}))/gi
+    },
+    {
+      source: 'offer-listing-link-condition',
+      pattern:
+        /gp\/offer-listing\/[A-Z0-9]{10}[\s\S]{0,360}?(?:condition=ALL|condition=new)[\s\S]{0,220}?(?:from|da|à partir de|ab)?\s*€\s*(\d{1,5}(?:[.,]\d{2}))/gi
     }
+  ];
 
-    blockMatch = conditionToSellerPattern.exec(relevantText);
-  }
+  for (const item of patterns) {
+    let match = item.pattern.exec(normalized);
 
-  const priceRegex = /(?:€\s*)?(\d{1,5}(?:[.,]\d{2}))\s*€/gi;
-  let priceMatch = priceRegex.exec(relevantText);
+    while (match !== null) {
+      const raw = match[1] || '';
+      const price = parseEuroPrice(`€${raw}`);
+      const context = getContext(normalized, match.index, 260, 420);
 
-  while (priceMatch !== null) {
-    const price = normalizePrice(priceMatch[1] || '');
-    const index = priceMatch.index;
-    const context = getContext(relevantText, index, 360, 900);
-    const nearContext = getNearContext(relevantText, index, 120, 160);
-
-    if (isAcceptableSoldByAmazonCandidate(context, nearContext, true)) {
       addCandidate(
         candidates,
-        relevantText,
+        normalized,
         price,
-        index,
-        `${sourcePrefix}:strict-sold-by-amazon`,
+        match.index,
+        `${sourcePrefix}:${item.source}`,
         context
       );
-    }
 
-    priceMatch = priceRegex.exec(relevantText);
+      match = item.pattern.exec(normalized);
+    }
   }
 
   return candidates;
 }
 
-function getBuyBoxText($: cheerio.CheerioAPI): string {
+function extractCorePriceCandidatesFromHtml(
+  html: string,
+  sourcePrefix: string
+): PriceCandidate[] {
+  const $ = cheerio.load(html);
+  const normalizedHtml = html.replace(/\u00a0/g, ' ');
+  const pageText = $.root().text().replace(/\u00a0/g, ' ');
+  const candidates: PriceCandidate[] = [];
+
   const selectors = [
-    '#desktop_buybox',
-    '#buybox',
-    '#qualifiedBuybox',
-    '#rightCol',
-    '#tabular-buybox',
-    '#merchant-info',
-    '#apex_desktop',
-    '#corePriceDisplay_desktop_feature_div',
-    '#corePrice_feature_div',
-    '#offerDisplayGroup_feature_div',
-    '#availability',
-    '#shipsFromSoldByInsideBuyBox_feature_div',
-    '#sellerProfileTriggerId',
-    '#sellerProfileTriggerId_feature_div',
-    '#fulfillerInfoFeature_feature_div',
-    '#merchantInfoFeature_feature_div',
-    '#mir-layout-DELIVERY_BLOCK-slot-PRIMARY_DELIVERY_MESSAGE_LARGE',
-    '#deliveryBlockMessage',
-    '[data-feature-name="shipsFromSoldByInsideBuyBox"]',
-    '[data-feature-name="merchantInfo"]'
+    '#corePriceDisplay_desktop_feature_div .a-price .a-offscreen',
+    '#corePrice_feature_div .a-price .a-offscreen',
+    '#apex_desktop .a-price .a-offscreen',
+    '#priceblock_ourprice',
+    '#priceblock_dealprice',
+    '#price_inside_buybox',
+    '.priceToPay .a-offscreen',
+    '[data-a-color="price"] .a-offscreen'
   ];
 
-  return selectors
-    .map((selector) => $(selector).text())
-    .filter(Boolean)
-    .join(' ');
+  for (const selector of selectors) {
+    const nodes = $(selector).toArray().slice(0, 12);
+
+    for (const node of nodes) {
+      const element = $(node);
+      const raw =
+        element.attr('content') ||
+        element.attr('value') ||
+        element.text() ||
+        '';
+
+      const price = parseEuroPrice(raw);
+
+      if (price !== null) {
+        const localContext =
+          element
+            .closest(
+              '#corePriceDisplay_desktop_feature_div, #corePrice_feature_div, #apex_desktop, #desktop_buybox, #buybox, #rightCol, #centerCol, div'
+            )
+            .text() || raw;
+
+        const htmlIndex = normalizedHtml.indexOf(raw);
+
+        addCandidate(
+          candidates,
+          pageText,
+          price,
+          htmlIndex >= 0 ? htmlIndex : 0,
+          `${sourcePrefix}:core-price:${selector}`,
+          localContext
+        );
+      }
+    }
+  }
+
+  $('.a-price').each((index, node) => {
+    const element = $(node);
+    const whole = cleanText(element.find('.a-price-whole').first().text());
+    const fraction = cleanText(
+      element.find('.a-price-fraction').first().text()
+    );
+
+    if (!whole || !fraction) return;
+
+    const raw = `${whole},${fraction}`;
+    const price = parseEuroPrice(`${raw} €`);
+
+    if (price !== null) {
+      const localContext =
+        element
+          .closest(
+            '#corePriceDisplay_desktop_feature_div, #corePrice_feature_div, #apex_desktop, #desktop_buybox, #buybox, #rightCol, #centerCol, div'
+          )
+          .text() || element.text();
+
+      addCandidate(
+        candidates,
+        pageText,
+        price,
+        index,
+        `${sourcePrefix}:core-price-split`,
+        localContext
+      );
+    }
+  });
+
+  return candidates;
+}
+
+function extractCorePriceCandidatesFromText(
+  text: string,
+  sourcePrefix: string
+): PriceCandidate[] {
+  const normalized = text.replace(/\u00a0/g, ' ');
+  const candidates: PriceCandidate[] = [];
+
+  const patterns = [
+    {
+      source: 'core-amazon-choice',
+      pattern:
+        /Amazon'?s?\s+Choice[\s\S]{0,360}?€\s*(\d{1,5}(?:[.,]\d{2}))/gi
+    },
+    {
+      source: 'core-choice-before',
+      pattern:
+        /€\s*(\d{1,5}(?:[.,]\d{2}))[\s\S]{0,360}?Amazon'?s?\s+Choice/gi
+    },
+    {
+      source: 'core-price-near-vat',
+      pattern:
+        /€\s*(\d{1,5}(?:[.,]\d{2}))[\s\S]{0,500}?(?:prices of products sold on Amazon include VAT|prodotti venduti su Amazon includono|produits vendus par Amazon incluent)/gi
+    }
+  ];
+
+  for (const item of patterns) {
+    let match = item.pattern.exec(normalized);
+
+    while (match !== null) {
+      const price = parseEuroPrice(`€${match[1] || ''}`);
+      const context = getContext(normalized, match.index, 260, 420);
+
+      addCandidate(
+        candidates,
+        normalized,
+        price,
+        match.index,
+        `${sourcePrefix}:${item.source}`,
+        context
+      );
+
+      match = item.pattern.exec(normalized);
+    }
+  }
+
+  return candidates;
+}
+
+function extractPriceFromAmazonHtml(html: string): ScrapeResult & {
+  candidates: PriceCandidate[];
+} {
+  const pageText = cheerio.load(html).root().text().replace(/\u00a0/g, ' ');
+
+  const candidates = [
+    ...extractOfferListingCandidates(pageText, 'direct'),
+    ...extractCorePriceCandidatesFromHtml(html, 'direct'),
+    ...extractCorePriceCandidatesFromText(pageText, 'direct')
+  ];
+
+  const valid = candidates
+    .filter((candidate) => {
+      if (candidate.price <= 0) return false;
+      if (hasUsdPrice(candidate.context) && !hasEuroPrice(candidate.context)) {
+        return false;
+      }
+
+      return candidate.score > -200;
+    })
+    .sort((a, b) => b.score - a.score || a.index - b.index);
+
+  const best = valid[0];
+
+  if (!best) {
+    return {
+      price: null,
+      source: 'amazon-price-not-visible',
+      error: null,
+      candidates
+    };
+  }
+
+  return {
+    price: best.price,
+    source: `${best.source} score=${best.score} | contesto: ${cleanContext(
+      best.context
+    )}`,
+    error: null,
+    candidates
+  };
+}
+
+function extractPriceFromAmazonText(text: string): ScrapeResult & {
+  candidates: PriceCandidate[];
+} {
+  const normalized = text.replace(/\u00a0/g, ' ');
+
+  const candidates = [
+    ...extractOfferListingCandidates(normalized, 'reader'),
+    ...extractCorePriceCandidatesFromText(normalized, 'reader')
+  ];
+
+  const valid = candidates
+    .filter((candidate) => {
+      if (candidate.price <= 0) return false;
+      if (hasUsdPrice(candidate.context) && !hasEuroPrice(candidate.context)) {
+        return false;
+      }
+
+      return candidate.score > -200;
+    })
+    .sort((a, b) => b.score - a.score || a.index - b.index);
+
+  const best = valid[0];
+
+  if (!best) {
+    return {
+      price: null,
+      source: 'amazon-reader-price-not-visible',
+      error: null,
+      candidates
+    };
+  }
+
+  return {
+    price: best.price,
+    source: `${best.source} score=${best.score} | contesto: ${cleanContext(
+      best.context
+    )}`,
+    error: null,
+    candidates
+  };
 }
 
 function getCorePriceTexts($: cheerio.CheerioAPI): string[] {
@@ -564,17 +550,21 @@ function getCorePriceTexts($: cheerio.CheerioAPI): string[] {
 
 function extractAllEuroPricesWithContext(text: string): string[] {
   const normalized = text.replace(/\u00a0/g, ' ');
-  const priceRegex = /(?:€\s*)?(\d{1,5}(?:[.,]\d{2}))\s*€/gi;
+  const priceRegex = /€\s*(\d{1,5}(?:[.,]\d{2}))|(\d{1,5}(?:[.,]\d{2}))\s*€/gi;
   const results: string[] = [];
 
   let match = priceRegex.exec(normalized);
 
-  while (match !== null && results.length < 18) {
-    const price = normalizePrice(match[1] || '');
-    const context = cleanContext(getContext(normalized, match.index, 160, 220), 430);
+  while (match !== null && results.length < 20) {
+    const raw = match[1] || match[2] || '';
+    const price = parseEuroPrice(`€${raw}`);
+    const context = cleanContext(
+      getContext(normalized, match.index, 180, 260),
+      520
+    );
 
     results.push(
-      `${results.length + 1}) prezzo=${price ?? match[1]} | contesto=${context}`
+      `${results.length + 1}) prezzo=${price ?? raw} | contesto=${context}`
     );
 
     match = priceRegex.exec(normalized);
@@ -588,23 +578,22 @@ function findKeywordSnippets(text: string): string[] {
   const lower = normalized.toLowerCase();
 
   const keywords = [
-    'speditore',
-    'venditore',
-    'venduto',
-    'amazon',
-    'vendeur',
-    'vendu',
-    'expéditeur',
-    'expediteur',
-    'verkauf',
-    'verkäufer',
-    'seller',
+    'other sellers on amazon',
+    'new & used',
+    'altri venditori',
+    'nuovo e usato',
+    'autres vendeurs',
+    'neuf et occasion',
+    'andere verkäufer',
+    'neu und gebraucht',
+    'amazon choice',
+    "amazon's choice",
     'sold by',
-    'ships from',
-    'nuovo',
-    'neuf',
-    'neu',
-    'new'
+    'venduto',
+    'vendeur',
+    'verkauf',
+    'usd',
+    '€'
   ];
 
   const snippets: string[] = [];
@@ -614,11 +603,11 @@ function findKeywordSnippets(text: string): string[] {
 
     if (index >= 0) {
       snippets.push(
-        `${keyword}: ${cleanContext(getContext(normalized, index, 250, 450), 700)}`
+        `${keyword}: ${cleanContext(getContext(normalized, index, 260, 480), 800)}`
       );
     }
 
-    if (snippets.length >= 12) break;
+    if (snippets.length >= 14) break;
   }
 
   return snippets;
@@ -640,37 +629,34 @@ function buildDebugSource(input: {
   const readerText = input.readerText || '';
   const searchText = input.searchText || '';
 
-  let buyBoxText = '';
   let corePrices: string[] = [];
 
   if (directText) {
     const $ = cheerio.load(directText);
-    buyBoxText = cleanContext(getBuyBoxText($), 1800);
     corePrices = getCorePriceTexts($);
   }
 
   const directPlainText = directText
-    ? cleanContext(cheerio.load(directText).root().text(), 8000)
+    ? cleanContext(cheerio.load(directText).root().text(), 9000)
     : '';
 
-  const directRelevantText = trimToRelevantAmazonArea(directPlainText);
-  const readerRelevantText = trimToRelevantAmazonArea(readerText);
-  const searchRelevantText = trimToRelevantAmazonArea(searchText);
+  const readerPlainText = readerText ? cleanContext(readerText, 9000) : '';
+  const searchPlainText = searchText ? cleanContext(searchText, 9000) : '';
 
-  const directKeywordSnippets = findKeywordSnippets(directRelevantText);
-  const readerKeywordSnippets = findKeywordSnippets(readerRelevantText);
-  const searchKeywordSnippets = findKeywordSnippets(searchRelevantText);
+  const directKeywordSnippets = findKeywordSnippets(directPlainText);
+  const readerKeywordSnippets = findKeywordSnippets(readerPlainText);
+  const searchKeywordSnippets = findKeywordSnippets(searchPlainText);
 
-  const directPrices = extractAllEuroPricesWithContext(directRelevantText);
-  const readerPrices = extractAllEuroPricesWithContext(readerRelevantText);
-  const searchPrices = extractAllEuroPricesWithContext(searchRelevantText);
+  const directPrices = extractAllEuroPricesWithContext(directPlainText);
+  const readerPrices = extractAllEuroPricesWithContext(readerPlainText);
+  const searchPrices = extractAllEuroPricesWithContext(searchPlainText);
 
   const candidates = (input.candidates || [])
     .sort((a, b) => b.score - a.score)
-    .slice(0, 10)
+    .slice(0, 12)
     .map(
       (candidate, index) =>
-        `${index + 1}) price=${candidate.price} score=${candidate.score} source=${candidate.source} context=${cleanContext(candidate.context, 600)}`
+        `${index + 1}) price=${candidate.price} score=${candidate.score} source=${candidate.source} context=${cleanContext(candidate.context, 650)}`
     );
 
   return [
@@ -679,11 +665,6 @@ function buildDebugSource(input: {
     `direct=${input.direct.status} ${input.direct.statusText} ok=${input.direct.ok} textLength=${directText.length}`,
     `reader=${input.reader ? `${input.reader.status} ${input.reader.statusText} ok=${input.reader.ok} textLength=${readerText.length}` : 'not-run'}`,
     `search=${input.search ? `${input.search.status} ${input.search.statusText} ok=${input.search.ok} textLength=${searchText.length}` : 'not-run'}`,
-    `direct_hasSellerSignal=${hasAmazonSellerSignal(directPlainText)}`,
-    `direct_hasShippingSignal=${hasAmazonShippingSignal(directPlainText)}`,
-    `buyBox_hasSellerSignal=${hasAmazonSellerSignal(buyBoxText)}`,
-    `buyBox_hasShippingSignal=${hasAmazonShippingSignal(buyBoxText)}`,
-    `buyBoxText=${buyBoxText || '-'}`,
     `corePriceTexts=${corePrices.length > 0 ? corePrices.join(' || ') : '-'}`,
     `candidates=${candidates.length > 0 ? candidates.join(' || ') : '-'}`,
     `directKeywordSnippets=${directKeywordSnippets.length > 0 ? directKeywordSnippets.join(' || ') : '-'}`,
@@ -693,206 +674,6 @@ function buildDebugSource(input: {
     `readerPrices=${readerPrices.length > 0 ? readerPrices.join(' || ') : '-'}`,
     `searchPrices=${searchPrices.length > 0 ? searchPrices.join(' || ') : '-'}`
   ].join(' | ');
-}
-
-function extractPriceFromAmazonHtml(html: string): ScrapeResult & {
-  candidates: PriceCandidate[];
-} {
-  const $ = cheerio.load(html);
-  const normalizedHtml = html.replace(/\u00a0/g, ' ');
-  const pageText = $.root().text().replace(/\u00a0/g, ' ');
-  const relevantPageText = trimToRelevantAmazonArea(pageText);
-  const buyBoxText = getBuyBoxText($);
-  const candidates: PriceCandidate[] = [];
-
-  candidates.push(
-    ...extractStrictSoldByAmazonFromText(relevantPageText, 'html-page-text')
-  );
-
-  if (
-    buyBoxText &&
-    hasAmazonSellerSignal(buyBoxText) &&
-    !hasUnavailableSignals(buyBoxText) &&
-    !isBadSectionContext(buyBoxText)
-  ) {
-    const buyBoxPrice = findFirstPriceAfterCondition(buyBoxText);
-
-    if (buyBoxPrice.price !== null) {
-      addCandidate(
-        candidates,
-        relevantPageText,
-        buyBoxPrice.price,
-        buyBoxPrice.index >= 0 ? buyBoxPrice.index : 0,
-        'buybox-container-condition-price',
-        buyBoxText
-      );
-    }
-
-    const coreSelectors = [
-      '#corePriceDisplay_desktop_feature_div .a-price .a-offscreen',
-      '#corePrice_feature_div .a-price .a-offscreen',
-      '#apex_desktop .a-price .a-offscreen',
-      '#priceblock_ourprice',
-      '#priceblock_dealprice',
-      '#price_inside_buybox',
-      '.priceToPay .a-offscreen',
-      '[data-a-color="price"] .a-offscreen'
-    ];
-
-    for (const selector of coreSelectors) {
-      const nodes = $(selector).toArray().slice(0, 12);
-
-      for (const node of nodes) {
-        const element = $(node);
-        const raw =
-          element.attr('content') ||
-          element.attr('value') ||
-          element.text() ||
-          '';
-
-        const price = normalizePrice(raw);
-
-        if (price !== null) {
-          const localContext =
-            element
-              .closest(
-                '#corePriceDisplay_desktop_feature_div, #corePrice_feature_div, #apex_desktop, #desktop_buybox, #buybox, #rightCol, div'
-              )
-              .text() || raw;
-
-          const context = `${localContext} ${buyBoxText}`;
-          const htmlIndex = normalizedHtml.indexOf(raw);
-
-          addCandidate(
-            candidates,
-            relevantPageText,
-            price,
-            htmlIndex >= 0 ? htmlIndex : 0,
-            'selector-coreprice-sold-by-amazon',
-            context
-          );
-        }
-      }
-    }
-
-    $(
-      '#corePriceDisplay_desktop_feature_div .a-price, #corePrice_feature_div .a-price, #apex_desktop .a-price, .priceToPay .a-price'
-    ).each((index, node) => {
-      const element = $(node);
-      const whole = cleanText(element.find('.a-price-whole').first().text());
-      const fraction = cleanText(
-        element.find('.a-price-fraction').first().text()
-      );
-
-      if (!whole || !fraction) return;
-
-      const raw = `${whole},${fraction}`;
-      const price = normalizePrice(raw);
-
-      const localContext =
-        element
-          .closest(
-            '#corePriceDisplay_desktop_feature_div, #corePrice_feature_div, #apex_desktop, #desktop_buybox, #buybox, #rightCol, div'
-          )
-          .text() || element.text();
-
-      const context = `${localContext} ${buyBoxText}`;
-
-      addCandidate(
-        candidates,
-        relevantPageText,
-        price,
-        index,
-        'selector-split-a-price-sold-by-amazon',
-        context
-      );
-    });
-  }
-
-  const valid = candidates
-    .filter((candidate) => {
-      const nearContext = getNearContext(
-        relevantPageText,
-        candidate.index,
-        120,
-        160
-      );
-
-      const requiresNew =
-        candidate.source.includes('main-buybox-line') ||
-        candidate.source.includes('strict-sold-by-amazon');
-
-      return (
-        candidate.score > 0 &&
-        isAcceptableSoldByAmazonCandidate(
-          candidate.context,
-          nearContext,
-          requiresNew
-        )
-      );
-    })
-    .sort((a, b) => b.score - a.score || a.index - b.index);
-
-  const best = valid[0];
-
-  if (!best) {
-    return {
-      price: null,
-      source: 'amazon-sold-by-amazon-price-not-visible',
-      error: null,
-      candidates
-    };
-  }
-
-  return {
-    price: best.price,
-    source: makeSource(`${best.source} score=${best.score}`, best.context),
-    error: null,
-    candidates
-  };
-}
-
-function extractPriceFromAmazonText(text: string): ScrapeResult & {
-  candidates: PriceCandidate[];
-} {
-  const relevantText = trimToRelevantAmazonArea(text.replace(/\u00a0/g, ' '));
-  const candidates = extractStrictSoldByAmazonFromText(
-    relevantText,
-    'reader-text'
-  );
-
-  const valid = candidates
-    .filter((candidate) => {
-      const nearContext = getNearContext(relevantText, candidate.index, 120, 160);
-
-      return (
-        candidate.score > 0 &&
-        isAcceptableSoldByAmazonCandidate(
-          candidate.context,
-          nearContext,
-          true
-        )
-      );
-    })
-    .sort((a, b) => b.score - a.score || a.index - b.index);
-
-  const best = valid[0];
-
-  if (!best) {
-    return {
-      price: null,
-      source: 'amazon-reader-sold-by-amazon-price-not-visible',
-      error: null,
-      candidates
-    };
-  }
-
-  return {
-    price: best.price,
-    source: makeSource(`${best.source} score=${best.score}`, best.context),
-    error: null,
-    candidates
-  };
 }
 
 async function fetchText(url: string): Promise<FetchResult> {
@@ -987,8 +768,9 @@ export async function scrapeAmazonPrice(
 
       if (result.price !== null) {
         return {
-          ...result,
+          price: result.price,
           source: `${marketplace}:direct:${result.source}`,
+          error: null,
           url,
           marketplace
         };
@@ -1004,8 +786,9 @@ export async function scrapeAmazonPrice(
 
       if (result.price !== null) {
         return {
-          ...result,
+          price: result.price,
           source: `${marketplace}:jina-reader:${result.source}`,
+          error: null,
           url,
           marketplace
         };
@@ -1021,8 +804,9 @@ export async function scrapeAmazonPrice(
 
       if (result.price !== null) {
         return {
-          ...result,
+          price: result.price,
           source: `${marketplace}:jina-search:${result.source}`,
+          error: null,
           url,
           marketplace
         };
@@ -1039,8 +823,8 @@ export async function scrapeAmazonPrice(
         reader,
         search,
         directText: direct.text,
-        readerText: reader.text,
-        searchText: search.text,
+        readerText: reader?.text || null,
+        searchText: search?.text || null,
         candidates: allCandidates
       }),
       error: null,
