@@ -28,7 +28,7 @@ const BROWSER_HEADERS: HeadersInit = {
   accept:
     'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8',
   'accept-language':
-    'de-DE,de;q=0.9,fr-FR,fr;q=0.8,it-IT,it;q=0.7,en-US;q=0.6,en;q=0.5',
+    'fr-FR,fr;q=0.9,de-DE,de;q=0.8,it-IT,it;q=0.7,en-US;q=0.6,en;q=0.5',
   'cache-control': 'no-cache',
   pragma: 'no-cache',
   'upgrade-insecure-requests': '1'
@@ -90,6 +90,7 @@ function cleanContext(value: string): string {
 
 function makeSource(source: string, context?: string): string {
   if (!context) return source;
+
   return `${source} | contesto: ${cleanContext(context)}`;
 }
 
@@ -105,6 +106,7 @@ function extractFromJsonLd($: cheerio.CheerioAPI): ScrapeResult | null {
 
       for (const item of candidates) {
         const result = findOfferPrice(item, raw);
+
         if (result.price !== null) return result;
       }
     } catch {
@@ -196,8 +198,10 @@ function findOfferPrice(value: unknown, context = ''): ScrapeResult {
 }
 
 function extractWithSelectors($: cheerio.CheerioAPI): ScrapeResult | null {
+  const candidates: PriceCandidate[] = [];
+
   for (const selector of PRICE_SELECTORS) {
-    const nodes = $(selector).toArray().slice(0, 40);
+    const nodes = $(selector).toArray().slice(0, 80);
 
     for (const node of nodes) {
       const element = $(node);
@@ -211,16 +215,36 @@ function extractWithSelectors($: cheerio.CheerioAPI): ScrapeResult | null {
       const price = normalizePrice(content);
 
       if (price !== null && price < 300) {
-        return {
+        const parentContext =
+          element.parent().text() ||
+          element.closest('section, article, div').text() ||
+          content;
+
+        const context = parentContext || content;
+
+        candidates.push({
           price,
-          source: makeSource(`css:${selector}`, content),
-          error: null
-        };
+          context,
+          index: 0,
+          score: scoreCandidate(price, context, 0)
+        });
       }
     }
   }
 
-  return null;
+  const valid = candidates
+    .filter((candidate) => candidate.score > -80)
+    .sort((a, b) => b.score - a.score || a.index - b.index);
+
+  const best = valid[0];
+
+  if (!best) return null;
+
+  return {
+    price: best.price,
+    source: makeSource(`css-smart score=${best.score}`, best.context),
+    error: null
+  };
 }
 
 function isLikelyShippingOrNoise(context: string): boolean {
@@ -232,6 +256,7 @@ function isLikelyShippingOrNoise(context: string): boolean {
     'frais de livraison',
     'frais de port',
     'port offert',
+    'hors frais de livraison',
     'shipping',
     'delivery',
     'free shipping',
@@ -274,44 +299,101 @@ function isLikelyShippingOrNoise(context: string): boolean {
   return badWords.some((word) => lower.includes(word));
 }
 
+function hasPrimaryProductSignals(context: string): boolean {
+  const lower = context.toLowerCase();
+
+  const signals = [
+    'en stock',
+    'auf lager',
+    'in stock',
+    'disponibile',
+    'sofort lieferbar',
+    'tva incluse',
+    'iva inclusa',
+    'inkl. mwst',
+    'inklusive mwst',
+    'hors frais de livraison',
+    'ajouter au panier',
+    'in den warenkorb',
+    'aggiungi al carrello'
+  ];
+
+  return signals.some((signal) => lower.includes(signal));
+}
+
+function hasVeryGoodConditionSignal(context: string): boolean {
+  const lower = context.toLowerCase();
+
+  const signals = [
+    'très bon état',
+    'tres bon etat',
+    'sehr guter zustand',
+    'very good',
+    'ottime condizioni',
+    'ottimo stato'
+  ];
+
+  return signals.some((signal) => lower.includes(signal));
+}
+
+function hasPlainGoodConditionSignal(context: string): boolean {
+  const lower = context.toLowerCase();
+
+  const signals = [
+    ' bon état',
+    'bon etat',
+    'guter zustand',
+    'good condition',
+    'buono stato',
+    'buone condizioni'
+  ];
+
+  return signals.some((signal) => lower.includes(signal));
+}
+
 function scoreCandidate(price: number, context: string, index: number): number {
   const lower = context.toLowerCase();
   let score = 0;
 
   if (price > 0 && price < 300) score += 10;
 
-  if (lower.includes('in stock')) score += 45;
-  if (lower.includes('en stock')) score += 45;
-  if (lower.includes('auf lager')) score += 45;
-  if (lower.includes('disponibile')) score += 45;
-  if (lower.includes('sofort lieferbar')) score += 45;
+  if (lower.includes('in stock')) score += 60;
+  if (lower.includes('en stock')) score += 60;
+  if (lower.includes('auf lager')) score += 60;
+  if (lower.includes('disponibile')) score += 60;
+  if (lower.includes('sofort lieferbar')) score += 60;
 
-  if (lower.includes('inkl. mwst')) score += 40;
-  if (lower.includes('inklusive mwst')) score += 40;
-  if (lower.includes('tva incluse')) score += 40;
-  if (lower.includes('iva inclusa')) score += 40;
+  if (lower.includes('inkl. mwst')) score += 45;
+  if (lower.includes('inklusive mwst')) score += 45;
+  if (lower.includes('tva incluse')) score += 45;
+  if (lower.includes('iva inclusa')) score += 45;
+  if (lower.includes('hors frais de livraison')) score += 25;
 
   if (lower.includes('warenkorb')) score += 35;
   if (lower.includes('in den warenkorb')) score += 35;
   if (lower.includes('ajouter au panier')) score += 35;
   if (lower.includes('aggiungi al carrello')) score += 35;
 
-  if (lower.includes('gebraucht')) score += 25;
-  if (lower.includes('sehr guter zustand')) score += 25;
-  if (lower.includes('guter zustand')) score += 20;
-  if (lower.includes('très bon état')) score += 25;
-  if (lower.includes('bon état')) score += 20;
-  if (lower.includes('usato')) score += 20;
+  if (hasVeryGoodConditionSignal(context)) score += 120;
 
-  if (lower.includes('preis')) score += 20;
-  if (lower.includes('prix')) score += 20;
-  if (lower.includes('prezzo')) score += 20;
-  if (lower.includes('price')) score += 20;
+  if (hasPlainGoodConditionSignal(context) && !hasVeryGoodConditionSignal(context)) {
+    score -= 70;
+  }
 
-  if (isLikelyShippingOrNoise(context)) score -= 140;
+  if (lower.includes('choisissez l’état')) score += 10;
+  if (lower.includes("choisissez l'état")) score += 10;
+  if (lower.includes('zustand wählen')) score += 10;
+  if (lower.includes('choose condition')) score += 10;
 
-  // Penalità morbida: 19 è spesso una soglia commerciale/spedizione,
-  // ma non lo eliminiamo sempre perché potrebbe essere davvero il prezzo.
+  if (lower.includes('preis')) score += 15;
+  if (lower.includes('prix')) score += 15;
+  if (lower.includes('prezzo')) score += 15;
+  if (lower.includes('price')) score += 15;
+
+  if (isLikelyShippingOrNoise(context) && !hasPrimaryProductSignals(context)) {
+    score -= 140;
+  }
+
   if (price === 19 || price === 19.0) score -= 60;
 
   if (index < 12000) score += 5;
@@ -319,7 +401,81 @@ function scoreCandidate(price: number, context: string, index: number): number {
   return score;
 }
 
+function findBestPriceNearPrimaryBlock(text: string): ScrapeResult | null {
+  const normalizedText = text.replace(/\u00a0/g, ' ');
+  const lower = normalizedText.toLowerCase();
+
+  const primaryMarkers = [
+    'en stock',
+    'auf lager',
+    'in stock',
+    'disponibile',
+    'tva incluse',
+    'iva inclusa',
+    'inkl. mwst',
+    'hors frais de livraison'
+  ];
+
+  const markerIndexes = primaryMarkers
+    .map((marker) => lower.indexOf(marker))
+    .filter((index) => index >= 0)
+    .sort((a, b) => a - b);
+
+  if (markerIndexes.length === 0) return null;
+
+  const priceRegex = /(?:€\s*)?(\d{1,4}(?:[.,]\d{2}))\s*€/g;
+  const candidates: PriceCandidate[] = [];
+
+  for (const markerIndex of markerIndexes) {
+    const start = Math.max(0, markerIndex - 500);
+    const end = Math.min(normalizedText.length, markerIndex + 500);
+    const block = normalizedText.slice(start, end);
+
+    let match = priceRegex.exec(block);
+
+    while (match !== null) {
+      const price = normalizePrice(match[1]);
+
+      if (price !== null && price < 300) {
+        const globalIndex = start + match.index;
+        const contextStart = Math.max(0, globalIndex - 300);
+        const contextEnd = Math.min(normalizedText.length, globalIndex + 300);
+        const context = normalizedText.slice(contextStart, contextEnd);
+
+        candidates.push({
+          price,
+          context,
+          index: globalIndex,
+          score: scoreCandidate(price, context, globalIndex) + 80
+        });
+      }
+
+      match = priceRegex.exec(block);
+    }
+  }
+
+  const valid = candidates
+    .filter((candidate) => candidate.score > -80)
+    .sort((a, b) => b.score - a.score || a.index - b.index);
+
+  const best = valid[0];
+
+  if (!best) return null;
+
+  return {
+    price: best.price,
+    source: makeSource(`regex-primary-block score=${best.score}`, best.context),
+    error: null
+  };
+}
+
 function extractSmartPriceFromText(text: string): ScrapeResult | null {
+  const primaryBlockResult = findBestPriceNearPrimaryBlock(text);
+
+  if (primaryBlockResult !== null) {
+    return primaryBlockResult;
+  }
+
   const normalizedText = text.replace(/\u00a0/g, ' ');
   const priceRegex = /(?:€\s*)?(\d{1,4}(?:[.,]\d{2}))\s*€/g;
   const candidates: PriceCandidate[] = [];
@@ -350,7 +506,7 @@ function extractSmartPriceFromText(text: string): ScrapeResult | null {
 
   const valid = candidates
     .filter((candidate) => candidate.score > -80)
-    .sort((a, b) => b.score - a.score || a.price - b.price || a.index - b.index);
+    .sort((a, b) => b.score - a.score || a.index - b.index);
 
   const best = valid[0];
 
@@ -367,16 +523,16 @@ function extractWithRegex(text: string): ScrapeResult | null {
   const structuredPatterns = [
     {
       name: 'structured-price',
-      pattern: /"price"\s*:\s*"?(\\d{1,4}(?:[.,]\\d{2}))"?/i
+      pattern: /"price"\s*:\s*"?(\d{1,4}(?:[.,]\d{2}))"?/i
     },
     {
       name: 'structured-lowPrice',
-      pattern: /"lowPrice"\s*:\s*"?(\\d{1,4}(?:[.,]\\d{2}))"?/i
+      pattern: /"lowPrice"\s*:\s*"?(\d{1,4}(?:[.,]\d{2}))"?/i
     },
     {
       name: 'label-price',
       pattern:
-        /(?:price|preis|prix|prezzo|actuel|aktuell)[^0-9]{0,160}(\\d{1,4}(?:[.,]\\d{2}))/i
+        /(?:price|preis|prix|prezzo|actuel|aktuell)[^0-9]{0,160}(\d{1,4}(?:[.,]\d{2}))/i
     }
   ];
 
@@ -408,6 +564,7 @@ function extractWithRegex(text: string): ScrapeResult | null {
 function buildReferer(url: string): string {
   try {
     const parsed = new URL(url);
+
     return `${parsed.protocol}//${parsed.hostname}/`;
   } catch {
     return 'https://www.google.com/';
@@ -518,12 +675,15 @@ async function fetchViaJinaSearch(url: string): Promise<{
 
 function extractPriceFromHtml(html: string): ScrapeResult {
   const selected = extractWithSelectors(cheerio.load(html));
+
   if (selected !== null) return selected;
 
   const jsonLd = extractFromJsonLd(cheerio.load(html));
+
   if (jsonLd !== null) return jsonLd;
 
   const regex = extractWithRegex(html);
+
   if (regex !== null) return { ...regex, source: `html:${regex.source}` };
 
   return {
