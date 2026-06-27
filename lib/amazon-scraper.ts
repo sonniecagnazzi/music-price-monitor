@@ -81,14 +81,14 @@ function withVat(price: number, marketplace: AmazonMarketplace): number {
   return roundPrice(price * (1 + AMAZON_VAT_RATES[marketplace]));
 }
 
-function getContext(text: string, index: number, before = 650, after = 750) {
+function getContext(text: string, index: number, before = 850, after = 950) {
   return text.slice(
     Math.max(0, index - before),
     Math.min(text.length, index + after)
   );
 }
 
-function normalizeTextForSearch(value: string): string {
+function normalizeText(value: string): string {
   return value.replace(/\u00a0/g, ' ');
 }
 
@@ -132,7 +132,11 @@ function looksLikeBadProductSection(text: string): boolean {
     lower.includes('frequently bought together') ||
     lower.includes('spesso comprati insieme') ||
     lower.includes('fréquemment achetés ensemble') ||
-    lower.includes('wird oft zusammen gekauft')
+    lower.includes('wird oft zusammen gekauft') ||
+    lower.includes('amazon music unlimited') ||
+    lower.includes('prime video') ||
+    lower.includes('kindle') ||
+    lower.includes('audible')
   );
 }
 
@@ -161,44 +165,39 @@ function extractOfferCandidatesFromText(
   text: string,
   sourcePrefix: string
 ): PriceCandidate[] {
-  const normalized = normalizeTextForSearch(text);
+  const normalized = normalizeText(text);
   const candidates: PriceCandidate[] = [];
 
-  /*
-    Questi pattern sono volutamente semplici:
-    prendono SOLO prezzi “from/da/à partir de/ab €...”
-    vicini a New & Used / Other sellers.
-  */
   const patterns = [
     {
       source: 'new-used-from-euro-prefix',
       pattern:
-        /(?:New\s*&\s*Used|New\s+and\s+Used|Nuovo\s+e\s+usato|Nuovi\s+e\s+usati|Neuf\s+et\s+occasion|Neuf\s*&\s*occasion|Neu\s+und\s+gebraucht|Neu\s*&\s*Gebraucht)[\s\S]{0,700}?(?:from|da|à partir de|ab)\s*€\s*(\d{1,5}(?:[.,]\d{2}))/gi
+        /(?:New\s*&\s*Used|New\s+and\s+Used|Nuovo\s+e\s+usato|Nuovi\s+e\s+usati|Neuf\s+et\s+occasion|Neuf\s*&\s*occasion|Neu\s+und\s+gebraucht|Neu\s*&\s*Gebraucht)[\s\S]{0,900}?(?:from|da|à partir de|ab)\s*€\s*(\d{1,5}(?:[.,]\d{2}))/gi
     },
     {
       source: 'new-used-from-euro-after',
       pattern:
-        /(?:New\s*&\s*Used|New\s+and\s+Used|Nuovo\s+e\s+usato|Nuovi\s+e\s+usati|Neuf\s+et\s+occasion|Neuf\s*&\s*occasion|Neu\s+und\s+gebraucht|Neu\s*&\s*Gebraucht)[\s\S]{0,700}?(?:from|da|à partir de|ab)\s*(\d{1,5}(?:[.,]\d{2}))\s*€/gi
+        /(?:New\s*&\s*Used|New\s+and\s+Used|Nuovo\s+e\s+usato|Nuovi\s+e\s+usati|Neuf\s+et\s+occasion|Neuf\s*&\s*occasion|Neu\s+und\s+gebraucht|Neu\s*&\s*Gebraucht)[\s\S]{0,900}?(?:from|da|à partir de|ab)\s*(\d{1,5}(?:[.,]\d{2}))\s*€/gi
     },
     {
       source: 'other-sellers-from-euro-prefix',
       pattern:
-        /(?:Other sellers on Amazon|Altri venditori(?:\s+su\s+Amazon)?|Autres vendeurs(?:\s+sur\s+Amazon)?|Andere Verkäufer(?:\s+bei\s+Amazon)?|Andere Verkaeufer(?:\s+bei\s+Amazon)?)[\s\S]{0,2200}?(?:from|da|à partir de|ab)\s*€\s*(\d{1,5}(?:[.,]\d{2}))/gi
+        /(?:Other sellers on Amazon|Altri venditori(?:\s+su\s+Amazon)?|Autres vendeurs(?:\s+sur\s+Amazon)?|Andere Verkäufer(?:\s+bei\s+Amazon)?|Andere Verkaeufer(?:\s+bei\s+Amazon)?)[\s\S]{0,2600}?(?:from|da|à partir de|ab)\s*€\s*(\d{1,5}(?:[.,]\d{2}))/gi
     },
     {
       source: 'other-sellers-from-euro-after',
       pattern:
-        /(?:Other sellers on Amazon|Altri venditori(?:\s+su\s+Amazon)?|Autres vendeurs(?:\s+sur\s+Amazon)?|Andere Verkäufer(?:\s+bei\s+Amazon)?|Andere Verkaeufer(?:\s+bei\s+Amazon)?)[\s\S]{0,2200}?(?:from|da|à partir de|ab)\s*(\d{1,5}(?:[.,]\d{2}))\s*€/gi
+        /(?:Other sellers on Amazon|Altri venditori(?:\s+su\s+Amazon)?|Autres vendeurs(?:\s+sur\s+Amazon)?|Andere Verkäufer(?:\s+bei\s+Amazon)?|Andere Verkaeufer(?:\s+bei\s+Amazon)?)[\s\S]{0,2600}?(?:from|da|à partir de|ab)\s*(\d{1,5}(?:[.,]\d{2}))\s*€/gi
     },
     {
       source: 'offer-listing-link-from-euro-prefix',
       pattern:
-        /gp\/offer-listing\/[A-Z0-9]{10}[\s\S]{0,1600}?(?:from|da|à partir de|ab)\s*€\s*(\d{1,5}(?:[.,]\d{2}))/gi
+        /gp\/offer-listing\/[A-Z0-9]{10}[\s\S]{0,1800}?(?:from|da|à partir de|ab)\s*€\s*(\d{1,5}(?:[.,]\d{2}))/gi
     },
     {
       source: 'offer-listing-link-from-euro-after',
       pattern:
-        /gp\/offer-listing\/[A-Z0-9]{10}[\s\S]{0,1600}?(?:from|da|à partir de|ab)\s*(\d{1,5}(?:[.,]\d{2}))\s*€/gi
+        /gp\/offer-listing\/[A-Z0-9]{10}[\s\S]{0,1800}?(?:from|da|à partir de|ab)\s*(\d{1,5}(?:[.,]\d{2}))\s*€/gi
     }
   ];
 
@@ -208,7 +207,7 @@ function extractOfferCandidatesFromText(
     while (match !== null) {
       const raw = match[1] || '';
       const parsed = parseEuroPrice(`€${raw}`);
-      const context = getContext(normalized, match.index, 900, 900);
+      const context = getContext(normalized, match.index, 1000, 1000);
 
       if (
         parsed !== null &&
@@ -278,23 +277,18 @@ function extractCoreCandidatesFromHtml(
           .text() || raw;
 
       if (hasUsd(context) && !hasEuro(context)) continue;
-      if (looksLikeBadProductSection(context)) continue;
 
       candidates.push({
         price: parsed,
         rawPrice: parsed,
         source: `${sourcePrefix}:core:${selector}`,
-        context: `${context} ${pageText.slice(0, 6000)}`,
+        context: `${context} ${pageText.slice(0, 8000)}`,
         index: pageText.indexOf(raw),
         kind: 'core'
       });
     }
   }
 
-  /*
-    Alcuni layout spezzano prezzo in whole/fraction.
-    Qui lo prendiamo solo dentro blocchi prezzo principali.
-  */
   $(
     '#corePrice_feature_div .a-price, #corePriceDisplay_desktop_feature_div .a-price, .priceToPay .a-price, #apex_desktop .a-price'
   ).each((index, node) => {
@@ -319,13 +313,12 @@ function extractCoreCandidatesFromHtml(
         .text() || element.text();
 
     if (hasUsd(context) && !hasEuro(context)) return;
-    if (looksLikeBadProductSection(context)) return;
 
     candidates.push({
       price: parsed,
       rawPrice: parsed,
       source: `${sourcePrefix}:core-split`,
-      context: `${context} ${pageText.slice(0, 6000)}`,
+      context: `${context} ${pageText.slice(0, 8000)}`,
       index,
       kind: 'core'
     });
@@ -342,9 +335,28 @@ function chooseBestOffer(candidates: PriceCandidate[]): PriceCandidate | null {
   return offers[0] || null;
 }
 
-function chooseBestCore(candidates: PriceCandidate[]): PriceCandidate | null {
+function chooseBestCore(
+  candidates: PriceCandidate[],
+  marketplace: AmazonMarketplace
+): PriceCandidate | null {
+  if (marketplace === 'DE') {
+    return null;
+  }
+
   const cores = candidates
     .filter((candidate) => candidate.kind === 'core')
+    .filter((candidate) => {
+      /*
+        Regola anti-falsi positivi:
+        core price sotto 20 € lo ignoriamo.
+        Questo evita casi tipo 4,62 € su B07JBCR129.
+        B0DVH4P8DB invece ha core 27/32 €, quindi passa.
+      */
+      if (candidate.price < 20) return false;
+      if (hasUsd(candidate.context) && !hasEuro(candidate.context)) return false;
+
+      return true;
+    })
     .sort((a, b) => b.price - a.price || a.index - b.index);
 
   return cores[0] || null;
@@ -388,7 +400,7 @@ function getCorePriceTexts($: cheerio.CheerioAPI): string[] {
 }
 
 function findKeywordSnippets(text: string): string[] {
-  const normalized = normalizeTextForSearch(text);
+  const normalized = normalizeText(text);
   const lower = normalized.toLowerCase();
 
   const keywords = [
@@ -629,7 +641,7 @@ export async function scrapeAmazonPrice(
       };
     }
 
-    const core = chooseBestCore(candidates);
+    const core = chooseBestCore(candidates, marketplace);
 
     if (core) {
       const mustAddVat = looksVatExcluded(`${core.context} ${pageContext}`);
