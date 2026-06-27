@@ -34,22 +34,20 @@ const JINA_HEADERS: HeadersInit = {
   'x-no-cache': 'true'
 };
 
-type PriceCandidateKind = 'offer-listing' | 'core-price';
-
-type PriceCandidate = {
-  price: number;
-  index: number;
-  score: number;
-  context: string;
-  source: string;
-  kind: PriceCandidateKind;
-};
-
 type FetchResult = {
   ok: boolean;
   status: number;
   statusText: string;
   text: string | null;
+};
+
+type PriceCandidate = {
+  price: number;
+  rawPrice: number;
+  source: string;
+  context: string;
+  index: number;
+  kind: 'offer' | 'core';
 };
 
 export function buildAmazonUrl(
@@ -63,7 +61,7 @@ function cleanText(value: string): string {
   return value.replace(/\u00a0/g, ' ').replace(/\s+/g, ' ').trim();
 }
 
-function cleanContext(value: string, maxLength = 1400): string {
+function cleanContext(value: string, maxLength = 1200): string {
   return cleanText(value).slice(0, maxLength);
 }
 
@@ -75,34 +73,38 @@ function buildJinaSearchUrl(url: string): string {
   return `https://s.jina.ai/?q=${encodeURIComponent(url)}`;
 }
 
-function getContext(text: string, index: number, before = 600, after = 900) {
+function roundPrice(value: number): number {
+  return Math.round(value * 100) / 100;
+}
+
+function withVat(price: number, marketplace: AmazonMarketplace): number {
+  return roundPrice(price * (1 + AMAZON_VAT_RATES[marketplace]));
+}
+
+function getContext(text: string, index: number, before = 650, after = 750) {
   return text.slice(
     Math.max(0, index - before),
     Math.min(text.length, index + after)
   );
 }
 
-function roundPrice(value: number): number {
-  return Math.round(value * 100) / 100;
-}
-
-function addVat(price: number, marketplace: AmazonMarketplace): number {
-  return roundPrice(price * (1 + AMAZON_VAT_RATES[marketplace]));
+function normalizeTextForSearch(value: string): string {
+  return value.replace(/\u00a0/g, ' ');
 }
 
 function parseEuroPrice(raw: string): number | null {
-  if (!/€/.test(raw)) return null;
+  if (!raw.includes('€')) return null;
 
   return normalizePrice(raw);
 }
 
-function hasUsdPrice(text: string): boolean {
+function hasUsd(text: string): boolean {
   return /\bUSD\b|\$\s*\d{1,5}(?:[.,]\d{2})|\d{1,5}(?:[.,]\d{2})\s*USD/i.test(
     text
   );
 }
 
-function hasEuroPrice(text: string): boolean {
+function hasEuro(text: string): boolean {
   return /€\s*\d{1,5}(?:[.,]\d{2})|\d{1,5}(?:[.,]\d{2})\s*€/i.test(text);
 }
 
@@ -115,171 +117,88 @@ function looksVatExcluded(text: string): boolean {
     lower.includes('états-unis') ||
     lower.includes('etats-unis') ||
     lower.includes('vereinigte staaten') ||
-    lower.includes('vat may vary') ||
     lower.includes('depending on your delivery address') ||
+    lower.includes('vat may vary') ||
     lower.includes('iva può variare') ||
     lower.includes('iva puo variare') ||
     lower.includes('tva peut varier')
   );
 }
 
-function isOfferListingContext(context: string): boolean {
-  const lower = cleanText(context).toLowerCase();
+function looksLikeBadProductSection(text: string): boolean {
+  const lower = cleanText(text).toLowerCase();
 
-  const hasOfferArea =
-    lower.includes('other sellers on amazon') ||
-    lower.includes('altri venditori') ||
-    lower.includes('autres vendeurs') ||
-    lower.includes('andere verkäufer') ||
-    lower.includes('andere verkaeufer') ||
-    lower.includes('offer-listing');
+  return (
+    lower.includes('frequently bought together') ||
+    lower.includes('spesso comprati insieme') ||
+    lower.includes('fréquemment achetés ensemble') ||
+    lower.includes('wird oft zusammen gekauft')
+  );
+}
 
-  const hasNewUsed =
+function isOfferContext(text: string): boolean {
+  const lower = cleanText(text).toLowerCase();
+
+  return (
     lower.includes('new & used') ||
     lower.includes('new and used') ||
+    lower.includes('other sellers on amazon') ||
     lower.includes('nuovo e usato') ||
     lower.includes('nuovi e usati') ||
+    lower.includes('altri venditori') ||
     lower.includes('neuf et occasion') ||
     lower.includes('neuf & occasion') ||
+    lower.includes('autres vendeurs') ||
     lower.includes('neu und gebraucht') ||
-    lower.includes('neu & gebraucht');
-
-  const hasFrom =
-    lower.includes('from€') ||
-    lower.includes('from €') ||
-    lower.includes('da€') ||
-    lower.includes('da €') ||
-    lower.includes('à partir de€') ||
-    lower.includes('à partir de €') ||
-    lower.includes('ab€') ||
-    lower.includes('ab €');
-
-  return (hasOfferArea && hasNewUsed) || (hasNewUsed && hasFrom);
+    lower.includes('neu & gebraucht') ||
+    lower.includes('andere verkäufer') ||
+    lower.includes('andere verkaeufer') ||
+    lower.includes('offer-listing')
+  );
 }
 
-function isClearlyBadContext(context: string): boolean {
-  const lower = cleanText(context).toLowerCase();
-
-  const badSignals = [
-    'frequently bought together',
-    'spesso comprati insieme',
-    'fréquemment achetés ensemble',
-    'wird oft zusammen gekauft',
-    'this item:',
-    'questo articolo:',
-    'cet article:',
-    'dieser artikel:'
-  ];
-
-  return badSignals.some((signal) => lower.includes(signal));
-}
-
-function addOfferCandidate(
-  candidates: PriceCandidate[],
-  fullText: string,
-  price: number | null,
-  index: number,
-  source: string,
-  contextOverride?: string
-) {
-  if (price === null || price <= 0 || price >= 1000) return;
-
-  const context = contextOverride || getContext(fullText, index);
-
-  if (!hasEuroPrice(context)) return;
-  if (hasUsdPrice(context) && !hasEuroPrice(context)) return;
-  if (!isOfferListingContext(context)) return;
-  if (isClearlyBadContext(context)) return;
-
-  let score = 10000;
-
-  if (source.includes('reader')) score += 1000;
-  if (source.includes('direct')) score += 700;
-  if (source.includes('other-sellers')) score += 700;
-  if (source.includes('new-used')) score += 700;
-  if (source.includes('from-euro')) score += 500;
-  if (source.includes('offer-listing-link')) score += 400;
-
-  candidates.push({
-    price,
-    index,
-    score,
-    context,
-    source,
-    kind: 'offer-listing'
-  });
-}
-
-function addCoreCandidate(
-  candidates: PriceCandidate[],
-  fullText: string,
-  price: number | null,
-  index: number,
-  source: string,
-  contextOverride?: string
-) {
-  if (price === null || price <= 0 || price >= 1000) return;
-
-  const context = contextOverride || getContext(fullText, index);
-
-  if (!hasEuroPrice(context)) return;
-  if (hasUsdPrice(context) && !hasEuroPrice(context)) return;
-  if (isClearlyBadContext(context)) return;
-
-  let score = 100;
-
-  if (source.includes('corePrice_feature_div')) score += 600;
-  if (source.includes('corePriceDisplay_desktop_feature_div')) score += 500;
-  if (source.includes('priceToPay')) score += 450;
-  if (source.includes('apex_desktop')) score += 350;
-
-  candidates.push({
-    price,
-    index,
-    score,
-    context,
-    source,
-    kind: 'core-price'
-  });
-}
-
-function extractOfferListingCandidates(
+function extractOfferCandidatesFromText(
   text: string,
   sourcePrefix: string
 ): PriceCandidate[] {
-  const normalized = text.replace(/\u00a0/g, ' ');
+  const normalized = normalizeTextForSearch(text);
   const candidates: PriceCandidate[] = [];
 
+  /*
+    Questi pattern sono volutamente semplici:
+    prendono SOLO prezzi “from/da/à partir de/ab €...”
+    vicini a New & Used / Other sellers.
+  */
   const patterns = [
-    {
-      source: 'other-sellers-new-used-from-euro-prefix',
-      pattern:
-        /(?:Other sellers on Amazon|Altri venditori(?:\s+su\s+Amazon)?|Autres vendeurs(?:\s+sur\s+Amazon)?|Andere Verkäufer(?:\s+bei\s+Amazon)?|Andere Verkaeufer(?:\s+bei\s+Amazon)?)[\s\S]{0,2200}?(?:New\s*&\s*Used|New\s+and\s+Used|Nuovo\s+e\s+usato|Nuovi\s+e\s+usati|Neuf\s+et\s+occasion|Neuf\s*&\s*occasion|Neu\s+und\s+gebraucht|Neu\s*&\s*Gebraucht)[\s\S]{0,500}?(?:from|da|à partir de|ab)\s*€\s*(\d{1,5}(?:[.,]\d{2}))/gi
-    },
-    {
-      source: 'other-sellers-new-used-from-euro-after',
-      pattern:
-        /(?:Other sellers on Amazon|Altri venditori(?:\s+su\s+Amazon)?|Autres vendeurs(?:\s+sur\s+Amazon)?|Andere Verkäufer(?:\s+bei\s+Amazon)?|Andere Verkaeufer(?:\s+bei\s+Amazon)?)[\s\S]{0,2200}?(?:New\s*&\s*Used|New\s+and\s+Used|Nuovo\s+e\s+usato|Nuovi\s+e\s+usati|Neuf\s+et\s+occasion|Neuf\s*&\s*occasion|Neu\s+und\s+gebraucht|Neu\s*&\s*Gebraucht)[\s\S]{0,500}?(?:from|da|à partir de|ab)\s*(\d{1,5}(?:[.,]\d{2}))\s*€/gi
-    },
     {
       source: 'new-used-from-euro-prefix',
       pattern:
-        /(?:New\s*&\s*Used|New\s+and\s+Used|Nuovo\s+e\s+usato|Nuovi\s+e\s+usati|Neuf\s+et\s+occasion|Neuf\s*&\s*occasion|Neu\s+und\s+gebraucht|Neu\s*&\s*Gebraucht)\s*\(\d+\)[\s\S]{0,500}?(?:from|da|à partir de|ab)\s*€\s*(\d{1,5}(?:[.,]\d{2}))/gi
+        /(?:New\s*&\s*Used|New\s+and\s+Used|Nuovo\s+e\s+usato|Nuovi\s+e\s+usati|Neuf\s+et\s+occasion|Neuf\s*&\s*occasion|Neu\s+und\s+gebraucht|Neu\s*&\s*Gebraucht)[\s\S]{0,700}?(?:from|da|à partir de|ab)\s*€\s*(\d{1,5}(?:[.,]\d{2}))/gi
     },
     {
       source: 'new-used-from-euro-after',
       pattern:
-        /(?:New\s*&\s*Used|New\s+and\s+Used|Nuovo\s+e\s+usato|Nuovi\s+e\s+usati|Neuf\s+et\s+occasion|Neuf\s*&\s*occasion|Neu\s+und\s+gebraucht|Neu\s*&\s*Gebraucht)\s*\(\d+\)[\s\S]{0,500}?(?:from|da|à partir de|ab)\s*(\d{1,5}(?:[.,]\d{2}))\s*€/gi
+        /(?:New\s*&\s*Used|New\s+and\s+Used|Nuovo\s+e\s+usato|Nuovi\s+e\s+usati|Neuf\s+et\s+occasion|Neuf\s*&\s*occasion|Neu\s+und\s+gebraucht|Neu\s*&\s*Gebraucht)[\s\S]{0,700}?(?:from|da|à partir de|ab)\s*(\d{1,5}(?:[.,]\d{2}))\s*€/gi
+    },
+    {
+      source: 'other-sellers-from-euro-prefix',
+      pattern:
+        /(?:Other sellers on Amazon|Altri venditori(?:\s+su\s+Amazon)?|Autres vendeurs(?:\s+sur\s+Amazon)?|Andere Verkäufer(?:\s+bei\s+Amazon)?|Andere Verkaeufer(?:\s+bei\s+Amazon)?)[\s\S]{0,2200}?(?:from|da|à partir de|ab)\s*€\s*(\d{1,5}(?:[.,]\d{2}))/gi
+    },
+    {
+      source: 'other-sellers-from-euro-after',
+      pattern:
+        /(?:Other sellers on Amazon|Altri venditori(?:\s+su\s+Amazon)?|Autres vendeurs(?:\s+sur\s+Amazon)?|Andere Verkäufer(?:\s+bei\s+Amazon)?|Andere Verkaeufer(?:\s+bei\s+Amazon)?)[\s\S]{0,2200}?(?:from|da|à partir de|ab)\s*(\d{1,5}(?:[.,]\d{2}))\s*€/gi
     },
     {
       source: 'offer-listing-link-from-euro-prefix',
       pattern:
-        /gp\/offer-listing\/[A-Z0-9]{10}[\s\S]{0,1400}?(?:from|da|à partir de|ab)\s*€\s*(\d{1,5}(?:[.,]\d{2}))/gi
+        /gp\/offer-listing\/[A-Z0-9]{10}[\s\S]{0,1600}?(?:from|da|à partir de|ab)\s*€\s*(\d{1,5}(?:[.,]\d{2}))/gi
     },
     {
-      source: 'generic-from-euro-with-new-used',
+      source: 'offer-listing-link-from-euro-after',
       pattern:
-        /(?:from|da|à partir de|ab)\s*€\s*(\d{1,5}(?:[.,]\d{2}))[\s\S]{0,700}?(?:delivery|livraison|consegna|versand)/gi
+        /gp\/offer-listing\/[A-Z0-9]{10}[\s\S]{0,1600}?(?:from|da|à partir de|ab)\s*(\d{1,5}(?:[.,]\d{2}))\s*€/gi
     }
   ];
 
@@ -288,17 +207,27 @@ function extractOfferListingCandidates(
 
     while (match !== null) {
       const raw = match[1] || '';
-      const price = parseEuroPrice(`€${raw}`);
+      const parsed = parseEuroPrice(`€${raw}`);
       const context = getContext(normalized, match.index, 900, 900);
 
-      addOfferCandidate(
-        candidates,
-        normalized,
-        price,
-        match.index,
-        `${sourcePrefix}:${item.source}`,
-        context
-      );
+      if (
+        parsed !== null &&
+        parsed > 0 &&
+        parsed < 1000 &&
+        hasEuro(context) &&
+        !hasUsd(context) &&
+        isOfferContext(context) &&
+        !looksLikeBadProductSection(context)
+      ) {
+        candidates.push({
+          price: parsed,
+          rawPrice: parsed,
+          source: `${sourcePrefix}:${item.source}`,
+          context,
+          index: match.index,
+          kind: 'offer'
+        });
+      }
 
       match = item.pattern.exec(normalized);
     }
@@ -307,12 +236,11 @@ function extractOfferListingCandidates(
   return candidates;
 }
 
-function extractCorePriceCandidatesFromHtml(
+function extractCoreCandidatesFromHtml(
   html: string,
   sourcePrefix: string
 ): PriceCandidate[] {
   const $ = cheerio.load(html);
-  const normalizedHtml = html.replace(/\u00a0/g, ' ');
   const pageText = $.root().text().replace(/\u00a0/g, ' ');
   const candidates: PriceCandidate[] = [];
 
@@ -328,7 +256,7 @@ function extractCorePriceCandidatesFromHtml(
   ];
 
   for (const selector of selectors) {
-    const nodes = $(selector).toArray().slice(0, 12);
+    const nodes = $(selector).toArray().slice(0, 20);
 
     for (const node of nodes) {
       const element = $(node);
@@ -338,31 +266,38 @@ function extractCorePriceCandidatesFromHtml(
         element.text() ||
         '';
 
-      const price = parseEuroPrice(raw);
+      const parsed = parseEuroPrice(raw);
 
-      if (price !== null) {
-        const localContext =
-          element
-            .closest(
-              '#corePrice_feature_div, #corePriceDisplay_desktop_feature_div, #apex_desktop, #desktop_buybox, #buybox, #rightCol, #centerCol, div'
-            )
-            .text() || raw;
+      if (parsed === null || parsed <= 0 || parsed >= 1000) continue;
 
-        const htmlIndex = normalizedHtml.indexOf(raw);
+      const context =
+        element
+          .closest(
+            '#corePrice_feature_div, #corePriceDisplay_desktop_feature_div, #apex_desktop, #desktop_buybox, #buybox, #rightCol, #centerCol, div'
+          )
+          .text() || raw;
 
-        addCoreCandidate(
-          candidates,
-          pageText,
-          price,
-          htmlIndex >= 0 ? htmlIndex : 0,
-          `${sourcePrefix}:core-price:${selector}`,
-          `${localContext} ${pageText.slice(0, 5000)}`
-        );
-      }
+      if (hasUsd(context) && !hasEuro(context)) continue;
+      if (looksLikeBadProductSection(context)) continue;
+
+      candidates.push({
+        price: parsed,
+        rawPrice: parsed,
+        source: `${sourcePrefix}:core:${selector}`,
+        context: `${context} ${pageText.slice(0, 6000)}`,
+        index: pageText.indexOf(raw),
+        kind: 'core'
+      });
     }
   }
 
-  $('.a-price').each((index, node) => {
+  /*
+    Alcuni layout spezzano prezzo in whole/fraction.
+    Qui lo prendiamo solo dentro blocchi prezzo principali.
+  */
+  $(
+    '#corePrice_feature_div .a-price, #corePriceDisplay_desktop_feature_div .a-price, .priceToPay .a-price, #apex_desktop .a-price'
+  ).each((index, node) => {
     const element = $(node);
     const whole = cleanText(element.find('.a-price-whole').first().text());
     const fraction = cleanText(
@@ -371,118 +306,48 @@ function extractCorePriceCandidatesFromHtml(
 
     if (!whole || !fraction) return;
 
-    const raw = `${whole},${fraction}`;
-    const price = parseEuroPrice(`${raw} €`);
+    const raw = `${whole},${fraction} €`;
+    const parsed = parseEuroPrice(raw);
 
-    if (price !== null) {
-      const localContext =
-        element
-          .closest(
-            '#corePrice_feature_div, #corePriceDisplay_desktop_feature_div, #apex_desktop, #desktop_buybox, #buybox, #rightCol, #centerCol, div'
-          )
-          .text() || element.text();
+    if (parsed === null || parsed <= 0 || parsed >= 1000) return;
 
-      addCoreCandidate(
-        candidates,
-        pageText,
-        price,
-        index,
-        `${sourcePrefix}:core-price-split`,
-        `${localContext} ${pageText.slice(0, 5000)}`
-      );
-    }
+    const context =
+      element
+        .closest(
+          '#corePrice_feature_div, #corePriceDisplay_desktop_feature_div, #apex_desktop, #desktop_buybox, #buybox, #rightCol, #centerCol, div'
+        )
+        .text() || element.text();
+
+    if (hasUsd(context) && !hasEuro(context)) return;
+    if (looksLikeBadProductSection(context)) return;
+
+    candidates.push({
+      price: parsed,
+      rawPrice: parsed,
+      source: `${sourcePrefix}:core-split`,
+      context: `${context} ${pageText.slice(0, 6000)}`,
+      index,
+      kind: 'core'
+    });
   });
 
   return candidates;
 }
 
-function extractCandidatesFromAmazonHtml(
-  html: string,
-  sourcePrefix: string
-): PriceCandidate[] {
-  const pageText = cheerio.load(html).root().text().replace(/\u00a0/g, ' ');
+function chooseBestOffer(candidates: PriceCandidate[]): PriceCandidate | null {
+  const offers = candidates
+    .filter((candidate) => candidate.kind === 'offer')
+    .sort((a, b) => a.price - b.price || a.index - b.index);
 
-  return [
-    ...extractOfferListingCandidates(pageText, sourcePrefix),
-    ...extractCorePriceCandidatesFromHtml(html, sourcePrefix)
-  ];
+  return offers[0] || null;
 }
 
-function extractCandidatesFromAmazonText(
-  text: string,
-  sourcePrefix: string
-): PriceCandidate[] {
-  const normalized = text.replace(/\u00a0/g, ' ');
+function chooseBestCore(candidates: PriceCandidate[]): PriceCandidate | null {
+  const cores = candidates
+    .filter((candidate) => candidate.kind === 'core')
+    .sort((a, b) => b.price - a.price || a.index - b.index);
 
-  return extractOfferListingCandidates(normalized, sourcePrefix);
-}
-
-function chooseBestCandidate(
-  candidates: PriceCandidate[]
-): PriceCandidate | null {
-  const offerCandidates = candidates
-    .filter((candidate) => candidate.kind === 'offer-listing')
-    .filter((candidate) => {
-      if (candidate.price <= 0) return false;
-      if (candidate.price >= 1000) return false;
-      if (!hasEuroPrice(candidate.context)) return false;
-      if (!isOfferListingContext(candidate.context)) return false;
-      if (isClearlyBadContext(candidate.context)) return false;
-
-      return true;
-    })
-    .sort((a, b) => b.score - a.score || a.index - b.index);
-
-  if (offerCandidates[0]) {
-    return offerCandidates[0];
-  }
-
-  const coreCandidates = candidates
-    .filter((candidate) => candidate.kind === 'core-price')
-    .filter((candidate) => {
-      if (candidate.price <= 0) return false;
-      if (candidate.price >= 1000) return false;
-      if (!hasEuroPrice(candidate.context)) return false;
-      if (hasUsdPrice(candidate.context) && !hasEuroPrice(candidate.context)) {
-        return false;
-      }
-      if (isClearlyBadContext(candidate.context)) return false;
-
-      return true;
-    })
-    .sort((a, b) => b.score - a.score || a.index - b.index);
-
-  return coreCandidates[0] || null;
-}
-
-function applyMarketplaceVatIfNeeded(
-  candidate: PriceCandidate,
-  marketplace: AmazonMarketplace,
-  pageContext: string
-): {
-  price: number;
-  vatApplied: boolean;
-} {
-  if (candidate.kind === 'offer-listing') {
-    return {
-      price: candidate.price,
-      vatApplied: false
-    };
-  }
-
-  const combinedContext = `${candidate.context} ${pageContext}`;
-
-  if (!looksVatExcluded(combinedContext)) {
-    return {
-      price: candidate.price,
-      vatApplied: false
-    };
-  }
-
-  return {
-    price: addVat(candidate.price, marketplace),
-    vatApplied: true
-  };
+  return cores[0] || null;
 }
 
 function getCorePriceTexts($: cheerio.CheerioAPI): string[] {
@@ -502,7 +367,7 @@ function getCorePriceTexts($: cheerio.CheerioAPI): string[] {
   for (const selector of selectors) {
     $(selector)
       .toArray()
-      .slice(0, 8)
+      .slice(0, 12)
       .forEach((node) => {
         const element = $(node);
         const raw =
@@ -522,33 +387,8 @@ function getCorePriceTexts($: cheerio.CheerioAPI): string[] {
   return values;
 }
 
-function extractAllEuroPricesWithContext(text: string): string[] {
-  const normalized = text.replace(/\u00a0/g, ' ');
-  const priceRegex = /€\s*(\d{1,5}(?:[.,]\d{2}))|(\d{1,5}(?:[.,]\d{2}))\s*€/gi;
-  const results: string[] = [];
-
-  let match = priceRegex.exec(normalized);
-
-  while (match !== null && results.length < 20) {
-    const raw = match[1] || match[2] || '';
-    const price = parseEuroPrice(`€${raw}`);
-    const context = cleanContext(
-      getContext(normalized, match.index, 220, 300),
-      620
-    );
-
-    results.push(
-      `${results.length + 1}) prezzo=${price ?? raw} | contesto=${context}`
-    );
-
-    match = priceRegex.exec(normalized);
-  }
-
-  return results;
-}
-
 function findKeywordSnippets(text: string): string[] {
-  const normalized = text.replace(/\u00a0/g, ' ');
+  const normalized = normalizeTextForSearch(text);
   const lower = normalized.toLowerCase();
 
   const keywords = [
@@ -587,11 +427,11 @@ function findKeywordSnippets(text: string): string[] {
 
     if (index >= 0) {
       snippets.push(
-        `${keyword}: ${cleanContext(getContext(normalized, index, 320, 620), 950)}`
+        `${keyword}: ${cleanContext(getContext(normalized, index, 350, 650), 1000)}`
       );
     }
 
-    if (snippets.length >= 18) break;
+    if (snippets.length >= 20) break;
   }
 
   return snippets;
@@ -621,26 +461,19 @@ function buildDebugSource(input: {
   }
 
   const directPlainText = directText
-    ? cleanContext(cheerio.load(directText).root().text(), 14000)
+    ? cheerio.load(directText).root().text().replace(/\u00a0/g, ' ')
     : '';
 
-  const readerPlainText = readerText ? cleanContext(readerText, 14000) : '';
-  const searchPlainText = searchText ? cleanContext(searchText, 14000) : '';
-
-  const directKeywordSnippets = findKeywordSnippets(directPlainText);
-  const readerKeywordSnippets = findKeywordSnippets(readerPlainText);
-  const searchKeywordSnippets = findKeywordSnippets(searchPlainText);
-
-  const directPrices = extractAllEuroPricesWithContext(directPlainText);
-  const readerPrices = extractAllEuroPricesWithContext(readerPlainText);
-  const searchPrices = extractAllEuroPricesWithContext(searchPlainText);
-
   const candidates = (input.candidates || [])
-    .sort((a, b) => b.score - a.score)
-    .slice(0, 28)
+    .slice()
+    .sort((a, b) => {
+      if (a.kind !== b.kind) return a.kind === 'offer' ? -1 : 1;
+      return b.price - a.price;
+    })
+    .slice(0, 40)
     .map(
       (candidate, index) =>
-        `${index + 1}) kind=${candidate.kind} price=${candidate.price} score=${candidate.score} source=${candidate.source} context=${cleanContext(candidate.context, 1000)}`
+        `${index + 1}) kind=${candidate.kind} price=${candidate.price} source=${candidate.source} context=${cleanContext(candidate.context, 900)}`
     );
 
   return [
@@ -651,12 +484,9 @@ function buildDebugSource(input: {
     `search=${input.search ? `${input.search.status} ${input.search.statusText} ok=${input.search.ok} textLength=${searchText.length}` : 'not-run'}`,
     `corePriceTexts=${corePrices.length > 0 ? corePrices.join(' || ') : '-'}`,
     `candidates=${candidates.length > 0 ? candidates.join(' || ') : '-'}`,
-    `directKeywordSnippets=${directKeywordSnippets.length > 0 ? directKeywordSnippets.join(' || ') : '-'}`,
-    `readerKeywordSnippets=${readerKeywordSnippets.length > 0 ? readerKeywordSnippets.join(' || ') : '-'}`,
-    `searchKeywordSnippets=${searchKeywordSnippets.length > 0 ? searchKeywordSnippets.join(' || ') : '-'}`,
-    `directPrices=${directPrices.length > 0 ? directPrices.join(' || ') : '-'}`,
-    `readerPrices=${readerPrices.length > 0 ? readerPrices.join(' || ') : '-'}`,
-    `searchPrices=${searchPrices.length > 0 ? searchPrices.join(' || ') : '-'}`
+    `directKeywordSnippets=${findKeywordSnippets(directPlainText).join(' || ') || '-'}`,
+    `readerKeywordSnippets=${findKeywordSnippets(readerText).join(' || ') || '-'}`,
+    `searchKeywordSnippets=${findKeywordSnippets(searchText).join(' || ') || '-'}`
   ].join(' | ');
 }
 
@@ -744,47 +574,73 @@ export async function scrapeAmazonPrice(
     let reader: FetchResult | null = null;
     let search: FetchResult | null = null;
 
-    let allCandidates: PriceCandidate[] = [];
+    let candidates: PriceCandidate[] = [];
+    let pageContext = '';
 
     if (direct.ok && direct.text) {
-      allCandidates = [
-        ...allCandidates,
-        ...extractCandidatesFromAmazonHtml(direct.text, 'direct')
+      const directPlainText = cheerio
+        .load(direct.text)
+        .root()
+        .text()
+        .replace(/\u00a0/g, ' ');
+
+      pageContext += directPlainText;
+
+      candidates = [
+        ...candidates,
+        ...extractOfferCandidatesFromText(directPlainText, 'direct'),
+        ...extractCoreCandidatesFromHtml(direct.text, 'direct')
       ];
     }
 
     reader = await fetchJinaReader(url);
 
     if (reader.ok && reader.text) {
-      allCandidates = [
-        ...allCandidates,
-        ...extractCandidatesFromAmazonText(reader.text, 'reader')
+      pageContext += ` ${reader.text}`;
+
+      candidates = [
+        ...candidates,
+        ...extractOfferCandidatesFromText(reader.text, 'reader')
       ];
     }
 
     search = await fetchJinaSearch(url);
 
     if (search.ok && search.text) {
-      allCandidates = [
-        ...allCandidates,
-        ...extractCandidatesFromAmazonText(search.text, 'search')
+      pageContext += ` ${search.text}`;
+
+      candidates = [
+        ...candidates,
+        ...extractOfferCandidatesFromText(search.text, 'search')
       ];
     }
 
-    const best = chooseBestCandidate(allCandidates);
-    const pageContext = `${direct.text || ''} ${reader?.text || ''}`;
+    const offer = chooseBestOffer(candidates);
 
-    if (best) {
-      const normalized = applyMarketplaceVatIfNeeded(
-        best,
-        marketplace,
-        pageContext
-      );
+    if (offer) {
+      return {
+        price: offer.price,
+        source: `${marketplace}:${offer.source} kind=offer rawPrice=${offer.rawPrice} finalPrice=${offer.price} vatApplied=no | contesto: ${cleanContext(
+          offer.context
+        )}`,
+        error: null,
+        url,
+        marketplace
+      };
+    }
+
+    const core = chooseBestCore(candidates);
+
+    if (core) {
+      const mustAddVat = looksVatExcluded(`${core.context} ${pageContext}`);
+      const finalPrice = mustAddVat
+        ? withVat(core.price, marketplace)
+        : core.price;
 
       return {
-        price: normalized.price,
-        source: `${marketplace}:${best.source} kind=${best.kind} score=${best.score} vatApplied=${normalized.vatApplied ? 'yes' : 'no'} rawPrice=${best.price} finalPrice=${normalized.price} | contesto: ${cleanContext(
-          best.context
+        price: finalPrice,
+        source: `${marketplace}:${core.source} kind=core rawPrice=${core.rawPrice} finalPrice=${finalPrice} vatApplied=${mustAddVat ? 'yes' : 'no'} | contesto: ${cleanContext(
+          core.context
         )}`,
         error: null,
         url,
@@ -804,7 +660,7 @@ export async function scrapeAmazonPrice(
         directText: direct.text,
         readerText: reader?.text || null,
         searchText: search?.text || null,
-        candidates: allCandidates
+        candidates
       }),
       error: null,
       url,
