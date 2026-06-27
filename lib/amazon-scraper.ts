@@ -43,8 +43,12 @@ export function buildAmazonUrl(
   return `https://www.${AMAZON_DOMAINS[marketplace]}/dp/${asin}`;
 }
 
+function cleanText(value: string): string {
+  return value.replace(/\u00a0/g, ' ').replace(/\s+/g, ' ').trim();
+}
+
 function cleanContext(value: string): string {
-  return value.replace(/\s+/g, ' ').trim().slice(0, 900);
+  return cleanText(value).slice(0, 900);
 }
 
 function makeSource(source: string, context?: string): string {
@@ -61,68 +65,237 @@ function buildJinaSearchUrl(url: string): string {
   return `https://s.jina.ai/?q=${encodeURIComponent(url)}`;
 }
 
-function getContext(text: string, index: number, before = 700, after = 900) {
+function getContext(text: string, index: number, before = 350, after = 850) {
   return text.slice(
     Math.max(0, index - before),
     Math.min(text.length, index + after)
   );
 }
 
-function getNearContext(text: string, index: number, before = 120, after = 160) {
+function getNearContext(text: string, index: number, before = 90, after = 130) {
   return text.slice(
     Math.max(0, index - before),
     Math.min(text.length, index + after)
   );
+}
+
+function trimToRelevantAmazonArea(text: string): string {
+  const normalized = text.replace(/\u00a0/g, ' ');
+  const lower = normalized.toLowerCase();
+
+  const stopMarkers = [
+    'visualizza tutti i',
+    'nascondi altri formati',
+    'nuovo a partire da',
+    'usato da',
+    'spesso comprati insieme',
+    'i clienti che hanno visto',
+    'prodotti correlati',
+    'descrizione prodotto',
+    'dettagli prodotto',
+    'tracklist',
+
+    'voir tous les formats',
+    'masquer les autres formats',
+    'neuf à partir de',
+    'occasion à partir de',
+    'fréquemment achetés ensemble',
+    'les clients ayant consulté',
+    'description du produit',
+    'détails du produit',
+
+    'alle formate',
+    'andere formate',
+    'neu ab',
+    'gebraucht ab',
+    'wird oft zusammen gekauft',
+    'kunden, die diesen artikel angesehen',
+    'produktbeschreibungen',
+    'produktinformation',
+
+    'see all formats',
+    'hide other formats',
+    'new from',
+    'used from',
+    'frequently bought together',
+    'customers who viewed',
+    'product description',
+    'product details'
+  ];
+
+  const indexes = stopMarkers
+    .map((marker) => lower.indexOf(marker))
+    .filter((index) => index > 0)
+    .sort((a, b) => a - b);
+
+  if (indexes.length === 0) return normalized;
+
+  return normalized.slice(0, indexes[0]);
 }
 
 function hasAmazonSellerSignal(context: string): boolean {
   const lower = context.toLowerCase();
 
+  const patterns = [
+    /venditore\s*[:\n\r\s]*amazon/i,
+    /venduto\s+da\s+amazon/i,
+    /venduto\s+e\s+spedito\s+da\s+amazon/i,
+    /venduto\s+da\s+amazon\s+eu\s+sarl/i,
+
+    /vendeur\s*[:\n\r\s]*amazon/i,
+    /vendu\s+par\s+amazon/i,
+    /vendu\s+et\s+expédié\s+par\s+amazon/i,
+    /vendu\s+par\s+amazon\s+eu\s+sarl/i,
+
+    /verkäufer\s*[:\n\r\s]*amazon/i,
+    /verkauf\s+durch\s+amazon/i,
+    /verkauft\s+von\s+amazon/i,
+    /verkauf\s+und\s+versand\s+durch\s+amazon/i,
+    /verkauft\s+und\s+versendet\s+durch\s+amazon/i,
+
+    /seller\s*[:\n\r\s]*amazon/i,
+    /sold\s+by\s+amazon/i,
+    /sold\s+and\s+shipped\s+by\s+amazon/i,
+    /sold\s+and\s+dispatched\s+by\s+amazon/i
+  ];
+
+  if (patterns.some((pattern) => pattern.test(context))) {
+    return true;
+  }
+
+  const labelValuePairs = [
+    ['venditore', 'amazon'],
+    ['vendeur', 'amazon'],
+    ['verkäufer', 'amazon'],
+    ['seller', 'amazon']
+  ];
+
+  return labelValuePairs.some(([label, value]) => {
+    const labelIndex = lower.indexOf(label);
+
+    if (labelIndex < 0) return false;
+
+    const afterLabel = lower.slice(labelIndex, labelIndex + 80);
+
+    return afterLabel.includes(value);
+  });
+}
+
+function hasAmazonShippingSignal(context: string): boolean {
+  const lower = context.toLowerCase();
+
+  const patterns = [
+    /spedito\s+da\s+amazon/i,
+    /spedit[oa]\s*[:\n\r\s]*amazon/i,
+    /expédié\s+par\s+amazon/i,
+    /expédition\s*[:\n\r\s]*amazon/i,
+    /versand\s+durch\s+amazon/i,
+    /versand\s*[:\n\r\s]*amazon/i,
+    /ships\s+from\s+amazon/i,
+    /dispatches\s+from\s+amazon/i
+  ];
+
+  return patterns.some((pattern) => pattern.test(context)) ||
+    lower.includes('spedito da amazon') ||
+    lower.includes('expédié par amazon') ||
+    lower.includes('versand durch amazon') ||
+    lower.includes('ships from amazon');
+}
+
+function hasOnlyShippingAmazonSignal(context: string): boolean {
+  return hasAmazonShippingSignal(context) && !hasAmazonSellerSignal(context);
+}
+
+function hasNewConditionSignal(context: string): boolean {
+  const lower = context.toLowerCase();
+
+  const patterns = [
+    /\bnuovo\b/i,
+    /\bneuf\b/i,
+    /\bneu\b/i,
+    /\bnew\b/i
+  ];
+
+  return patterns.some((pattern) => pattern.test(lower));
+}
+
+function hasUsedConditionSignal(context: string): boolean {
+  const lower = context.toLowerCase();
+
   const signals = [
-    'venditore amazon',
-    'venduto da amazon',
-    'venduto e spedito da amazon',
-    'venduto e spedito da amazon eu sarl',
-    'venduto da amazon eu sarl',
-
-    'vendeur amazon',
-    'vendu par amazon',
-    'vendu et expédié par amazon',
-    'vendu par amazon eu sarl',
-
-    'verkauf durch amazon',
-    'verkauft von amazon',
-    'verkauf und versand durch amazon',
-    'verkauft und versendet durch amazon',
-    'amazon eu s.à r.l',
-
-    'sold by amazon',
-    'sold and dispatched by amazon',
-    'sold and shipped by amazon',
-    'sold by amazon eu sarl'
+    'usato',
+    'usata',
+    'used',
+    "d'occasion",
+    'd’occasion',
+    'occasion',
+    'gebraucht'
   ];
 
   return signals.some((signal) => lower.includes(signal));
 }
 
-function hasOnlyShippingAmazonSignal(context: string): boolean {
+function isBadSectionContext(context: string): boolean {
   const lower = context.toLowerCase();
 
-  const shippingSignals = [
-    'spedito da amazon',
-    'expédié par amazon',
-    'versand durch amazon',
-    'ships from amazon',
-    'dispatches from amazon'
+  const badSignals = [
+    'visualizza tutti i',
+    'nascondi altri formati',
+    'nuovo a partire da',
+    'usato da',
+    'cd audio da',
+    'vinile da',
+    'musica mp3',
+    'amazon music unlimited',
+    'spesso comprati insieme',
+    'questo articolo:',
+    'i clienti che hanno visto',
+    'autori',
+    'autorip',
+    'descrizione prodotto',
+    'dettagli prodotto',
+
+    'voir tous les formats',
+    'masquer les autres formats',
+    'neuf à partir de',
+    'occasion à partir de',
+    'cd audio à partir',
+    'vinyle à partir',
+    'fréquemment achetés ensemble',
+    'cet article:',
+    'les clients ayant consulté',
+    'description du produit',
+    'détails du produit',
+
+    'alle formate',
+    'andere formate',
+    'neu ab',
+    'gebraucht ab',
+    'audio-cd ab',
+    'vinyl ab',
+    'wird oft zusammen gekauft',
+    'dieser artikel:',
+    'kunden, die diesen artikel angesehen',
+    'produktbeschreibungen',
+    'produktinformation',
+
+    'see all formats',
+    'hide other formats',
+    'new from',
+    'used from',
+    'audio cd from',
+    'vinyl from',
+    'frequently bought together',
+    'this item:',
+    'customers who viewed',
+    'product description',
+    'product details'
   ];
 
-  return (
-    shippingSignals.some((signal) => lower.includes(signal)) &&
-    !hasAmazonSellerSignal(context)
-  );
+  return badSignals.some((signal) => lower.includes(signal));
 }
 
-function isDeliveryPriceContext(context: string): boolean {
+function isDeliveryPriceNearContext(context: string): boolean {
   const lower = context.toLowerCase();
 
   const deliverySignals = [
@@ -153,7 +326,7 @@ function isDeliveryPriceContext(context: string): boolean {
   return deliverySignals.some((signal) => lower.includes(signal));
 }
 
-function isInstallmentOrPromoContext(context: string): boolean {
+function isInstallmentOrPromoNearContext(context: string): boolean {
   const lower = context.toLowerCase();
 
   const badSignals = [
@@ -200,47 +373,20 @@ function hasUnavailableSignals(context: string): boolean {
   return signals.some((signal) => lower.includes(signal));
 }
 
-function hasNewConditionSignal(context: string): boolean {
-  const lower = context.toLowerCase();
-
-  const signals = ['nuovo', 'neuf', 'neu', 'new'];
-
-  return signals.some((signal) => lower.includes(signal));
-}
-
-function hasUsedConditionSignal(context: string): boolean {
-  const lower = context.toLowerCase();
-
-  const signals = [
-    'usato',
-    'usata',
-    'used',
-    "d'occasion",
-    'd’occasion',
-    'occasion',
-    'gebraucht'
-  ];
-
-  return signals.some((signal) => lower.includes(signal));
-}
-
-function isProbablyWrongAmazonPriceContext(
+function isAcceptableSoldByAmazonCandidate(
   context: string,
   nearContext: string
 ): boolean {
-  if (hasUnavailableSignals(context)) return true;
-  if (isInstallmentOrPromoContext(nearContext)) return true;
-  if (hasUsedConditionSignal(nearContext)) return true;
+  if (!hasAmazonSellerSignal(context)) return false;
+  if (!hasNewConditionSignal(context)) return false;
+  if (hasOnlyShippingAmazonSignal(context)) return false;
+  if (hasUnavailableSignals(context)) return false;
+  if (hasUsedConditionSignal(nearContext)) return false;
+  if (isBadSectionContext(context)) return false;
+  if (isDeliveryPriceNearContext(nearContext)) return false;
+  if (isInstallmentOrPromoNearContext(nearContext)) return false;
 
-  /*
-    Se il prezzo è proprio nel pezzetto "Consegna a 11,51 €",
-    lo scartiamo sempre.
-    Il prezzo prodotto può avere consegna nel contesto più ampio,
-    ma non nel contesto vicino al prezzo.
-  */
-  if (isDeliveryPriceContext(nearContext)) return true;
-
-  return false;
+  return true;
 }
 
 function scoreAmazonCandidate(
@@ -254,24 +400,25 @@ function scoreAmazonCandidate(
 
   if (price > 0 && price < 1000) score += 10;
 
-  if (source.includes('strict-text-buybox')) score += 500;
-  if (source.includes('strict-html-buybox')) score += 450;
-  if (source.includes('selector-coreprice')) score += 260;
-  if (source.includes('selector-split-a-price')) score += 220;
+  if (source.includes('main-buybox-line')) score += 900;
+  if (source.includes('buybox-container')) score += 700;
+  if (source.includes('strict-sold-by-amazon')) score += 600;
+  if (source.includes('selector-coreprice')) score += 450;
+  if (source.includes('selector-split-a-price')) score += 420;
 
-  if (hasAmazonSellerSignal(context)) score += 400;
-  if (hasOnlyShippingAmazonSignal(context)) score -= 250;
+  if (hasAmazonSellerSignal(context)) score += 500;
+  if (hasAmazonShippingSignal(context)) score += 80;
+  if (hasNewConditionSignal(context)) score += 180;
 
-  if (hasNewConditionSignal(context)) score += 120;
+  if (isBadSectionContext(context)) score -= 1200;
+  if (hasOnlyShippingAmazonSignal(context)) score -= 600;
+  if (hasUnavailableSignals(context)) score -= 800;
+  if (hasUsedConditionSignal(nearContext)) score -= 500;
+  if (isDeliveryPriceNearContext(nearContext)) score -= 900;
+  if (isInstallmentOrPromoNearContext(nearContext)) score -= 700;
+  if (price < 2) score -= 500;
 
-  if (source.includes('json')) score += 40;
-
-  if (isProbablyWrongAmazonPriceContext(context, nearContext)) score -= 800;
-
-  if (hasUsedConditionSignal(context)) score -= 120;
-  if (price < 2) score -= 300;
-
-  if (index < 100000) score += 5;
+  if (index < 80000) score += 5;
 
   return score;
 }
@@ -306,37 +453,39 @@ function addCandidate(
   });
 }
 
-function firstPriceAfterCondition(block: string): {
+function findFirstPriceAfterCondition(block: string): {
   price: number | null;
-  raw: string | null;
   index: number;
 } {
-  const conditionRegex = /(Nuovo|Neuf|Neu|New)/i;
+  const conditionRegex = /\b(Nuovo|Neuf|Neu|New)\b/i;
   const conditionMatch = conditionRegex.exec(block);
 
   if (!conditionMatch) {
     return {
       price: null,
-      raw: null,
       index: -1
     };
   }
 
   const afterCondition = block.slice(conditionMatch.index);
+
+  /*
+    Entro massimo 180 caratteri dopo Nuovo/Neuf/Neu/New.
+    Così evitiamo che prenda prezzi di consegna o sezioni successive.
+  */
   const priceRegex = /(?:€\s*)?(\d{1,5}(?:[.,]\d{2}))\s*€/i;
-  const priceMatch = priceRegex.exec(afterCondition);
+  const searchArea = afterCondition.slice(0, 180);
+  const priceMatch = priceRegex.exec(searchArea);
 
   if (!priceMatch) {
     return {
       price: null,
-      raw: null,
       index: -1
     };
   }
 
   return {
     price: normalizePrice(priceMatch[1]),
-    raw: priceMatch[1],
     index: conditionMatch.index + priceMatch.index
   };
 }
@@ -345,62 +494,83 @@ function extractStrictSoldByAmazonFromText(
   text: string,
   sourcePrefix: string
 ): PriceCandidate[] {
-  const normalized = text.replace(/\u00a0/g, ' ');
+  const relevantText = trimToRelevantAmazonArea(text.replace(/\u00a0/g, ' '));
   const candidates: PriceCandidate[] = [];
 
   /*
-    Questa è la regola principale:
-    prendiamo il primo prezzo dopo Nuovo/Neuf/Neu/New
-    SOLO se nello stesso blocco c'è un segnale chiaro di venditore Amazon.
-    Questo evita di prendere:
-    - consegna
-    - offerte usate
-    - prodotti consigliati
-    - bundle
-    - prezzi di terzi
+    Pattern principale per il layout tipo screenshot:
+    Nuovo
+    39,90 €
+    ...
+    Spedito da Amazon
+    Venditore Amazon
+    Servizio clienti Amazon
   */
-  const blocks = [
-    /(?:Nuovo|Neuf|Neu|New)[\s\S]{0,1500}?(?:Venditore\s+Amazon|Venduto\s+da\s+Amazon|Venduto\s+e\s+spedito\s+da\s+Amazon|Vendu\s+par\s+Amazon|Vendu\s+et\s+expédié\s+par\s+Amazon|Verkauf\s+durch\s+Amazon|Verkauft\s+von\s+Amazon|Verkauf\s+und\s+Versand\s+durch\s+Amazon|Verkauft\s+und\s+versendet\s+durch\s+Amazon|Sold\s+by\s+Amazon|Sold\s+and\s+shipped\s+by\s+Amazon|Sold\s+and\s+dispatched\s+by\s+Amazon)/gi,
-    /(?:Venditore\s+Amazon|Venduto\s+da\s+Amazon|Venduto\s+e\s+spedito\s+da\s+Amazon|Vendu\s+par\s+Amazon|Vendu\s+et\s+expédié\s+par\s+Amazon|Verkauf\s+durch\s+Amazon|Verkauft\s+von\s+Amazon|Verkauf\s+und\s+Versand\s+durch\s+Amazon|Verkauft\s+und\s+versendet\s+durch\s+Amazon|Sold\s+by\s+Amazon|Sold\s+and\s+shipped\s+by\s+Amazon|Sold\s+and\s+dispatched\s+by\s+Amazon)[\s\S]{0,1500}?(?:Nuovo|Neuf|Neu|New)[\s\S]{0,300}?\d{1,5}(?:[.,]\d{2})\s*€/gi
-  ];
+  const conditionToSellerPattern =
+    /\b(?:Nuovo|Neuf|Neu|New)\b[\s\S]{0,800}?(?:Venditore\s*[:\n\r\s]*Amazon|Venduto\s+da\s+Amazon|Venduto\s+e\s+spedito\s+da\s+Amazon|Vendeur\s*[:\n\r\s]*Amazon|Vendu\s+par\s+Amazon|Vendu\s+et\s+expédié\s+par\s+Amazon|Verkäufer\s*[:\n\r\s]*Amazon|Verkauf\s+durch\s+Amazon|Verkauft\s+von\s+Amazon|Verkauf\s+und\s+Versand\s+durch\s+Amazon|Seller\s*[:\n\r\s]*Amazon|Sold\s+by\s+Amazon|Sold\s+and\s+shipped\s+by\s+Amazon|Sold\s+and\s+dispatched\s+by\s+Amazon)/gi;
 
-  for (const pattern of blocks) {
-    let match = pattern.exec(normalized);
+  let blockMatch = conditionToSellerPattern.exec(relevantText);
 
-    while (match !== null) {
-      const block = match[0];
-      const priceResult = firstPriceAfterCondition(block);
+  while (blockMatch !== null) {
+    const block = blockMatch[0];
+    const priceResult = findFirstPriceAfterCondition(block);
 
-      if (priceResult.price !== null) {
-        addCandidate(
-          candidates,
-          normalized,
-          priceResult.price,
-          match.index + priceResult.index,
-          `${sourcePrefix}:strict-text-buybox`,
-          block
-        );
-      }
-
-      match = pattern.exec(normalized);
+    if (priceResult.price !== null) {
+      addCandidate(
+        candidates,
+        relevantText,
+        priceResult.price,
+        blockMatch.index + priceResult.index,
+        `${sourcePrefix}:main-buybox-line`,
+        block
+      );
     }
+
+    blockMatch = conditionToSellerPattern.exec(relevantText);
+  }
+
+  /*
+    Fallback controllato:
+    guardiamo ogni prezzo, ma lo accettiamo solo se nel contesto immediato
+    c'è Nuovo/Neuf/Neu/New e venditore Amazon.
+  */
+  const priceRegex = /(?:€\s*)?(\d{1,5}(?:[.,]\d{2}))\s*€/gi;
+  let priceMatch = priceRegex.exec(relevantText);
+
+  while (priceMatch !== null) {
+    const price = normalizePrice(priceMatch[1] || '');
+    const index = priceMatch.index;
+    const context = getContext(relevantText, index, 260, 700);
+    const nearContext = getNearContext(relevantText, index, 100, 120);
+
+    if (isAcceptableSoldByAmazonCandidate(context, nearContext)) {
+      addCandidate(
+        candidates,
+        relevantText,
+        price,
+        index,
+        `${sourcePrefix}:strict-sold-by-amazon`,
+        context
+      );
+    }
+
+    priceMatch = priceRegex.exec(relevantText);
   }
 
   return candidates;
 }
 
-function getAmazonOwnedBuyBoxText($: cheerio.CheerioAPI): string {
+function getBuyBoxText($: cheerio.CheerioAPI): string {
   const selectors = [
     '#desktop_buybox',
     '#buybox',
     '#qualifiedBuybox',
     '#rightCol',
-    '#centerCol',
+    '#tabular-buybox',
+    '#merchant-info',
     '#apex_desktop',
     '#corePriceDisplay_desktop_feature_div',
-    '#corePrice_feature_div',
-    '#merchant-info',
-    '#tabular-buybox'
+    '#corePrice_feature_div'
   ];
 
   return selectors
@@ -413,39 +583,33 @@ function extractPriceFromAmazonHtml(html: string): ScrapeResult {
   const $ = cheerio.load(html);
   const normalizedHtml = html.replace(/\u00a0/g, ' ');
   const pageText = $.root().text().replace(/\u00a0/g, ' ');
-  const buyBoxText = getAmazonOwnedBuyBoxText($);
+  const relevantPageText = trimToRelevantAmazonArea(pageText);
+  const buyBoxText = getBuyBoxText($);
   const candidates: PriceCandidate[] = [];
 
-  /*
-    Prima prova: testo pagina, regola stretta venduto da Amazon.
-  */
   candidates.push(
-    ...extractStrictSoldByAmazonFromText(pageText, 'html-page-text')
+    ...extractStrictSoldByAmazonFromText(relevantPageText, 'html-page-text')
   );
 
-  /*
-    Seconda prova: blocco buybox HTML, sempre strettissimo.
-  */
-  if (hasAmazonSellerSignal(buyBoxText)) {
-    const buyBoxPrice = firstPriceAfterCondition(buyBoxText);
+  if (
+    buyBoxText &&
+    hasAmazonSellerSignal(buyBoxText) &&
+    hasNewConditionSignal(buyBoxText) &&
+    !isBadSectionContext(buyBoxText)
+  ) {
+    const buyBoxPrice = findFirstPriceAfterCondition(buyBoxText);
 
     if (buyBoxPrice.price !== null) {
       addCandidate(
         candidates,
-        pageText,
+        relevantPageText,
         buyBoxPrice.price,
         buyBoxPrice.index >= 0 ? buyBoxPrice.index : 0,
-        'strict-html-buybox',
+        'buybox-container',
         buyBoxText
       );
     }
-  }
 
-  /*
-    Terza prova: selector prezzo ufficiale.
-    Lo accettiamo SOLO se la pagina/buybox conferma venditore Amazon.
-  */
-  if (hasAmazonSellerSignal(buyBoxText) && !hasUnavailableSignals(buyBoxText)) {
     const coreSelectors = [
       '#corePriceDisplay_desktop_feature_div .a-price .a-offscreen',
       '#corePrice_feature_div .a-price .a-offscreen',
@@ -474,7 +638,7 @@ function extractPriceFromAmazonHtml(html: string): ScrapeResult {
           const localContext =
             element
               .closest(
-                '#corePriceDisplay_desktop_feature_div, #corePrice_feature_div, #apex_desktop, #desktop_buybox, #buybox, #rightCol, #centerCol, div'
+                '#corePriceDisplay_desktop_feature_div, #corePrice_feature_div, #apex_desktop, #desktop_buybox, #buybox, #rightCol, div'
               )
               .text() || raw;
 
@@ -483,102 +647,64 @@ function extractPriceFromAmazonHtml(html: string): ScrapeResult {
 
           addCandidate(
             candidates,
-            pageText,
+            relevantPageText,
             price,
             htmlIndex >= 0 ? htmlIndex : 0,
-            'selector-coreprice-sold-by-amazon',
+            'selector-coreprice',
             context
           );
         }
       }
     }
 
-    /*
-      Prezzo spezzato:
-      .a-price-whole = 39
-      .a-price-fraction = 90
-    */
-    $('#corePriceDisplay_desktop_feature_div .a-price, #corePrice_feature_div .a-price, #apex_desktop .a-price, .priceToPay .a-price')
-      .each((index, node) => {
-        const element = $(node);
-        const whole = element.find('.a-price-whole').first().text();
-        const fraction = element.find('.a-price-fraction').first().text();
+    $(
+      '#corePriceDisplay_desktop_feature_div .a-price, #corePrice_feature_div .a-price, #apex_desktop .a-price, .priceToPay .a-price'
+    ).each((index, node) => {
+      const element = $(node);
+      const whole = cleanText(element.find('.a-price-whole').first().text());
+      const fraction = cleanText(
+        element.find('.a-price-fraction').first().text()
+      );
 
-        if (!whole || !fraction) return;
+      if (!whole || !fraction) return;
 
-        const raw = `${whole},${fraction}`;
-        const price = normalizePrice(raw);
+      const raw = `${whole},${fraction}`;
+      const price = normalizePrice(raw);
 
-        const localContext =
-          element
-            .closest(
-              '#corePriceDisplay_desktop_feature_div, #corePrice_feature_div, #apex_desktop, #desktop_buybox, #buybox, #rightCol, #centerCol, div'
-            )
-            .text() || element.text();
+      const localContext =
+        element
+          .closest(
+            '#corePriceDisplay_desktop_feature_div, #corePrice_feature_div, #apex_desktop, #desktop_buybox, #buybox, #rightCol, div'
+          )
+          .text() || element.text();
 
-        const context = `${localContext} ${buyBoxText}`;
+      const context = `${localContext} ${buyBoxText}`;
 
-        addCandidate(
-          candidates,
-          pageText,
-          price,
-          index,
-          'selector-split-a-price-sold-by-amazon',
-          context
-        );
-      });
-  }
-
-  /*
-    JSON fallback, ma sempre con vincolo venditore Amazon nel contesto.
-  */
-  const jsonPatterns = [
-    {
-      source: 'json-priceToPay',
-      pattern:
-        /"priceToPay"[\s\S]{0,900}?"amount"\s*:\s*(\d{1,5}(?:[.,]\d{1,2})?)/gi
-    },
-    {
-      source: 'json-buyingPrice',
-      pattern:
-        /"buyingPrice"[\s\S]{0,900}?"amount"\s*:\s*(\d{1,5}(?:[.,]\d{1,2})?)/gi
-    },
-    {
-      source: 'json-displayPrice',
-      pattern:
-        /"displayPrice"\s*:\s*"([^"]*?\d{1,5}(?:[.,]\d{2})\s*€)"/gi
-    }
-  ];
-
-  for (const item of jsonPatterns) {
-    let match = item.pattern.exec(normalizedHtml);
-
-    while (match !== null) {
-      const price = normalizePrice(match[1] || '');
-      const context = getContext(normalizedHtml, match.index, 900, 1300);
-
-      if (hasAmazonSellerSignal(`${context} ${buyBoxText}`)) {
-        addCandidate(
-          candidates,
-          normalizedHtml,
-          price,
-          match.index,
-          `${item.source}-sold-by-amazon`,
-          `${context} ${buyBoxText}`
-        );
-      }
-
-      match = item.pattern.exec(normalizedHtml);
-    }
+      addCandidate(
+        candidates,
+        relevantPageText,
+        price,
+        index,
+        'selector-split-a-price',
+        context
+      );
+    });
   }
 
   const valid = candidates
-    .filter(
-      (candidate) =>
+    .filter((candidate) => {
+      const nearContext = getNearContext(
+        relevantPageText,
+        candidate.index,
+        100,
+        120
+      );
+
+      return (
         candidate.score > 0 &&
-        hasAmazonSellerSignal(candidate.context) &&
-        !hasOnlyShippingAmazonSignal(candidate.context)
-    )
+        isAcceptableSoldByAmazonCandidate(candidate.context, nearContext)
+      );
+    })
     .sort((a, b) => b.score - a.score || a.index - b.index);
 
   const best = valid[0];
@@ -599,19 +725,21 @@ function extractPriceFromAmazonHtml(html: string): ScrapeResult {
 }
 
 function extractPriceFromAmazonText(text: string): ScrapeResult {
-  const normalized = text.replace(/\u00a0/g, ' ');
+  const relevantText = trimToRelevantAmazonArea(text.replace(/\u00a0/g, ' '));
   const candidates = extractStrictSoldByAmazonFromText(
-    normalized,
+    relevantText,
     'reader-text'
   );
 
   const valid = candidates
-    .filter(
-      (candidate) =>
+    .filter((candidate) => {
+      const nearContext = getNearContext(relevantText, candidate.index, 100, 120);
+
+      return (
         candidate.score > 0 &&
-        hasAmazonSellerSignal(candidate.context) &&
-        !hasOnlyShippingAmazonSignal(candidate.context)
-    )
+        isAcceptableSoldByAmazonCandidate(candidate.context, nearContext)
+      );
+    })
     .sort((a, b) => b.score - a.score || a.index - b.index);
 
   const best = valid[0];
@@ -774,7 +902,7 @@ export async function scrapeAmazonPrice(
     return {
       price: null,
       source: `${marketplace}:amazon-sold-by-amazon-not-found`,
-      error: `Amazon ${marketplace}: nessuna offerta venduta da Amazon trovata. Diretto ${direct.status} ${direct.statusText}.`,
+      error: `Amazon ${marketplace}: nessuna offerta nuova venduta da Amazon trovata. Diretto ${direct.status} ${direct.statusText}.`,
       url,
       marketplace
     };
