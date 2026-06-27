@@ -148,6 +148,26 @@ function parsePrice(raw: string): number | null {
   return roundPrice(value);
 }
 
+function extractEuroPrices(text: string): number[] {
+  const prices: number[] = [];
+  const regex = /€\s*(\d{1,5}(?:[.,]\d{2}))|(\d{1,5}(?:[.,]\d{2}))\s*€/gi;
+
+  let match = regex.exec(text);
+
+  while (match !== null) {
+    const raw = match[1] || match[2] || '';
+    const parsed = parsePrice(raw);
+
+    if (parsed !== null) {
+      prices.push(parsed);
+    }
+
+    match = regex.exec(text);
+  }
+
+  return prices;
+}
+
 function makeUrls(asin: string, marketplace: AmazonMarketplace): string[] {
   const domain = AMAZON_DOMAINS[marketplace];
   const language = LANGUAGE_PARAMS[marketplace];
@@ -216,8 +236,8 @@ function extractExactOfferCandidates(
     const price = parsePrice(raw);
 
     if (price !== null) {
-      const start = Math.max(0, match.index - 600);
-      const end = Math.min(normalized.length, match.index + 800);
+      const start = Math.max(0, match.index - 900);
+      const end = Math.min(normalized.length, match.index + 900);
       const context = normalized.slice(start, end);
 
       candidates.push({
@@ -246,8 +266,8 @@ function extractExactOfferCandidates(
     const price = parsePrice(raw);
 
     if (price !== null) {
-      const start = Math.max(0, labeledMatch.index - 600);
-      const end = Math.min(normalized.length, labeledMatch.index + 800);
+      const start = Math.max(0, labeledMatch.index - 900);
+      const end = Math.min(normalized.length, labeledMatch.index + 900);
       const context = normalized.slice(start, end);
 
       candidates.push({
@@ -267,7 +287,7 @@ function extractExactOfferCandidates(
   return candidates;
 }
 
-function extractCurrentFormatCoreCandidates(
+function extractCurrentFormatCoreFromText(
   text: string,
   asin: string,
   marketplace: AmazonMarketplace,
@@ -278,50 +298,73 @@ function extractCurrentFormatCoreCandidates(
   const candidates: Candidate[] = [];
 
   /*
-    Regola chiave per B0DVH4P8DB.
+    Caso B0DVH4P8DB dal log reale:
 
-    Dal log:
     FR:
     Vinyl, Import ... €32.83 [€27.84](offer-listing/B0DVH4P8DB...)
 
     IT:
     Vinyl, Import ... €32.70 [€32.24](offer-listing/B0DVH4P8DB...)
 
-    Quindi:
-    - il prezzo formato corrente è il prezzo prima dell'offer-listing
-    - l'offer-listing è solo il prezzo “New from”
+    Qui prendiamo il prezzo PRIMA del link offer-listing dello stesso ASIN.
   */
-  const currentFormatPattern = new RegExp(
-    String.raw`(?:\/dp\/${escapedAsin}|\/gp\/aw\/d\/${escapedAsin}|\/d\/${escapedAsin})[\s\S]{0,900}?(?:Vinyl|Vinile|LP|Import)[\s\S]{0,500}?€\s*(\d{1,5}(?:[.,]\d{2}))[\s\S]{0,500}?\/gp\/offer-listing\/${escapedAsin}[^)]*condition=(?:new|NEW)`,
+  const offerLinkRegex = new RegExp(
+    String.raw`\/gp\/offer-listing\/${escapedAsin}[^)]*condition=(?:new|NEW)`,
     'gi'
   );
 
-  let match = currentFormatPattern.exec(normalized);
+  let offerLinkMatch = offerLinkRegex.exec(normalized);
 
-  while (match !== null) {
-    const raw = match[1] || '';
-    const rawPrice = parsePrice(raw);
+  while (offerLinkMatch !== null) {
+    const before = normalized.slice(
+      Math.max(0, offerLinkMatch.index - 900),
+      offerLinkMatch.index
+    );
 
-    if (rawPrice !== null && rawPrice >= 20) {
-      const start = Math.max(0, match.index - 500);
-      const end = Math.min(normalized.length, match.index + 1400);
-      const context = normalized.slice(start, end);
+    const after = normalized.slice(
+      offerLinkMatch.index,
+      Math.min(normalized.length, offerLinkMatch.index + 500)
+    );
 
-      const finalPrice =
-        marketplace === 'IT' ? withVat(rawPrice, marketplace) : rawPrice;
+    const context = `${before}${after}`;
+    const lowerContext = cleanText(context).toLowerCase();
 
-      candidates.push({
-        price: finalPrice,
-        rawPrice,
-        marketplace,
-        asin,
-        source: `${sourceLabel}:current-format-core-before-offer`,
-        context,
-        kind: 'current-format-core'
-      });
+    const isCurrentVinylFormat =
+      lowerContext.includes(`dp/${asin.toLowerCase()}`) &&
+      (lowerContext.includes('vinyl') ||
+        lowerContext.includes('vinile') ||
+        lowerContext.includes(' lp') ||
+        lowerContext.includes('import'));
+
+    if (isCurrentVinylFormat) {
+      const pricesBeforeOffer = extractEuroPrices(before).filter(
+        (price) => price >= 20
+      );
+
+      if (pricesBeforeOffer.length > 0) {
+        /*
+          Nel caso corretto:
+          - prima dell'offer link ci sono 32.70 / 32.83
+          - il prezzo del link è 32.24 / 27.84
+          Prendiamo il maggiore prima del link.
+        */
+        const rawPrice = Math.max(...pricesBeforeOffer);
+        const finalPrice =
+          marketplace === 'IT' ? withVat(rawPrice, marketplace) : rawPrice;
+
+        candidates.push({
+          price: finalPrice,
+          rawPrice,
+          marketplace,
+          asin,
+          source: `${sourceLabel}:current-format-price-before-offer-link`,
+          context,
+          kind: 'current-format-core'
+        });
+      }
     }
 
-    match = currentFormatPattern.exec(normalized);
+    offerLinkMatch = offerLinkRegex.exec(normalized);
   }
 
   return candidates;
@@ -373,7 +416,7 @@ async function testAmazon(
     if (!result.ok || !result.text) continue;
 
     candidates.push(
-      ...extractCurrentFormatCoreCandidates(
+      ...extractCurrentFormatCoreFromText(
         result.text,
         asin,
         marketplace,
@@ -419,7 +462,7 @@ async function testAmazon(
 
 async function main() {
   console.log('========================================');
-  console.log('AMAZON GITHUB ACTIONS TEST - NEW ALGORITHM V2');
+  console.log('AMAZON GITHUB ACTIONS TEST - NEW ALGORITHM V3');
   console.log('Questo test NON scrive nel database.');
   console.log('Questo test NON usa lo scraper di produzione.');
   console.log('========================================');
