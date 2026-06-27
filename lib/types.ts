@@ -62,24 +62,26 @@ function emptyStringToNull(value: unknown) {
 }
 
 function normalizeOptionalString(maxLength?: number) {
-  let schema = z.preprocess(
-    emptyStringToNull,
-    z.string().trim().nullable().optional()
-  );
-
   if (maxLength) {
-    schema = z.preprocess(
-      emptyStringToNull,
-      z
-        .string()
-        .trim()
-        .max(maxLength, `Massimo ${maxLength} caratteri.`)
-        .nullable()
-        .optional()
-    );
+    return z
+      .preprocess(
+        emptyStringToNull,
+        z
+          .string()
+          .trim()
+          .max(maxLength, `Massimo ${maxLength} caratteri.`)
+          .nullable()
+          .optional()
+      )
+      .transform((value) => value ?? null);
   }
 
-  return schema.transform((value) => value ?? null);
+  return z
+    .preprocess(
+      emptyStringToNull,
+      z.string().trim().nullable().optional()
+    )
+    .transform((value) => value ?? null);
 }
 
 function normalizeOptionalUrl() {
@@ -226,44 +228,22 @@ export const monitorInputSchema = z
     is_active: z.boolean().default(true)
   })
   .superRefine((data, ctx) => {
-    const hasMedimopsUrl = Boolean(data.medimops_url);
     const hasMedimopsTarget = data.medimops_target_price !== null;
-
-    const hasMomoxUrl = Boolean(data.momox_url);
     const hasMomoxTarget = data.momox_target_price !== null;
 
-    const medimopsComplete = hasMedimopsUrl && hasMedimopsTarget;
-    const momoxComplete = hasMomoxUrl && hasMomoxTarget;
-
-    const medimopsPartiallyFilled = hasMedimopsUrl || hasMedimopsTarget;
-    const momoxPartiallyFilled = hasMomoxUrl || hasMomoxTarget;
-
-    if (!medimopsComplete && !momoxComplete) {
+    /*
+      Regola attuale:
+      - URL Medimops opzionale
+      - URL Momox opzionale
+      - Amazon ignorato
+      - serve almeno un target tra Medimops o Momox
+    */
+    if (!hasMedimopsTarget && !hasMomoxTarget) {
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
         message:
-          'Inserisci almeno un controllo completo tra Medimops o Momox: URL + prezzo target. Amazon per ora è ignorato.',
-        path: ['medimops_url']
-      });
-
-      return;
-    }
-
-    if (medimopsPartiallyFilled && !medimopsComplete) {
-      ctx.addIssue({
-        code: z.ZodIssueCode.custom,
-        message:
-          'Medimops incompleto: devi inserire sia URL Medimops sia Prezzo Target Medimops.',
-        path: ['medimops_url']
-      });
-    }
-
-    if (momoxPartiallyFilled && !momoxComplete) {
-      ctx.addIssue({
-        code: z.ZodIssueCode.custom,
-        message:
-          'Momox incompleto: devi inserire sia URL Momox sia Prezzo Target Momox.',
-        path: ['momox_url']
+          'Inserisci almeno un prezzo target tra Medimops o Momox. Gli URL sono opzionali. Amazon per ora è ignorato.',
+        path: ['medimops_target_price']
       });
     }
   });
