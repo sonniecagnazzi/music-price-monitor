@@ -117,6 +117,12 @@ function trimToRelevantAmazonArea(text: string): string {
   return normalized.slice(0, indexes[0]);
 }
 
+function compactText(value: string): string {
+  return cleanText(value)
+    .toLowerCase()
+    .replace(/[^a-z0-9àèéìíîòóùúäöüßçñ]+/gi, ' ');
+}
+
 function hasAmazonSellerSignal(context: string): boolean {
   const lower = cleanText(context).toLowerCase();
 
@@ -152,7 +158,7 @@ function hasAmazonSellerSignal(context: string): boolean {
     return true;
   }
 
-  const compact = lower.replace(/[^\p{L}\p{N}]+/gu, ' ');
+  const compact = compactText(lower);
 
   return (
     compact.includes('venditore amazon') ||
@@ -517,12 +523,6 @@ function extractPriceFromAmazonHtml(html: string): ScrapeResult {
     ...extractStrictSoldByAmazonFromText(relevantPageText, 'html-page-text')
   );
 
-  /*
-    Regola principale per il caso visto su Amazon.it:
-    se il blocco buybox contiene “Speditore / Venditore Amazon”
-    o equivalenti, accettiamo il prezzo core Amazon anche se non compare
-    la parola “Nuovo” nello stesso blocco.
-  */
   if (
     buyBoxText &&
     hasAmazonSellerSignal(buyBoxText) &&
