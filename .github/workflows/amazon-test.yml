@@ -1,0 +1,28 @@
+name: Amazon Test From GitHub
+
+on:
+  workflow_dispatch:
+
+jobs:
+  amazon-test:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node 24
+        uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+
+      - name: Enable Yarn
+        run: |
+          corepack enable
+          corepack prepare yarn@1.22.22 --activate
+
+      - name: Install dependencies
+        run: yarn install --network-timeout 300000 --ignore-engines --non-interactive --no-progress
+
+      - name: Run Amazon test
+        run: yarn tsx scripts/test-amazon-github.ts
