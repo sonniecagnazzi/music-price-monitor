@@ -9,6 +9,12 @@ const AMAZON_DOMAINS: Record<AmazonMarketplace, string> = {
   IT: 'amazon.it'
 };
 
+const AMAZON_VAT_RATES: Record<AmazonMarketplace, number> = {
+  FR: 0.2,
+  DE: 0.19,
+  IT: 0.22
+};
+
 const BROWSER_HEADERS: HeadersInit = {
   'user-agent':
     'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36',
@@ -28,12 +34,15 @@ const JINA_HEADERS: HeadersInit = {
   'x-no-cache': 'true'
 };
 
+type PriceCandidateKind = 'offer-listing' | 'core-price';
+
 type PriceCandidate = {
   price: number;
   index: number;
   score: number;
   context: string;
   source: string;
+  kind: PriceCandidateKind;
 };
 
 type FetchResult = {
@@ -73,6 +82,14 @@ function getContext(text: string, index: number, before = 550, after = 900) {
   );
 }
 
+function roundPrice(value: number): number {
+  return Math.round(value * 100) / 100;
+}
+
+function addVat(price: number, marketplace: AmazonMarketplace): number {
+  return roundPrice(price * (1 + AMAZON_VAT_RATES[marketplace]));
+}
+
 function parseEuroPrice(raw: string): number | null {
   if (!/€/.test(raw)) return null;
 
@@ -87,6 +104,26 @@ function hasUsdPrice(text: string): boolean {
 
 function hasEuroPrice(text: string): boolean {
   return /€\s*\d{1,5}(?:[.,]\d{2})|\d{1,5}(?:[.,]\d{2})\s*€/i.test(text);
+}
+
+function looksVatExcluded(text: string): boolean {
+  const lower = cleanText(text).toLowerCase();
+
+  return (
+    lower.includes('united states') ||
+    lower.includes('stati uniti') ||
+    lower.includes('états-unis') ||
+    lower.includes('etats-unis') ||
+    lower.includes('vereinigte staaten') ||
+    lower.includes('depending on your delivery address, vat may vary') ||
+    lower.includes('depending on your delivery address') ||
+    lower.includes('vat may vary') ||
+    lower.includes('iva può variare') ||
+    lower.includes('iva puo variare') ||
+    lower.includes('tva peut varier') ||
+    lower.includes('mwst') ||
+    lower.includes('ust. kann')
+  );
 }
 
 function isRealOfferListingContext(context: string): boolean {
@@ -146,6 +183,40 @@ function isBadOfferContext(context: string): boolean {
   return badSignals.some((signal) => lower.includes(signal));
 }
 
+function isDeliveryContext(context: string): boolean {
+  const lower = cleanText(context).toLowerCase();
+
+  const deliverySignals = [
+    'consegna a',
+    'consegna prevista',
+    'delivery',
+    'shipping',
+    'livraison',
+    'frais de livraison',
+    'versand',
+    'lieferung',
+    'versandkosten'
+  ];
+
+  return deliverySignals.some((signal) => lower.includes(signal));
+}
+
+function isCorePriceContext(context: string): boolean {
+  const lower = cleanText(context).toLowerCase();
+
+  return (
+    lower.includes('coreprice') ||
+    lower.includes('priceblock') ||
+    lower.includes('apex_desktop') ||
+    lower.includes('price') ||
+    lower.includes('amazon') ||
+    lower.includes('free returns') ||
+    lower.includes('retours gratuits') ||
+    lower.includes('retournez cet article gratuitement') ||
+    lower.includes('return this item for free')
+  );
+}
+
 function addOfferCandidate(
   candidates: PriceCandidate[],
   fullText: string,
@@ -177,7 +248,43 @@ function addOfferCandidate(
     index,
     score,
     context,
-    source
+    source,
+    kind: 'offer-listing'
+  });
+}
+
+function addCoreCandidate(
+  candidates: PriceCandidate[],
+  fullText: string,
+  price: number | null,
+  index: number,
+  source: string,
+  contextOverride?: string
+) {
+  if (price === null || price <= 0 || price >= 1000) return;
+
+  const context = contextOverride || getContext(fullText, index);
+
+  if (!hasEuroPrice(context)) return;
+  if (hasUsdPrice(context) && !hasEuroPrice(context)) return;
+  if (isBadOfferContext(context)) return;
+
+  let score = 100;
+
+  if (source.includes('corePrice_feature_div')) score += 300;
+  if (source.includes('corePriceDisplay_desktop_feature_div')) score += 250;
+  if (source.includes('apex_desktop')) score += 200;
+  if (source.includes('priceToPay')) score += 220;
+  if (isCorePriceContext(context)) score += 100;
+  if (isDeliveryContext(context)) score -= 80;
+
+  candidates.push({
+    price,
+    index,
+    score,
+    context,
+    source,
+    kind: 'core-price'
   });
 }
 
@@ -188,15 +295,6 @@ function extractOfferListingCandidates(
   const normalized = text.replace(/\u00a0/g, ' ');
   const candidates: PriceCandidate[] = [];
 
-  /*
-    Pattern principale, basato sul debug reale:
-
-    Other sellers on Amazon * * *
-    [New & Used (11) from€9.00€9.00+ €10.56 delivery]
-
-    Other sellers on Amazon * * *
-    [New & Used (12) from€8.99€8.99+ €11.66 delivery]
-  */
   const patterns = [
     {
       source: 'other-sellers-new-used-from-euro-prefix',
@@ -251,11 +349,6 @@ function extractOfferListingCandidates(
     }
   }
 
-  /*
-    Fallback molto mirato:
-    cerca qualunque "from€9.00" ma lo accetta solo se nel contesto
-    c'è New & Used / Other sellers.
-  */
   const genericFromPrice =
     /(?:from|da|à partir de|ab)\s*€\s*(\d{1,5}(?:[.,]\d{2}))/gi;
 
@@ -281,18 +374,105 @@ function extractOfferListingCandidates(
   return candidates;
 }
 
+function extractCorePriceCandidatesFromHtml(
+  html: string,
+  sourcePrefix: string
+): PriceCandidate[] {
+  const $ = cheerio.load(html);
+  const normalizedHtml = html.replace(/\u00a0/g, ' ');
+  const pageText = $.root().text().replace(/\u00a0/g, ' ');
+  const candidates: PriceCandidate[] = [];
+
+  const selectors = [
+    '#corePrice_feature_div .a-price .a-offscreen',
+    '#corePriceDisplay_desktop_feature_div .a-price .a-offscreen',
+    '#apex_desktop .a-price .a-offscreen',
+    '.priceToPay .a-offscreen',
+    '#priceblock_ourprice',
+    '#priceblock_dealprice',
+    '#price_inside_buybox',
+    '[data-a-color="price"] .a-offscreen'
+  ];
+
+  for (const selector of selectors) {
+    const nodes = $(selector).toArray().slice(0, 12);
+
+    for (const node of nodes) {
+      const element = $(node);
+      const raw =
+        element.attr('content') ||
+        element.attr('value') ||
+        element.text() ||
+        '';
+
+      const price = parseEuroPrice(raw);
+
+      if (price !== null) {
+        const localContext =
+          element
+            .closest(
+              '#corePrice_feature_div, #corePriceDisplay_desktop_feature_div, #apex_desktop, #desktop_buybox, #buybox, #rightCol, #centerCol, div'
+            )
+            .text() || raw;
+
+        const htmlIndex = normalizedHtml.indexOf(raw);
+
+        addCoreCandidate(
+          candidates,
+          pageText,
+          price,
+          htmlIndex >= 0 ? htmlIndex : 0,
+          `${sourcePrefix}:core-price:${selector}`,
+          `${localContext} ${pageText.slice(0, 2500)}`
+        );
+      }
+    }
+  }
+
+  $('.a-price').each((index, node) => {
+    const element = $(node);
+    const whole = cleanText(element.find('.a-price-whole').first().text());
+    const fraction = cleanText(
+      element.find('.a-price-fraction').first().text()
+    );
+
+    if (!whole || !fraction) return;
+
+    const raw = `${whole},${fraction}`;
+    const price = parseEuroPrice(`${raw} €`);
+
+    if (price !== null) {
+      const localContext =
+        element
+          .closest(
+            '#corePrice_feature_div, #corePriceDisplay_desktop_feature_div, #apex_desktop, #desktop_buybox, #buybox, #rightCol, #centerCol, div'
+          )
+          .text() || element.text();
+
+      addCoreCandidate(
+        candidates,
+        pageText,
+        price,
+        index,
+        `${sourcePrefix}:core-price-split`,
+        `${localContext} ${pageText.slice(0, 2500)}`
+      );
+    }
+  });
+
+  return candidates;
+}
+
 function extractCandidatesFromAmazonHtml(
   html: string,
   sourcePrefix: string
 ): PriceCandidate[] {
   const pageText = cheerio.load(html).root().text().replace(/\u00a0/g, ' ');
 
-  /*
-    IMPORTANTE:
-    Qui estraiamo SOLO offer listing.
-    Non estraiamo mai core price.
-  */
-  return extractOfferListingCandidates(pageText, sourcePrefix);
+  return [
+    ...extractOfferListingCandidates(pageText, sourcePrefix),
+    ...extractCorePriceCandidatesFromHtml(html, sourcePrefix)
+  ];
 }
 
 function extractCandidatesFromAmazonText(
@@ -301,17 +481,14 @@ function extractCandidatesFromAmazonText(
 ): PriceCandidate[] {
   const normalized = text.replace(/\u00a0/g, ' ');
 
-  /*
-    IMPORTANTE:
-    Anche dal reader estraiamo SOLO offer listing.
-  */
   return extractOfferListingCandidates(normalized, sourcePrefix);
 }
 
 function chooseBestCandidate(
   candidates: PriceCandidate[]
 ): PriceCandidate | null {
-  const valid = candidates
+  const offerCandidates = candidates
+    .filter((candidate) => candidate.kind === 'offer-listing')
     .filter((candidate) => {
       if (candidate.price <= 0) return false;
       if (candidate.price >= 1000) return false;
@@ -323,18 +500,66 @@ function chooseBestCandidate(
     })
     .sort((a, b) => b.score - a.score || a.index - b.index);
 
-  return valid[0] || null;
+  if (offerCandidates[0]) {
+    return offerCandidates[0];
+  }
+
+  const coreCandidates = candidates
+    .filter((candidate) => candidate.kind === 'core-price')
+    .filter((candidate) => {
+      if (candidate.price <= 0) return false;
+      if (candidate.price >= 1000) return false;
+      if (!hasEuroPrice(candidate.context)) return false;
+      if (hasUsdPrice(candidate.context) && !hasEuroPrice(candidate.context)) {
+        return false;
+      }
+
+      return true;
+    })
+    .sort((a, b) => b.score - a.score || a.index - b.index);
+
+  return coreCandidates[0] || null;
+}
+
+function applyMarketplaceVatIfNeeded(
+  candidate: PriceCandidate,
+  marketplace: AmazonMarketplace,
+  pageContext: string
+): {
+  price: number;
+  vatApplied: boolean;
+} {
+  if (candidate.kind === 'offer-listing') {
+    return {
+      price: candidate.price,
+      vatApplied: false
+    };
+  }
+
+  const combinedContext = `${candidate.context} ${pageContext}`;
+
+  if (!looksVatExcluded(combinedContext)) {
+    return {
+      price: candidate.price,
+      vatApplied: false
+    };
+  }
+
+  return {
+    price: addVat(candidate.price, marketplace),
+    vatApplied: true
+  };
 }
 
 function getCorePriceTexts($: cheerio.CheerioAPI): string[] {
   const selectors = [
-    '#corePriceDisplay_desktop_feature_div .a-price .a-offscreen',
     '#corePrice_feature_div .a-price .a-offscreen',
+    '#corePriceDisplay_desktop_feature_div .a-price .a-offscreen',
     '#apex_desktop .a-price .a-offscreen',
+    '.priceToPay .a-offscreen',
     '#priceblock_ourprice',
     '#priceblock_dealprice',
     '#price_inside_buybox',
-    '.priceToPay .a-offscreen',
     '[data-a-color="price"] .a-offscreen'
   ];
 
@@ -410,6 +635,13 @@ function findKeywordSnippets(text: string): string[] {
     'da €',
     'à partir de',
     'ab€',
+    'depending on your delivery address',
+    'vat may vary',
+    'iva può variare',
+    'united states',
+    'stati uniti',
+    'états-unis',
+    'vereinigte staaten',
     'usd',
     '€'
   ];
@@ -425,7 +657,7 @@ function findKeywordSnippets(text: string): string[] {
       );
     }
 
-    if (snippets.length >= 16) break;
+    if (snippets.length >= 18) break;
   }
 
   return snippets;
@@ -471,10 +703,10 @@ function buildDebugSource(input: {
 
   const candidates = (input.candidates || [])
     .sort((a, b) => b.score - a.score)
-    .slice(0, 20)
+    .slice(0, 24)
     .map(
       (candidate, index) =>
-        `${index + 1}) price=${candidate.price} score=${candidate.score} source=${candidate.source} context=${cleanContext(candidate.context, 900)}`
+        `${index + 1}) kind=${candidate.kind} price=${candidate.price} score=${candidate.score} source=${candidate.source} context=${cleanContext(candidate.context, 900)}`
     );
 
   return [
@@ -484,7 +716,7 @@ function buildDebugSource(input: {
     `reader=${input.reader ? `${input.reader.status} ${input.reader.statusText} ok=${input.reader.ok} textLength=${readerText.length}` : 'not-run'}`,
     `search=${input.search ? `${input.search.status} ${input.search.statusText} ok=${input.search.ok} textLength=${searchText.length}` : 'not-run'}`,
     `corePriceTexts=${corePrices.length > 0 ? corePrices.join(' || ') : '-'}`,
-    `offerCandidates=${candidates.length > 0 ? candidates.join(' || ') : '-'}`,
+    `candidates=${candidates.length > 0 ? candidates.join(' || ') : '-'}`,
     `directKeywordSnippets=${directKeywordSnippets.length > 0 ? directKeywordSnippets.join(' || ') : '-'}`,
     `readerKeywordSnippets=${readerKeywordSnippets.length > 0 ? readerKeywordSnippets.join(' || ') : '-'}`,
     `searchKeywordSnippets=${searchKeywordSnippets.length > 0 ? searchKeywordSnippets.join(' || ') : '-'}`,
@@ -606,11 +838,18 @@ export async function scrapeAmazonPrice(
     }
 
     const best = chooseBestCandidate(allCandidates);
+    const pageContext = `${direct.text || ''} ${reader?.text || ''}`;
 
     if (best) {
+      const normalized = applyMarketplaceVatIfNeeded(
+        best,
+        marketplace,
+        pageContext
+      );
+
       return {
-        price: best.price,
-        source: `${marketplace}:${best.source} score=${best.score} | contesto: ${cleanContext(
+        price: normalized.price,
+        source: `${marketplace}:${best.source} kind=${best.kind} score=${best.score} vatApplied=${normalized.vatApplied ? 'yes' : 'no'} rawPrice=${best.price} finalPrice=${normalized.price} | contesto: ${cleanContext(
           best.context
         )}`,
         error: null,
