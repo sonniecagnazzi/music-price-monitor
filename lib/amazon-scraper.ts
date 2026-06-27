@@ -36,6 +36,13 @@ type PriceCandidate = {
   source: string;
 };
 
+type FetchResult = {
+  ok: boolean;
+  status: number;
+  statusText: string;
+  text: string | null;
+};
+
 export function buildAmazonUrl(
   asin: string,
   marketplace: AmazonMarketplace
@@ -47,8 +54,8 @@ function cleanText(value: string): string {
   return value.replace(/\u00a0/g, ' ').replace(/\s+/g, ' ').trim();
 }
 
-function cleanContext(value: string): string {
-  return cleanText(value).slice(0, 1000);
+function cleanContext(value: string, maxLength = 1200): string {
+  return cleanText(value).slice(0, maxLength);
 }
 
 function makeSource(source: string, context?: string): string {
@@ -77,6 +84,12 @@ function getNearContext(text: string, index: number, before = 120, after = 160) 
     Math.max(0, index - before),
     Math.min(text.length, index + after)
   );
+}
+
+function compactText(value: string): string {
+  return cleanText(value)
+    .toLowerCase()
+    .replace(/[^a-z0-9àèéìíîòóùúäöüßçñ]+/gi, ' ');
 }
 
 function trimToRelevantAmazonArea(text: string): string {
@@ -117,25 +130,19 @@ function trimToRelevantAmazonArea(text: string): string {
   return normalized.slice(0, indexes[0]);
 }
 
-function compactText(value: string): string {
-  return cleanText(value)
-    .toLowerCase()
-    .replace(/[^a-z0-9àèéìíîòóùúäöüßçñ]+/gi, ' ');
-}
-
 function hasAmazonSellerSignal(context: string): boolean {
   const lower = cleanText(context).toLowerCase();
 
   const sellerPatterns = [
-    /venditore\s*\/?\s*amazon/i,
     /speditore\s*\/\s*venditore\s*amazon/i,
+    /venditore\s*\/?\s*amazon/i,
     /venduto\s+da\s+amazon/i,
     /venduto\s+e\s+spedito\s+da\s+amazon/i,
     /venduto\s+da\s+amazon\s+eu\s+sarl/i,
 
-    /vendeur\s*\/?\s*amazon/i,
     /expéditeur\s*\/\s*vendeur\s*amazon/i,
     /expediteur\s*\/\s*vendeur\s*amazon/i,
+    /vendeur\s*\/?\s*amazon/i,
     /vendu\s+par\s+amazon/i,
     /vendu\s+et\s+expédié\s+par\s+amazon/i,
     /vendu\s+et\s+expedie\s+par\s+amazon/i,
@@ -161,11 +168,11 @@ function hasAmazonSellerSignal(context: string): boolean {
   const compact = compactText(lower);
 
   return (
-    compact.includes('venditore amazon') ||
     compact.includes('speditore venditore amazon') ||
-    compact.includes('vendeur amazon') ||
+    compact.includes('venditore amazon') ||
     compact.includes('expediteur vendeur amazon') ||
     compact.includes('expéditeur vendeur amazon') ||
+    compact.includes('vendeur amazon') ||
     compact.includes('verkäufer amazon') ||
     compact.includes('verkaeufer amazon') ||
     compact.includes('seller amazon')
@@ -415,7 +422,7 @@ function findFirstPriceAfterCondition(block: string): {
   }
 
   const afterCondition = block.slice(conditionMatch.index);
-  const searchArea = afterCondition.slice(0, 260);
+  const searchArea = afterCondition.slice(0, 300);
   const priceRegex = /(?:€\s*)?(\d{1,5}(?:[.,]\d{2}))\s*€/i;
   const priceMatch = priceRegex.exec(searchArea);
 
@@ -440,7 +447,7 @@ function extractStrictSoldByAmazonFromText(
   const candidates: PriceCandidate[] = [];
 
   const conditionToSellerPattern =
-    /\b(?:Nuovo|Neuf|Neu|New)\b[\s\S]{0,1200}?(?:Speditore\s*\/\s*Venditore\s*Amazon|Venditore\s*Amazon|Venduto\s+da\s+Amazon|Venduto\s+e\s+spedito\s+da\s+Amazon|Expéditeur\s*\/\s*Vendeur\s*Amazon|Expediteur\s*\/\s*Vendeur\s*Amazon|Vendeur\s*Amazon|Vendu\s+par\s+Amazon|Vendu\s+et\s+expédié\s+par\s+Amazon|Verkäufer\s*Amazon|Verkaeufer\s*Amazon|Verkauf\s+durch\s+Amazon|Verkauft\s+von\s+Amazon|Seller\s*Amazon|Sold\s+by\s+Amazon)/gi;
+    /\b(?:Nuovo|Neuf|Neu|New)\b[\s\S]{0,1400}?(?:Speditore\s*\/\s*Venditore\s*Amazon|Venditore\s*Amazon|Venduto\s+da\s+Amazon|Venduto\s+e\s+spedito\s+da\s+Amazon|Expéditeur\s*\/\s*Vendeur\s*Amazon|Expediteur\s*\/\s*Vendeur\s*Amazon|Vendeur\s*Amazon|Vendu\s+par\s+Amazon|Vendu\s+et\s+expédié\s+par\s+Amazon|Verkäufer\s*Amazon|Verkaeufer\s*Amazon|Verkauf\s+durch\s+Amazon|Verkauft\s+von\s+Amazon|Seller\s*Amazon|Sold\s+by\s+Amazon)/gi;
 
   let blockMatch = conditionToSellerPattern.exec(relevantText);
 
@@ -502,7 +509,14 @@ function getBuyBoxText($: cheerio.CheerioAPI): string {
     '#offerDisplayGroup_feature_div',
     '#availability',
     '#shipsFromSoldByInsideBuyBox_feature_div',
-    '#sellerProfileTriggerId'
+    '#sellerProfileTriggerId',
+    '#sellerProfileTriggerId_feature_div',
+    '#fulfillerInfoFeature_feature_div',
+    '#merchantInfoFeature_feature_div',
+    '#mir-layout-DELIVERY_BLOCK-slot-PRIMARY_DELIVERY_MESSAGE_LARGE',
+    '#deliveryBlockMessage',
+    '[data-feature-name="shipsFromSoldByInsideBuyBox"]',
+    '[data-feature-name="merchantInfo"]'
   ];
 
   return selectors
@@ -511,7 +525,179 @@ function getBuyBoxText($: cheerio.CheerioAPI): string {
     .join(' ');
 }
 
-function extractPriceFromAmazonHtml(html: string): ScrapeResult {
+function getCorePriceTexts($: cheerio.CheerioAPI): string[] {
+  const selectors = [
+    '#corePriceDisplay_desktop_feature_div .a-price .a-offscreen',
+    '#corePrice_feature_div .a-price .a-offscreen',
+    '#apex_desktop .a-price .a-offscreen',
+    '#priceblock_ourprice',
+    '#priceblock_dealprice',
+    '#price_inside_buybox',
+    '.priceToPay .a-offscreen',
+    '[data-a-color="price"] .a-offscreen'
+  ];
+
+  const values: string[] = [];
+
+  for (const selector of selectors) {
+    $(selector)
+      .toArray()
+      .slice(0, 8)
+      .forEach((node) => {
+        const element = $(node);
+        const raw =
+          element.attr('content') ||
+          element.attr('value') ||
+          element.text() ||
+          '';
+
+        const cleaned = cleanText(raw);
+
+        if (cleaned) {
+          values.push(`${selector} => ${cleaned}`);
+        }
+      });
+  }
+
+  return values;
+}
+
+function extractAllEuroPricesWithContext(text: string): string[] {
+  const normalized = text.replace(/\u00a0/g, ' ');
+  const priceRegex = /(?:€\s*)?(\d{1,5}(?:[.,]\d{2}))\s*€/gi;
+  const results: string[] = [];
+
+  let match = priceRegex.exec(normalized);
+
+  while (match !== null && results.length < 18) {
+    const price = normalizePrice(match[1] || '');
+    const context = cleanContext(getContext(normalized, match.index, 160, 220), 430);
+
+    results.push(
+      `${results.length + 1}) prezzo=${price ?? match[1]} | contesto=${context}`
+    );
+
+    match = priceRegex.exec(normalized);
+  }
+
+  return results;
+}
+
+function findKeywordSnippets(text: string): string[] {
+  const normalized = text.replace(/\u00a0/g, ' ');
+  const lower = normalized.toLowerCase();
+
+  const keywords = [
+    'speditore',
+    'venditore',
+    'venduto',
+    'amazon',
+    'vendeur',
+    'vendu',
+    'expéditeur',
+    'expediteur',
+    'verkauf',
+    'verkäufer',
+    'seller',
+    'sold by',
+    'ships from',
+    'nuovo',
+    'neuf',
+    'neu',
+    'new'
+  ];
+
+  const snippets: string[] = [];
+
+  for (const keyword of keywords) {
+    const index = lower.indexOf(keyword.toLowerCase());
+
+    if (index >= 0) {
+      snippets.push(
+        `${keyword}: ${cleanContext(getContext(normalized, index, 250, 450), 700)}`
+      );
+    }
+
+    if (snippets.length >= 12) break;
+  }
+
+  return snippets;
+}
+
+function buildDebugSource(input: {
+  marketplace: AmazonMarketplace;
+  asin: string;
+  url: string;
+  direct: FetchResult;
+  reader?: FetchResult | null;
+  search?: FetchResult | null;
+  directText?: string | null;
+  readerText?: string | null;
+  searchText?: string | null;
+  candidates?: PriceCandidate[];
+}) {
+  const directText = input.directText || '';
+  const readerText = input.readerText || '';
+  const searchText = input.searchText || '';
+
+  let buyBoxText = '';
+  let corePrices: string[] = [];
+
+  if (directText) {
+    const $ = cheerio.load(directText);
+    buyBoxText = cleanContext(getBuyBoxText($), 1800);
+    corePrices = getCorePriceTexts($);
+  }
+
+  const directPlainText = directText
+    ? cleanContext(cheerio.load(directText).root().text(), 8000)
+    : '';
+
+  const directRelevantText = trimToRelevantAmazonArea(directPlainText);
+  const readerRelevantText = trimToRelevantAmazonArea(readerText);
+  const searchRelevantText = trimToRelevantAmazonArea(searchText);
+
+  const directKeywordSnippets = findKeywordSnippets(directRelevantText);
+  const readerKeywordSnippets = findKeywordSnippets(readerRelevantText);
+  const searchKeywordSnippets = findKeywordSnippets(searchRelevantText);
+
+  const directPrices = extractAllEuroPricesWithContext(directRelevantText);
+  const readerPrices = extractAllEuroPricesWithContext(readerRelevantText);
+  const searchPrices = extractAllEuroPricesWithContext(searchRelevantText);
+
+  const candidates = (input.candidates || [])
+    .sort((a, b) => b.score - a.score)
+    .slice(0, 10)
+    .map(
+      (candidate, index) =>
+        `${index + 1}) price=${candidate.price} score=${candidate.score} source=${candidate.source} context=${cleanContext(candidate.context, 600)}`
+    );
+
+  return [
+    `AMAZON_DEBUG marketplace=${input.marketplace} asin=${input.asin}`,
+    `url=${input.url}`,
+    `direct=${input.direct.status} ${input.direct.statusText} ok=${input.direct.ok} textLength=${directText.length}`,
+    `reader=${input.reader ? `${input.reader.status} ${input.reader.statusText} ok=${input.reader.ok} textLength=${readerText.length}` : 'not-run'}`,
+    `search=${input.search ? `${input.search.status} ${input.search.statusText} ok=${input.search.ok} textLength=${searchText.length}` : 'not-run'}`,
+    `direct_hasSellerSignal=${hasAmazonSellerSignal(directPlainText)}`,
+    `direct_hasShippingSignal=${hasAmazonShippingSignal(directPlainText)}`,
+    `buyBox_hasSellerSignal=${hasAmazonSellerSignal(buyBoxText)}`,
+    `buyBox_hasShippingSignal=${hasAmazonShippingSignal(buyBoxText)}`,
+    `buyBoxText=${buyBoxText || '-'}`,
+    `corePriceTexts=${corePrices.length > 0 ? corePrices.join(' || ') : '-'}`,
+    `candidates=${candidates.length > 0 ? candidates.join(' || ') : '-'}`,
+    `directKeywordSnippets=${directKeywordSnippets.length > 0 ? directKeywordSnippets.join(' || ') : '-'}`,
+    `readerKeywordSnippets=${readerKeywordSnippets.length > 0 ? readerKeywordSnippets.join(' || ') : '-'}`,
+    `searchKeywordSnippets=${searchKeywordSnippets.length > 0 ? searchKeywordSnippets.join(' || ') : '-'}`,
+    `directPrices=${directPrices.length > 0 ? directPrices.join(' || ') : '-'}`,
+    `readerPrices=${readerPrices.length > 0 ? readerPrices.join(' || ') : '-'}`,
+    `searchPrices=${searchPrices.length > 0 ? searchPrices.join(' || ') : '-'}`
+  ].join(' | ');
+}
+
+function extractPriceFromAmazonHtml(html: string): ScrapeResult & {
+  candidates: PriceCandidate[];
+} {
   const $ = cheerio.load(html);
   const normalizedHtml = html.replace(/\u00a0/g, ' ');
   const pageText = $.root().text().replace(/\u00a0/g, ' ');
@@ -653,18 +839,22 @@ function extractPriceFromAmazonHtml(html: string): ScrapeResult {
     return {
       price: null,
       source: 'amazon-sold-by-amazon-price-not-visible',
-      error: null
+      error: null,
+      candidates
     };
   }
 
   return {
     price: best.price,
     source: makeSource(`${best.source} score=${best.score}`, best.context),
-    error: null
+    error: null,
+    candidates
   };
 }
 
-function extractPriceFromAmazonText(text: string): ScrapeResult {
+function extractPriceFromAmazonText(text: string): ScrapeResult & {
+  candidates: PriceCandidate[];
+} {
   const relevantText = trimToRelevantAmazonArea(text.replace(/\u00a0/g, ' '));
   const candidates = extractStrictSoldByAmazonFromText(
     relevantText,
@@ -692,23 +882,20 @@ function extractPriceFromAmazonText(text: string): ScrapeResult {
     return {
       price: null,
       source: 'amazon-reader-sold-by-amazon-price-not-visible',
-      error: null
+      error: null,
+      candidates
     };
   }
 
   return {
     price: best.price,
     source: makeSource(`${best.source} score=${best.score}`, best.context),
-    error: null
+    error: null,
+    candidates
   };
 }
 
-async function fetchText(url: string): Promise<{
-  ok: boolean;
-  status: number;
-  statusText: string;
-  text: string | null;
-}> {
+async function fetchText(url: string): Promise<FetchResult> {
   const response = await fetch(url, {
     headers: BROWSER_HEADERS,
     cache: 'no-store',
@@ -732,12 +919,7 @@ async function fetchText(url: string): Promise<{
   };
 }
 
-async function fetchJinaReader(url: string): Promise<{
-  ok: boolean;
-  status: number;
-  statusText: string;
-  text: string | null;
-}> {
+async function fetchJinaReader(url: string): Promise<FetchResult> {
   const response = await fetch(buildJinaReaderUrl(url), {
     headers: JINA_HEADERS,
     cache: 'no-store',
@@ -761,12 +943,7 @@ async function fetchJinaReader(url: string): Promise<{
   };
 }
 
-async function fetchJinaSearch(url: string): Promise<{
-  ok: boolean;
-  status: number;
-  statusText: string;
-  text: string | null;
-}> {
+async function fetchJinaSearch(url: string): Promise<FetchResult> {
   const response = await fetch(buildJinaSearchUrl(url), {
     headers: JINA_HEADERS,
     cache: 'no-store',
@@ -799,9 +976,14 @@ export async function scrapeAmazonPrice(
 
   try {
     const direct = await fetchText(url);
+    let reader: FetchResult | null = null;
+    let search: FetchResult | null = null;
+    let allCandidates: PriceCandidate[] = [];
 
     if (direct.ok && direct.text) {
       const result = extractPriceFromAmazonHtml(direct.text);
+
+      allCandidates = [...allCandidates, ...result.candidates];
 
       if (result.price !== null) {
         return {
@@ -813,10 +995,12 @@ export async function scrapeAmazonPrice(
       }
     }
 
-    const reader = await fetchJinaReader(url);
+    reader = await fetchJinaReader(url);
 
     if (reader.ok && reader.text) {
       const result = extractPriceFromAmazonText(reader.text);
+
+      allCandidates = [...allCandidates, ...result.candidates];
 
       if (result.price !== null) {
         return {
@@ -828,10 +1012,12 @@ export async function scrapeAmazonPrice(
       }
     }
 
-    const search = await fetchJinaSearch(url);
+    search = await fetchJinaSearch(url);
 
     if (search.ok && search.text) {
       const result = extractPriceFromAmazonText(search.text);
+
+      allCandidates = [...allCandidates, ...result.candidates];
 
       if (result.price !== null) {
         return {
@@ -845,7 +1031,18 @@ export async function scrapeAmazonPrice(
 
     return {
       price: null,
-      source: `${marketplace}:amazon-sold-by-amazon-price-not-visible`,
+      source: buildDebugSource({
+        marketplace,
+        asin: cleanedAsin,
+        url,
+        direct,
+        reader,
+        search,
+        directText: direct.text,
+        readerText: reader.text,
+        searchText: search.text,
+        candidates: allCandidates
+      }),
       error: null,
       url,
       marketplace
