@@ -83,6 +83,10 @@ function hasConfiguredAmazon(
   return Boolean(asin && target && target > 0);
 }
 
+function isAmazonCheck(check: SiteCheck): boolean {
+  return check.site.startsWith('Amazon ');
+}
+
 async function checkStoreSite(
   site: 'Medimops' | 'Momox',
   url: string | null,
@@ -200,14 +204,42 @@ function buildMessage(checks: SiteCheck[]) {
     .join(' | ');
 }
 
-function buildErrorMessage(checks: SiteCheck[]) {
+function buildDetailMessage(checks: SiteCheck[]) {
   return checks
-    .filter((check) => !check.skipped && check.price === null && check.error)
-    .map(
-      (check) =>
-        `${check.site}: ${check.error || 'prezzo non trovato'}; fonte ${check.source || '-'}`
-    )
-    .join(' | ');
+    .filter((check) => {
+      if (check.skipped) return false;
+
+      /*
+        TEMP DEBUG AMAZON:
+        Mostriamo SEMPRE il dettaglio Amazon:
+        - anche se ha trovato un prezzo
+        - anche se il prezzo è sbagliato
+        - anche se non ha trovato nulla
+
+        Così nel datagrid puoi copiare il contesto reale ricevuto da Vercel.
+      */
+      if (isAmazonCheck(check)) return true;
+
+      /*
+        Per Momox/Medimops continuiamo a mostrare solo errori veri.
+      */
+      return check.price === null && Boolean(check.error);
+    })
+    .map((check) => {
+      if (isAmazonCheck(check)) {
+        return [
+          `${check.site}`,
+          `price=${check.price === null ? '-' : check.price}`,
+          `target=${check.target === null ? '-' : check.target}`,
+          `belowTarget=${check.isBelowTarget ? 'yes' : 'no'}`,
+          `error=${check.error || '-'}`,
+          `source=${check.source || '-'}`
+        ].join(' | ');
+      }
+
+      return `${check.site}: ${check.error || 'prezzo non trovato'}; fonte ${check.source || '-'}`;
+    })
+    .join(' || ');
 }
 
 function hasAnyRealError(checks: SiteCheck[]) {
@@ -376,14 +408,14 @@ export async function runMonitor(
       }
 
       const fullMessage = buildMessage(checks);
-      const visibleErrorMessage = hasRealError ? buildErrorMessage(checks) : null;
+      const detailMessage = buildDetailMessage(checks) || null;
 
       await supabase.from('price_checks').insert({
         monitor_id: monitor.id,
         checked_at: checkedAt,
         price: lowestPrice,
         status: nextStatus,
-        error_message: visibleErrorMessage,
+        error_message: detailMessage,
         source: mergeSources(checks)
       });
 
@@ -398,7 +430,7 @@ export async function runMonitor(
           current_price: lowestPrice,
           last_checked_at: checkedAt,
           last_status: nextStatus,
-          last_error: visibleErrorMessage,
+          last_error: detailMessage,
           alert_sent: nextAlertSent,
           updated_at: checkedAt
         })
@@ -410,7 +442,7 @@ export async function runMonitor(
         album: monitor.album,
         status: nextStatus,
         price: lowestPrice,
-        error: visibleErrorMessage,
+        error: detailMessage,
         alertSent: alertSentNow,
         message: fullMessage
       });
