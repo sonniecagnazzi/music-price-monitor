@@ -510,34 +510,34 @@ export default function Dashboard() {
                       {monitor.last_error || '-'}
                     </td>
                     <td className="p-2">
-                      <div className="flex flex-col gap-2">
+                      <div className="flex items-center justify-start gap-2">
                         <button
-                          className="inline-flex items-center gap-2 rounded-lg border px-3 py-1.5 text-left text-slate-700 hover:bg-slate-50"
+                          className="inline-flex h-9 w-9 items-center justify-center rounded-lg border text-slate-700 hover:bg-slate-50"
                           onClick={() => editMonitor(monitor)}
                           title="Modifica"
+                          aria-label="Modifica"
                         >
                           <EditIcon />
-                          <span>Modifica</span>
                         </button>
 
                         <button
-                          className="inline-flex items-center gap-2 rounded-lg border px-3 py-1.5 text-left text-blue-700 hover:bg-blue-50 disabled:opacity-50"
+                          className="inline-flex h-9 w-9 items-center justify-center rounded-lg border text-blue-700 hover:bg-blue-50 disabled:opacity-50"
                           disabled={busy}
                           onClick={() => checkOne(monitor.id)}
                           title="Controlla ora"
+                          aria-label="Controlla ora"
                         >
                           <CheckIcon />
-                          <span>Controlla</span>
                         </button>
 
                         <button
-                          className="inline-flex items-center gap-2 rounded-lg border border-red-300 px-3 py-1.5 text-left text-red-700 hover:bg-red-50 disabled:opacity-50"
+                          className="inline-flex h-9 w-9 items-center justify-center rounded-lg border border-red-300 text-red-700 hover:bg-red-50 disabled:opacity-50"
                           disabled={busy}
                           onClick={() => deleteMonitor(monitor.id)}
                           title="Elimina"
+                          aria-label="Elimina"
                         >
                           <TrashIcon />
-                          <span>Elimina</span>
                         </button>
                       </div>
                     </td>
