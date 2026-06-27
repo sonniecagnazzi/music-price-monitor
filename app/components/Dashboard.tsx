@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import type { LastStatus, Monitor, MonitorInput, MonitorType } from '@/lib/types';
 import { formatDate, formatEuro, toNumberFromItalianInput } from '@/lib/format';
+import { buildAmazonUrl } from '@/lib/amazon-scraper';
 
 type SortKey =
   | 'artist'
@@ -13,6 +14,10 @@ type SortKey =
   | 'medimops_current_price'
   | 'momox_target_price'
   | 'momox_current_price'
+  | 'amazon_target_price'
+  | 'amazon_fr_current_price'
+  | 'amazon_de_current_price'
+  | 'amazon_it_current_price'
   | 'last_checked_at'
   | 'release_year'
   | 'ean_code';
@@ -32,6 +37,8 @@ type FormState = {
   medimops_target_price: string;
   momox_url: string;
   momox_target_price: string;
+  amazon_asin: string;
+  amazon_target_price: string;
   alert_email: string;
   is_active: boolean;
 };
@@ -50,6 +57,8 @@ const emptyForm: FormState = {
   medimops_target_price: '',
   momox_url: '',
   momox_target_price: '',
+  amazon_asin: '',
+  amazon_target_price: '',
   alert_email: '',
   is_active: true
 };
@@ -75,122 +84,45 @@ const statusLabels: Record<LastStatus | 'never_checked', string> = {
 
 function EditIcon() {
   return (
-    <svg
-      aria-hidden="true"
-      className="h-4 w-4"
-      viewBox="0 0 24 24"
-      fill="none"
-    >
-      <path
-        d="M4 20h4.5L19 9.5 14.5 5 4 15.5V20Z"
-        stroke="currentColor"
-        strokeWidth="1.8"
-        strokeLinejoin="round"
-      />
-      <path
-        d="M13.5 6 18 10.5"
-        stroke="currentColor"
-        strokeWidth="1.8"
-        strokeLinecap="round"
-      />
+    <svg aria-hidden="true" className="h-4 w-4" viewBox="0 0 24 24" fill="none">
+      <path d="M4 20h4.5L19 9.5 14.5 5 4 15.5V20Z" stroke="currentColor" strokeWidth="1.8" strokeLinejoin="round" />
+      <path d="M13.5 6 18 10.5" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
     </svg>
   );
 }
 
 function CheckIcon() {
   return (
-    <svg
-      aria-hidden="true"
-      className="h-4 w-4"
-      viewBox="0 0 24 24"
-      fill="none"
-    >
-      <path
-        d="M21 12a9 9 0 1 1-2.64-6.36"
-        stroke="currentColor"
-        strokeWidth="1.8"
-        strokeLinecap="round"
-      />
-      <path
-        d="M8.5 12.5 11 15l7-7"
-        stroke="currentColor"
-        strokeWidth="1.8"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-      />
+    <svg aria-hidden="true" className="h-4 w-4" viewBox="0 0 24 24" fill="none">
+      <path d="M21 12a9 9 0 1 1-2.64-6.36" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
+      <path d="M8.5 12.5 11 15l7-7" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
     </svg>
   );
 }
 
 function TrashIcon() {
   return (
-    <svg
-      aria-hidden="true"
-      className="h-4 w-4"
-      viewBox="0 0 24 24"
-      fill="none"
-    >
-      <path
-        d="M4 7h16"
-        stroke="currentColor"
-        strokeWidth="1.8"
-        strokeLinecap="round"
-      />
-      <path
-        d="M10 11v6M14 11v6"
-        stroke="currentColor"
-        strokeWidth="1.8"
-        strokeLinecap="round"
-      />
-      <path
-        d="M6.5 7 7.5 21h9L17.5 7"
-        stroke="currentColor"
-        strokeWidth="1.8"
-        strokeLinejoin="round"
-      />
-      <path
-        d="M9 7V4h6v3"
-        stroke="currentColor"
-        strokeWidth="1.8"
-        strokeLinejoin="round"
-      />
+    <svg aria-hidden="true" className="h-4 w-4" viewBox="0 0 24 24" fill="none">
+      <path d="M4 7h16" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
+      <path d="M10 11v6M14 11v6" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
+      <path d="M6.5 7 7.5 21h9L17.5 7" stroke="currentColor" strokeWidth="1.8" strokeLinejoin="round" />
+      <path d="M9 7V4h6v3" stroke="currentColor" strokeWidth="1.8" strokeLinejoin="round" />
     </svg>
   );
 }
 
 function CloseIcon() {
   return (
-    <svg
-      aria-hidden="true"
-      className="h-5 w-5"
-      viewBox="0 0 24 24"
-      fill="none"
-    >
-      <path
-        d="M6 6l12 12M18 6 6 18"
-        stroke="currentColor"
-        strokeWidth="2"
-        strokeLinecap="round"
-      />
+    <svg aria-hidden="true" className="h-5 w-5" viewBox="0 0 24 24" fill="none">
+      <path d="M6 6l12 12M18 6 6 18" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
     </svg>
   );
 }
 
 function ChevronDownIcon() {
   return (
-    <svg
-      aria-hidden="true"
-      className="h-4 w-4"
-      viewBox="0 0 24 24"
-      fill="none"
-    >
-      <path
-        d="m6 9 6 6 6-6"
-        stroke="currentColor"
-        strokeWidth="1.8"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-      />
+    <svg aria-hidden="true" className="h-4 w-4" viewBox="0 0 24 24" fill="none">
+      <path d="m6 9 6 6 6-6" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
     </svg>
   );
 }
@@ -308,6 +240,10 @@ function normalizeEan(value: string): string {
   return value.replace(/\D/g, '').slice(0, 32);
 }
 
+function normalizeAsin(value: string): string {
+  return value.trim().toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 10);
+}
+
 function targetInputToNumber(value: string): number | null {
   const trimmed = value.trim();
 
@@ -336,7 +272,10 @@ function isSiteInTarget(
 function getBestPrice(monitor: Monitor): number | null {
   const prices = [
     monitor.medimops_current_price,
-    monitor.momox_current_price
+    monitor.momox_current_price,
+    monitor.amazon_fr_current_price,
+    monitor.amazon_de_current_price,
+    monitor.amazon_it_current_price
   ].filter((price): price is number => price !== null);
 
   if (prices.length === 0) return null;
@@ -355,7 +294,30 @@ function getDisplayStatus(monitor: Monitor): LastStatus | 'never_checked' {
     monitor.momox_target_price
   );
 
-  if (medimopsInTarget || momoxInTarget) return 'below_target';
+  const amazonFrInTarget = isSiteInTarget(
+    monitor.amazon_fr_current_price,
+    monitor.amazon_target_price
+  );
+
+  const amazonDeInTarget = isSiteInTarget(
+    monitor.amazon_de_current_price,
+    monitor.amazon_target_price
+  );
+
+  const amazonItInTarget = isSiteInTarget(
+    monitor.amazon_it_current_price,
+    monitor.amazon_target_price
+  );
+
+  if (
+    medimopsInTarget ||
+    momoxInTarget ||
+    amazonFrInTarget ||
+    amazonDeInTarget ||
+    amazonItInTarget
+  ) {
+    return 'below_target';
+  }
 
   return monitor.last_status || 'never_checked';
 }
@@ -571,6 +533,8 @@ export default function Dashboard() {
       ),
       momox_url: monitor.momox_url || '',
       momox_target_price: numberToItalianInput(monitor.momox_target_price),
+      amazon_asin: monitor.amazon_asin || '',
+      amazon_target_price: numberToItalianInput(monitor.amazon_target_price),
       alert_email: monitor.alert_email || '',
       is_active: monitor.is_active
     });
@@ -616,6 +580,11 @@ export default function Dashboard() {
 
       momox_url: form.momox_url.trim() || null,
       momox_target_price: targetInputToNumber(form.momox_target_price),
+
+      amazon_asin: form.amazon_asin.trim()
+        ? normalizeAsin(form.amazon_asin)
+        : null,
+      amazon_target_price: targetInputToNumber(form.amazon_target_price),
 
       alert_email: form.alert_email || null,
       is_active: form.is_active
@@ -785,6 +754,16 @@ export default function Dashboard() {
     );
   }
 
+  const amazonFrUrl = form.amazon_asin
+    ? buildAmazonUrl(normalizeAsin(form.amazon_asin), 'FR')
+    : '';
+  const amazonDeUrl = form.amazon_asin
+    ? buildAmazonUrl(normalizeAsin(form.amazon_asin), 'DE')
+    : '';
+  const amazonItUrl = form.amazon_asin
+    ? buildAmazonUrl(normalizeAsin(form.amazon_asin), 'IT')
+    : '';
+
   return (
     <main className="mx-auto max-w-7xl p-4 sm:p-6">
       <div className="mb-4 rounded-2xl bg-white p-6 shadow-sm">
@@ -792,8 +771,8 @@ export default function Dashboard() {
           <div>
             <h1 className="text-3xl font-bold">Music Price Monitor</h1>
             <p className="mt-2 text-slate-600">
-              Dashboard italiana per monitorare prezzi CD/LP su Momox e
-              Medimops.
+              Dashboard italiana per monitorare prezzi CD/LP su Momox,
+              Medimops e Amazon.
             </p>
           </div>
 
@@ -848,8 +827,12 @@ export default function Dashboard() {
               <option value="best_price">Best€</option>
               <option value="medimops_current_price">Medimops €</option>
               <option value="momox_current_price">Momox €</option>
+              <option value="amazon_fr_current_price">Amazon FR €</option>
+              <option value="amazon_de_current_price">Amazon DE €</option>
+              <option value="amazon_it_current_price">Amazon IT €</option>
               <option value="medimops_target_price">Medimops T</option>
               <option value="momox_target_price">Momox T</option>
+              <option value="amazon_target_price">Amazon T</option>
               <option value="last_checked_at">Data ultimo rilievo</option>
               <option value="ean_code">EAN</option>
               <option value="release_year">Anno</option>
@@ -931,8 +914,12 @@ export default function Dashboard() {
                 ['edition', 'Filtro label'],
                 ['release_year', 'Filtro anno'],
                 ['country', 'Filtro country'],
+                ['amazon_asin', 'Filtro ASIN'],
                 ['medimops_current_price', 'Filtro Medimops €'],
                 ['momox_current_price', 'Filtro Momox €'],
+                ['amazon_fr_current_price', 'Filtro Amazon FR €'],
+                ['amazon_de_current_price', 'Filtro Amazon DE €'],
+                ['amazon_it_current_price', 'Filtro Amazon IT €'],
                 ['last_checked_at', 'Filtro ultimo rilievo']
               ].map(([key, placeholder]) => (
                 <input
@@ -963,13 +950,18 @@ export default function Dashboard() {
                   'Best€',
                   'Medimops €',
                   'Momox €',
+                  'Amazon FR €',
+                  'Amazon DE €',
+                  'Amazon IT €',
                   'Ultimo Rilievo',
                   'EAN',
                   'Label',
                   'Anno',
                   'Country',
+                  'ASIN',
                   'Medimops T',
-                  'Momox T'
+                  'Momox T',
+                  'Amazon T'
                 ].map((heading) => (
                   <th key={heading} className="border-b p-2">
                     {heading}
@@ -981,6 +973,15 @@ export default function Dashboard() {
             <tbody>
               {filtered.map((monitor) => {
                 const bestPrice = getBestPrice(monitor);
+                const rowAmazonFrUrl = monitor.amazon_asin
+                  ? buildAmazonUrl(monitor.amazon_asin, 'FR')
+                  : null;
+                const rowAmazonDeUrl = monitor.amazon_asin
+                  ? buildAmazonUrl(monitor.amazon_asin, 'DE')
+                  : null;
+                const rowAmazonItUrl = monitor.amazon_asin
+                  ? buildAmazonUrl(monitor.amazon_asin, 'IT')
+                  : null;
 
                 return (
                   <tr key={monitor.id} className="border-b align-top">
@@ -1050,12 +1051,46 @@ export default function Dashboard() {
                     </td>
 
                     <td className="p-2">
+                      <LinkedPrice
+                        value={monitor.amazon_fr_current_price}
+                        url={rowAmazonFrUrl}
+                        className={sitePriceClass(
+                          monitor.amazon_fr_current_price,
+                          monitor.amazon_target_price
+                        )}
+                      />
+                    </td>
+
+                    <td className="p-2">
+                      <LinkedPrice
+                        value={monitor.amazon_de_current_price}
+                        url={rowAmazonDeUrl}
+                        className={sitePriceClass(
+                          monitor.amazon_de_current_price,
+                          monitor.amazon_target_price
+                        )}
+                      />
+                    </td>
+
+                    <td className="p-2">
+                      <LinkedPrice
+                        value={monitor.amazon_it_current_price}
+                        url={rowAmazonItUrl}
+                        className={sitePriceClass(
+                          monitor.amazon_it_current_price,
+                          monitor.amazon_target_price
+                        )}
+                      />
+                    </td>
+
+                    <td className="p-2">
                       {formatDate(monitor.last_checked_at)}
                     </td>
                     <td className="p-2">{monitor.ean_code || '-'}</td>
                     <td className="p-2">{monitor.edition || '-'}</td>
                     <td className="p-2">{monitor.release_year || '-'}</td>
                     <td className="p-2">{monitor.country || '-'}</td>
+                    <td className="p-2">{monitor.amazon_asin || '-'}</td>
 
                     <td className="p-2 text-slate-500">
                       {formatEuro(monitor.medimops_target_price)}
@@ -1063,13 +1098,16 @@ export default function Dashboard() {
                     <td className="p-2 text-slate-500">
                       {formatEuro(monitor.momox_target_price)}
                     </td>
+                    <td className="p-2 text-slate-500">
+                      {formatEuro(monitor.amazon_target_price)}
+                    </td>
                   </tr>
                 );
               })}
 
               {filtered.length === 0 && (
                 <tr>
-                  <td className="p-4 text-center text-slate-500" colSpan={16}>
+                  <td className="p-4 text-center text-slate-500" colSpan={21}>
                     Nessun monitor trovato.
                   </td>
                 </tr>
@@ -1088,8 +1126,8 @@ export default function Dashboard() {
                   {form.id ? 'Modifica monitor' : 'Nuovo monitor'}
                 </h2>
                 <p className="mt-1 text-sm text-slate-500">
-                  Inserisci i dati del disco e almeno un URL con prezzo target
-                  tra Medimops e Momox.
+                  Inserisci i dati del disco e almeno un controllo tra
+                  Medimops, Momox o Amazon.
                 </p>
               </div>
 
@@ -1273,6 +1311,56 @@ export default function Dashboard() {
                       }
                     />
                   </label>
+                </div>
+              </div>
+
+              <div className="rounded-xl border bg-amber-50 p-4">
+                <h3 className="mb-3 text-sm font-semibold text-slate-700">
+                  Amazon
+                </h3>
+
+                <div className="grid gap-3 lg:grid-cols-[260px_220px_1fr]">
+                  <label className="text-sm font-medium">
+                    ASIN Amazon
+                    <input
+                      maxLength={10}
+                      className="mt-1 w-full rounded-lg border bg-white p-2 uppercase"
+                      placeholder="es. B0DVH4P8DB"
+                      value={form.amazon_asin}
+                      onChange={(event) =>
+                        setForm({
+                          ...form,
+                          amazon_asin: normalizeAsin(event.target.value)
+                        })
+                      }
+                    />
+                  </label>
+
+                  <label className="text-sm font-medium">
+                    Prezzo Target Amazon
+                    <input
+                      className="mt-1 w-full rounded-lg border bg-white p-2"
+                      placeholder="es. 10,00"
+                      value={form.amazon_target_price}
+                      onChange={(event) =>
+                        setForm({
+                          ...form,
+                          amazon_target_price: event.target.value
+                        })
+                      }
+                    />
+                  </label>
+
+                  <div className="text-sm text-slate-600">
+                    <div className="font-medium text-slate-700">
+                      URL generati automaticamente
+                    </div>
+                    <div className="mt-1 space-y-1 break-all text-xs">
+                      <div>FR: {amazonFrUrl || '-'}</div>
+                      <div>DE: {amazonDeUrl || '-'}</div>
+                      <div>IT: {amazonItUrl || '-'}</div>
+                    </div>
+                  </div>
                 </div>
               </div>
 
