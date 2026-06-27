@@ -17,6 +17,8 @@ type SortKey =
   | 'current_price'
   | 'last_checked_at';
 
+type MultiFilterKey = 'status' | 'type' | 'site' | 'is_active';
+
 type FormState = {
   id?: string;
   type: MonitorType;
@@ -30,6 +32,8 @@ type FormState = {
   is_active: boolean;
 };
 
+type MultiFilters = Record<MultiFilterKey, string[]>;
+
 const emptyForm: FormState = {
   type: 'CD',
   artist: '',
@@ -40,6 +44,13 @@ const emptyForm: FormState = {
   target_price: '0,00',
   alert_email: '',
   is_active: true
+};
+
+const emptyMultiFilters: MultiFilters = {
+  status: [],
+  type: [],
+  site: [],
+  is_active: []
 };
 
 const statusLabels: Record<LastStatus | 'never_checked', string> = {
@@ -152,10 +163,54 @@ function CloseIcon() {
   );
 }
 
+function uniqueSorted(values: string[]) {
+  return Array.from(new Set(values.filter(Boolean))).sort((a, b) =>
+    a.localeCompare(b, 'it')
+  );
+}
+
+function selectedValuesFromSelect(
+  event: React.ChangeEvent<HTMLSelectElement>
+) {
+  return Array.from(event.target.selectedOptions).map((option) => option.value);
+}
+
+function MultiSelectFilter({
+  label,
+  value,
+  options,
+  onChange
+}: {
+  label: string;
+  value: string[];
+  options: string[];
+  onChange: (value: string[]) => void;
+}) {
+  return (
+    <label className="text-xs font-medium text-slate-600">
+      {label}
+      <select
+        multiple
+        className="mt-1 h-20 w-full rounded-lg border p-2 text-sm"
+        value={value}
+        onChange={(event) => onChange(selectedValuesFromSelect(event))}
+      >
+        {options.map((option) => (
+          <option key={option} value={option}>
+            {option}
+          </option>
+        ))}
+      </select>
+    </label>
+  );
+}
+
 export default function Dashboard() {
   const [monitors, setMonitors] = useState<Monitor[]>([]);
   const [form, setForm] = useState<FormState>(emptyForm);
   const [filters, setFilters] = useState<Record<string, string>>({});
+  const [multiFilters, setMultiFilters] =
+    useState<MultiFilters>(emptyMultiFilters);
   const [sortKey, setSortKey] = useState<SortKey>('artist');
   const [sortAsc, setSortAsc] = useState(true);
   const [message, setMessage] = useState('Caricamento...');
@@ -183,6 +238,22 @@ export default function Dashboard() {
     );
   }, []);
 
+  const multiFilterOptions = useMemo(() => {
+    return {
+      status: uniqueSorted(
+        monitors.map((monitor) => {
+          const status = monitor.last_status || 'never_checked';
+          return statusLabels[status];
+        })
+      ),
+      type: uniqueSorted(monitors.map((monitor) => monitor.type)),
+      site: uniqueSorted(monitors.map((monitor) => monitor.site)),
+      is_active: uniqueSorted(
+        monitors.map((monitor) => (monitor.is_active ? 'Sì' : 'No'))
+      )
+    };
+  }, [monitors]);
+
   const filtered = useMemo(() => {
     const lower = (value: unknown) => String(value ?? '').toLowerCase();
 
@@ -190,11 +261,38 @@ export default function Dashboard() {
       .filter((monitor) => {
         const status = monitor.last_status || 'never_checked';
         const statusLabel = statusLabels[status];
+        const activeLabel = monitor.is_active ? 'Sì' : 'No';
+
+        if (
+          multiFilters.status.length > 0 &&
+          !multiFilters.status.includes(statusLabel)
+        ) {
+          return false;
+        }
+
+        if (
+          multiFilters.type.length > 0 &&
+          !multiFilters.type.includes(monitor.type)
+        ) {
+          return false;
+        }
+
+        if (
+          multiFilters.site.length > 0 &&
+          !multiFilters.site.includes(monitor.site)
+        ) {
+          return false;
+        }
+
+        if (
+          multiFilters.is_active.length > 0 &&
+          !multiFilters.is_active.includes(activeLabel)
+        ) {
+          return false;
+        }
 
         const row: Record<string, unknown> = {
-          ...monitor,
-          status: statusLabel,
-          is_active: monitor.is_active ? 'sì attivo' : 'no disattivo'
+          ...monitor
         };
 
         return Object.entries(filters).every(
@@ -213,7 +311,7 @@ export default function Dashboard() {
 
         return sortAsc ? result : -result;
       });
-  }, [monitors, filters, sortKey, sortAsc]);
+  }, [monitors, filters, multiFilters, sortKey, sortAsc]);
 
   function openNewMonitorModal() {
     setForm(emptyForm);
@@ -339,6 +437,11 @@ export default function Dashboard() {
     }
   }
 
+  function clearAllFilters() {
+    setFilters({});
+    setMultiFilters(emptyMultiFilters);
+  }
+
   function badge(
     status: LastStatus | null,
     current: number | null,
@@ -413,30 +516,77 @@ export default function Dashboard() {
           </div>
         </div>
 
-        <div className="mb-4 grid gap-2 md:grid-cols-3 lg:grid-cols-6">
-          {[
-            ['status', 'Filtro stato'],
-            ['type', 'Filtro tipo'],
-            ['artist', 'Filtro artista'],
-            ['album', 'Filtro album'],
-            ['edition', 'Filtro edizione'],
-            ['site', 'Filtro sito'],
-            ['url', 'Filtro URL'],
-            ['target_price', 'Filtro prezzo target'],
-            ['current_price', 'Filtro prezzo attuale'],
-            ['last_checked_at', 'Filtro ultimo rilievo'],
-            ['is_active', 'Filtro attivo']
-          ].map(([key, placeholder]) => (
-            <input
-              key={key}
-              className="rounded-lg border p-2 text-sm"
-              placeholder={placeholder}
-              value={filters[key] || ''}
-              onChange={(event) =>
-                setFilters({ ...filters, [key]: event.target.value })
+        <div className="mb-4 rounded-xl border bg-slate-50 p-3">
+          <div className="mb-3 flex items-center justify-between gap-3">
+            <h3 className="text-sm font-semibold text-slate-700">Filtri</h3>
+
+            <button
+              className="rounded-lg border bg-white px-3 py-1.5 text-sm text-slate-700 hover:bg-slate-100"
+              onClick={clearAllFilters}
+            >
+              Pulisci filtri
+            </button>
+          </div>
+
+          <div className="grid gap-3 md:grid-cols-2 lg:grid-cols-4">
+            <MultiSelectFilter
+              label="Stato"
+              value={multiFilters.status}
+              options={multiFilterOptions.status}
+              onChange={(value) =>
+                setMultiFilters({ ...multiFilters, status: value })
               }
             />
-          ))}
+
+            <MultiSelectFilter
+              label="Tipo"
+              value={multiFilters.type}
+              options={multiFilterOptions.type}
+              onChange={(value) =>
+                setMultiFilters({ ...multiFilters, type: value })
+              }
+            />
+
+            <MultiSelectFilter
+              label="Sito"
+              value={multiFilters.site}
+              options={multiFilterOptions.site}
+              onChange={(value) =>
+                setMultiFilters({ ...multiFilters, site: value })
+              }
+            />
+
+            <MultiSelectFilter
+              label="Attivo"
+              value={multiFilters.is_active}
+              options={multiFilterOptions.is_active}
+              onChange={(value) =>
+                setMultiFilters({ ...multiFilters, is_active: value })
+              }
+            />
+          </div>
+
+          <div className="mt-3 grid gap-2 md:grid-cols-3 lg:grid-cols-7">
+            {[
+              ['artist', 'Filtro artista'],
+              ['album', 'Filtro album'],
+              ['edition', 'Filtro edizione'],
+              ['url', 'Filtro URL'],
+              ['target_price', 'Filtro prezzo target'],
+              ['current_price', 'Filtro prezzo attuale'],
+              ['last_checked_at', 'Filtro ultimo rilievo']
+            ].map(([key, placeholder]) => (
+              <input
+                key={key}
+                className="rounded-lg border bg-white p-2 text-sm"
+                placeholder={placeholder}
+                value={filters[key] || ''}
+                onChange={(event) =>
+                  setFilters({ ...filters, [key]: event.target.value })
+                }
+              />
+            ))}
+          </div>
         </div>
 
         <div className="overflow-x-auto">
