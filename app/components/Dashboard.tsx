@@ -8,6 +8,7 @@ type SortKey =
   | 'artist'
   | 'album'
   | 'type'
+  | 'best_price'
   | 'medimops_target_price'
   | 'medimops_current_price'
   | 'momox_target_price'
@@ -226,12 +227,6 @@ function ChevronDownIcon() {
   );
 }
 
-function selectedValuesFromSelect(
-  event: React.ChangeEvent<HTMLSelectElement>
-) {
-  return Array.from(event.target.selectedOptions).map((option) => option.value);
-}
-
 function CompactMultiSelectFilter({
   label,
   value,
@@ -370,6 +365,17 @@ function isSiteInTarget(
   );
 }
 
+function getBestPrice(monitor: Monitor): number | null {
+  const prices = [
+    monitor.medimops_current_price,
+    monitor.momox_current_price
+  ].filter((price): price is number => price !== null);
+
+  if (prices.length === 0) return null;
+
+  return Math.min(...prices);
+}
+
 function getDisplayStatus(monitor: Monitor): LastStatus | 'never_checked' {
   const medimopsInTarget = isSiteInTarget(
     monitor.medimops_current_price,
@@ -407,6 +413,10 @@ function compareNullableNumbers(
 }
 
 function compareValues(a: Monitor, b: Monitor, key: SortKey): number {
+  if (key === 'best_price') {
+    return compareNullableNumbers(getBestPrice(a), getBestPrice(b));
+  }
+
   const left = a[key];
   const right = b[key];
 
@@ -487,6 +497,7 @@ export default function Dashboard() {
         const status = getDisplayStatus(monitor);
         const statusLabel = statusLabels[status];
         const activeLabel = monitor.is_active ? 'Sì' : 'No';
+        const bestPrice = getBestPrice(monitor);
 
         if (
           multiFilters.status.length > 0 &&
@@ -510,7 +521,9 @@ export default function Dashboard() {
         }
 
         const row: Record<string, unknown> = {
-          ...monitor
+          ...monitor,
+          best_price:
+            bestPrice === null ? '' : `${bestPrice} ${formatEuro(bestPrice)}`
         };
 
         return Object.entries(filters).every(
@@ -838,14 +851,11 @@ export default function Dashboard() {
               <option value="artist">Artista</option>
               <option value="album">Album</option>
               <option value="type">Tipo</option>
-              <option value="medimops_current_price">
-                Medimops prezzo attuale
-              </option>
-              <option value="medimops_target_price">
-                Medimops prezzo target
-              </option>
-              <option value="momox_current_price">Momox prezzo attuale</option>
-              <option value="momox_target_price">Momox prezzo target</option>
+              <option value="best_price">Best€</option>
+              <option value="medimops_current_price">Medimops €</option>
+              <option value="momox_current_price">Momox €</option>
+              <option value="medimops_target_price">Medimops T</option>
+              <option value="momox_target_price">Momox T</option>
               <option value="last_checked_at">Data ultimo rilievo</option>
               <option value="ean_code">EAN</option>
               <option value="release_year">Anno</option>
@@ -922,12 +932,13 @@ export default function Dashboard() {
               {[
                 ['artist', 'Filtro artista'],
                 ['album', 'Filtro album'],
+                ['best_price', 'Filtro Best€'],
                 ['ean_code', 'Filtro EAN'],
                 ['edition', 'Filtro label'],
                 ['release_year', 'Filtro anno'],
                 ['country', 'Filtro country'],
-                ['medimops_current_price', 'Filtro Medimops attuale'],
-                ['momox_current_price', 'Filtro Momox attuale'],
+                ['medimops_current_price', 'Filtro Medimops €'],
+                ['momox_current_price', 'Filtro Momox €'],
                 ['last_checked_at', 'Filtro ultimo rilievo']
               ].map(([key, placeholder]) => (
                 <input
@@ -956,15 +967,16 @@ export default function Dashboard() {
                   'Tipo',
                   'Artista',
                   'Album',
-                  'Medimops Target',
-                  'Medimops Attuale',
-                  'Momox Target',
-                  'Momox Attuale',
+                  'Best€',
+                  'Medimops €',
+                  'Momox €',
                   'Ultimo Rilievo',
                   'EAN',
                   'Label',
                   'Anno',
-                  'Country'
+                  'Country',
+                  'Medimops T',
+                  'Momox T'
                 ].map((heading) => (
                   <th key={heading} className="border-b p-2">
                     {heading}
@@ -975,6 +987,8 @@ export default function Dashboard() {
 
             <tbody>
               {filtered.map((monitor) => {
+                const bestPrice = getBestPrice(monitor);
+
                 return (
                   <tr key={monitor.id} className="border-b align-top">
                     <td className="p-2">
@@ -1047,9 +1061,11 @@ export default function Dashboard() {
                     <td className="p-2">{monitor.type}</td>
                     <td className="p-2 font-medium">{monitor.artist}</td>
                     <td className="p-2">{monitor.album}</td>
-                    <td className="p-2">
-                      {formatEuro(monitor.medimops_target_price)}
+
+                    <td className="p-2 font-bold text-slate-900">
+                      {formatEuro(bestPrice)}
                     </td>
+
                     <td
                       className={`p-2 ${sitePriceClass(
                         monitor.medimops_current_price,
@@ -1058,9 +1074,7 @@ export default function Dashboard() {
                     >
                       {formatEuro(monitor.medimops_current_price)}
                     </td>
-                    <td className="p-2">
-                      {formatEuro(monitor.momox_target_price)}
-                    </td>
+
                     <td
                       className={`p-2 ${sitePriceClass(
                         monitor.momox_current_price,
@@ -1069,6 +1083,7 @@ export default function Dashboard() {
                     >
                       {formatEuro(monitor.momox_current_price)}
                     </td>
+
                     <td className="p-2">
                       {formatDate(monitor.last_checked_at)}
                     </td>
@@ -1076,13 +1091,20 @@ export default function Dashboard() {
                     <td className="p-2">{monitor.edition || '-'}</td>
                     <td className="p-2">{monitor.release_year || '-'}</td>
                     <td className="p-2">{monitor.country || '-'}</td>
+
+                    <td className="p-2 text-slate-500">
+                      {formatEuro(monitor.medimops_target_price)}
+                    </td>
+                    <td className="p-2 text-slate-500">
+                      {formatEuro(monitor.momox_target_price)}
+                    </td>
                   </tr>
                 );
               })}
 
               {filtered.length === 0 && (
                 <tr>
-                  <td className="p-4 text-center text-slate-500" colSpan={16}>
+                  <td className="p-4 text-center text-slate-500" colSpan={17}>
                     Nessun monitor trovato.
                   </td>
                 </tr>
