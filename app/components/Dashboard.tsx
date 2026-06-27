@@ -633,7 +633,7 @@ export default function Dashboard() {
               onClick={checkVisibleRows}
             >
               <CheckIcon />
-              Controlla tutto il datagrid
+              Controlla Tutto
             </button>
 
             <select
