@@ -158,38 +158,6 @@ function TrashIcon() {
   );
 }
 
-function ExternalLinkIcon() {
-  return (
-    <svg
-      aria-hidden="true"
-      className="h-4 w-4"
-      viewBox="0 0 24 24"
-      fill="none"
-    >
-      <path
-        d="M14 5h5v5"
-        stroke="currentColor"
-        strokeWidth="1.8"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-      />
-      <path
-        d="M10 14 19 5"
-        stroke="currentColor"
-        strokeWidth="1.8"
-        strokeLinecap="round"
-      />
-      <path
-        d="M19 14v5H5V5h5"
-        stroke="currentColor"
-        strokeWidth="1.8"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-      />
-    </svg>
-  );
-}
-
 function CloseIcon() {
   return (
     <svg
@@ -449,6 +417,32 @@ function countActiveFilters(
   );
 
   return textCount + multiCount;
+}
+
+function LinkedPrice({
+  value,
+  url,
+  className
+}: {
+  value: number | null;
+  url: string | null;
+  className: string;
+}) {
+  if (!url || value === null) {
+    return <span className={className}>{formatEuro(value)}</span>;
+  }
+
+  return (
+    <a
+      className={`${className} underline decoration-dotted underline-offset-4 hover:text-blue-700`}
+      href={url}
+      target="_blank"
+      rel="noreferrer"
+      title="Apri prodotto"
+    >
+      {formatEuro(value)}
+    </a>
+  );
 }
 
 export default function Dashboard() {
@@ -961,7 +955,6 @@ export default function Dashboard() {
               <tr className="bg-slate-100 text-left">
                 {[
                   'Azioni',
-                  'URL',
                   'Stato',
                   'Attivo',
                   'Tipo',
@@ -1024,38 +1017,6 @@ export default function Dashboard() {
                       </div>
                     </td>
 
-                    <td className="p-2">
-                      <div className="flex items-center gap-2">
-                        {monitor.medimops_url && (
-                          <a
-                            className="inline-flex h-9 w-9 items-center justify-center rounded-lg border text-blue-700 hover:bg-blue-50"
-                            href={monitor.medimops_url}
-                            target="_blank"
-                            rel="noreferrer"
-                            title="Apri Medimops"
-                            aria-label="Apri Medimops"
-                          >
-                            <span className="sr-only">Medimops</span>
-                            <ExternalLinkIcon />
-                          </a>
-                        )}
-
-                        {monitor.momox_url && (
-                          <a
-                            className="inline-flex h-9 w-9 items-center justify-center rounded-lg border text-purple-700 hover:bg-purple-50"
-                            href={monitor.momox_url}
-                            target="_blank"
-                            rel="noreferrer"
-                            title="Apri Momox"
-                            aria-label="Apri Momox"
-                          >
-                            <span className="sr-only">Momox</span>
-                            <ExternalLinkIcon />
-                          </a>
-                        )}
-                      </div>
-                    </td>
-
                     <td className="p-2">{badge(monitor)}</td>
                     <td className="p-2">{monitor.is_active ? 'Sì' : 'No'}</td>
                     <td className="p-2">{monitor.type}</td>
@@ -1066,22 +1027,26 @@ export default function Dashboard() {
                       {formatEuro(bestPrice)}
                     </td>
 
-                    <td
-                      className={`p-2 ${sitePriceClass(
-                        monitor.medimops_current_price,
-                        monitor.medimops_target_price
-                      )}`}
-                    >
-                      {formatEuro(monitor.medimops_current_price)}
+                    <td className="p-2">
+                      <LinkedPrice
+                        value={monitor.medimops_current_price}
+                        url={monitor.medimops_url}
+                        className={sitePriceClass(
+                          monitor.medimops_current_price,
+                          monitor.medimops_target_price
+                        )}
+                      />
                     </td>
 
-                    <td
-                      className={`p-2 ${sitePriceClass(
-                        monitor.momox_current_price,
-                        monitor.momox_target_price
-                      )}`}
-                    >
-                      {formatEuro(monitor.momox_current_price)}
+                    <td className="p-2">
+                      <LinkedPrice
+                        value={monitor.momox_current_price}
+                        url={monitor.momox_url}
+                        className={sitePriceClass(
+                          monitor.momox_current_price,
+                          monitor.momox_target_price
+                        )}
+                      />
                     </td>
 
                     <td className="p-2">
@@ -1104,7 +1069,7 @@ export default function Dashboard() {
 
               {filtered.length === 0 && (
                 <tr>
-                  <td className="p-4 text-center text-slate-500" colSpan={17}>
+                  <td className="p-4 text-center text-slate-500" colSpan={16}>
                     Nessun monitor trovato.
                   </td>
                 </tr>
