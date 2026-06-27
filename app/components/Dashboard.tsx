@@ -14,10 +14,6 @@ type SortKey =
   | 'medimops_current_price'
   | 'momox_target_price'
   | 'momox_current_price'
-  | 'amazon_target_price'
-  | 'amazon_fr_current_price'
-  | 'amazon_de_current_price'
-  | 'amazon_it_current_price'
   | 'last_checked_at'
   | 'release_year'
   | 'ean_code';
@@ -324,10 +320,7 @@ function isSiteInTarget(
 function getBestPrice(monitor: Monitor): number | null {
   const prices = [
     monitor.medimops_current_price,
-    monitor.momox_current_price,
-    monitor.amazon_fr_current_price,
-    monitor.amazon_de_current_price,
-    monitor.amazon_it_current_price
+    monitor.momox_current_price
   ].filter((price): price is number => price !== null);
 
   if (prices.length === 0) return null;
@@ -346,28 +339,7 @@ function getDisplayStatus(monitor: Monitor): LastStatus | 'never_checked' {
     monitor.momox_target_price
   );
 
-  const amazonFrInTarget = isSiteInTarget(
-    monitor.amazon_fr_current_price,
-    monitor.amazon_target_price
-  );
-
-  const amazonDeInTarget = isSiteInTarget(
-    monitor.amazon_de_current_price,
-    monitor.amazon_target_price
-  );
-
-  const amazonItInTarget = isSiteInTarget(
-    monitor.amazon_it_current_price,
-    monitor.amazon_target_price
-  );
-
-  if (
-    medimopsInTarget ||
-    momoxInTarget ||
-    amazonFrInTarget ||
-    amazonDeInTarget ||
-    amazonItInTarget
-  ) {
+  if (medimopsInTarget || momoxInTarget) {
     return 'below_target';
   }
 
@@ -840,8 +812,8 @@ export default function Dashboard() {
           <div>
             <h1 className="text-3xl font-bold">Music Price Monitor</h1>
             <p className="mt-2 text-slate-600">
-              Dashboard italiana per monitorare prezzi CD/LP su Momox,
-              Medimops e Amazon.
+              Dashboard italiana per monitorare prezzi CD/LP su Momox e
+              Medimops.
             </p>
           </div>
 
@@ -896,12 +868,8 @@ export default function Dashboard() {
               <option value="best_price">Best€</option>
               <option value="medimops_current_price">Medimops €</option>
               <option value="momox_current_price">Momox €</option>
-              <option value="amazon_fr_current_price">Amazon FR €</option>
-              <option value="amazon_de_current_price">Amazon DE €</option>
-              <option value="amazon_it_current_price">Amazon IT €</option>
               <option value="medimops_target_price">Medimops T</option>
               <option value="momox_target_price">Momox T</option>
-              <option value="amazon_target_price">Amazon T</option>
               <option value="last_checked_at">Data ultimo rilievo</option>
               <option value="ean_code">EAN</option>
               <option value="release_year">Anno</option>
@@ -983,12 +951,8 @@ export default function Dashboard() {
                 ['edition', 'Filtro label'],
                 ['release_year', 'Filtro anno'],
                 ['country', 'Filtro country'],
-                ['amazon_asin', 'Filtro ASIN'],
                 ['medimops_current_price', 'Filtro Medimops €'],
                 ['momox_current_price', 'Filtro Momox €'],
-                ['amazon_fr_current_price', 'Filtro Amazon FR €'],
-                ['amazon_de_current_price', 'Filtro Amazon DE €'],
-                ['amazon_it_current_price', 'Filtro Amazon IT €'],
                 ['last_checked_at', 'Filtro ultimo rilievo'],
                 ['last_error', 'Filtro dettaglio errore']
               ].map(([key, placeholder]) => (
@@ -1021,18 +985,13 @@ export default function Dashboard() {
                   'Best€',
                   'Medimops €',
                   'Momox €',
-                  'Amazon FR €',
-                  'Amazon DE €',
-                  'Amazon IT €',
                   'Ultimo Rilievo',
                   'EAN',
                   'Label',
                   'Anno',
                   'Country',
-                  'ASIN',
                   'Medimops T',
-                  'Momox T',
-                  'Amazon T'
+                  'Momox T'
                 ].map((heading) => (
                   <th key={heading} className="border-b p-2">
                     {heading}
@@ -1044,15 +1003,6 @@ export default function Dashboard() {
             <tbody>
               {filtered.map((monitor) => {
                 const bestPrice = getBestPrice(monitor);
-                const rowAmazonFrUrl = monitor.amazon_asin
-                  ? buildAmazonUrl(monitor.amazon_asin, 'FR')
-                  : null;
-                const rowAmazonDeUrl = monitor.amazon_asin
-                  ? buildAmazonUrl(monitor.amazon_asin, 'DE')
-                  : null;
-                const rowAmazonItUrl = monitor.amazon_asin
-                  ? buildAmazonUrl(monitor.amazon_asin, 'IT')
-                  : null;
 
                 return (
                   <tr key={monitor.id} className="border-b align-top">
@@ -1125,46 +1075,12 @@ export default function Dashboard() {
                     </td>
 
                     <td className="p-2">
-                      <LinkedPrice
-                        value={monitor.amazon_fr_current_price}
-                        url={rowAmazonFrUrl}
-                        className={sitePriceClass(
-                          monitor.amazon_fr_current_price,
-                          monitor.amazon_target_price
-                        )}
-                      />
-                    </td>
-
-                    <td className="p-2">
-                      <LinkedPrice
-                        value={monitor.amazon_de_current_price}
-                        url={rowAmazonDeUrl}
-                        className={sitePriceClass(
-                          monitor.amazon_de_current_price,
-                          monitor.amazon_target_price
-                        )}
-                      />
-                    </td>
-
-                    <td className="p-2">
-                      <LinkedPrice
-                        value={monitor.amazon_it_current_price}
-                        url={rowAmazonItUrl}
-                        className={sitePriceClass(
-                          monitor.amazon_it_current_price,
-                          monitor.amazon_target_price
-                        )}
-                      />
-                    </td>
-
-                    <td className="p-2">
                       {formatDate(monitor.last_checked_at)}
                     </td>
                     <td className="p-2">{monitor.ean_code || '-'}</td>
                     <td className="p-2">{monitor.edition || '-'}</td>
                     <td className="p-2">{monitor.release_year || '-'}</td>
                     <td className="p-2">{monitor.country || '-'}</td>
-                    <td className="p-2">{monitor.amazon_asin || '-'}</td>
 
                     <td className="p-2 text-slate-500">
                       {formatEuro(monitor.medimops_target_price)}
@@ -1172,16 +1088,13 @@ export default function Dashboard() {
                     <td className="p-2 text-slate-500">
                       {formatEuro(monitor.momox_target_price)}
                     </td>
-                    <td className="p-2 text-slate-500">
-                      {formatEuro(monitor.amazon_target_price)}
-                    </td>
                   </tr>
                 );
               })}
 
               {filtered.length === 0 && (
                 <tr>
-                  <td className="p-4 text-center text-slate-500" colSpan={22}>
+                  <td className="p-4 text-center text-slate-500" colSpan={17}>
                     Nessun monitor trovato.
                   </td>
                 </tr>
