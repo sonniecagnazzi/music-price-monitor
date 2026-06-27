@@ -26,6 +26,7 @@ type SiteCheck = {
   error: string | null;
   source: string | null;
   isBelowTarget: boolean;
+  skipped: boolean;
 };
 
 type MonitorRunDetail = {
@@ -94,7 +95,8 @@ async function checkStoreSite(
       target,
       error: null,
       source: null,
-      isBelowTarget: false
+      isBelowTarget: false,
+      skipped: true
     };
   }
 
@@ -110,7 +112,8 @@ async function checkStoreSite(
       target,
       error: result.error,
       source: result.source,
-      isBelowTarget
+      isBelowTarget,
+      skipped: false
     };
   } catch (error) {
     const message =
@@ -122,7 +125,8 @@ async function checkStoreSite(
       target,
       error: message,
       source: `${site}:exception`,
-      isBelowTarget: false
+      isBelowTarget: false,
+      skipped: false
     };
   }
 }
@@ -141,7 +145,8 @@ async function checkAmazonSite(
       target,
       error: null,
       source: null,
-      isBelowTarget: false
+      isBelowTarget: false,
+      skipped: true
     };
   }
 
@@ -157,7 +162,8 @@ async function checkAmazonSite(
       target,
       error: result.error,
       source: result.source,
-      isBelowTarget
+      isBelowTarget,
+      skipped: false
     };
   } catch (error) {
     const message =
@@ -171,22 +177,39 @@ async function checkAmazonSite(
       target,
       error: message,
       source: `${site}:exception`,
-      isBelowTarget: false
+      isBelowTarget: false,
+      skipped: false
     };
   }
 }
 
 function buildMessage(checks: SiteCheck[]) {
   return checks
-    .filter((check) => check.target !== null || check.source !== null)
+    .filter((check) => !check.skipped)
     .map((check) => {
       if (check.price === null) {
-        return `${check.site}: errore ${check.error || 'prezzo non trovato'}`;
+        return `${check.site}: errore ${check.error || 'prezzo non trovato'}; fonte ${check.source || '-'}`;
       }
 
-      return `${check.site}: prezzo ${check.price}, target ${check.target}`;
+      return `${check.site}: prezzo ${check.price}, target ${check.target}; fonte ${check.source || '-'}`;
     })
     .join(' | ');
+}
+
+function buildErrorMessage(checks: SiteCheck[]) {
+  return checks
+    .filter((check) => !check.skipped && check.price === null)
+    .map(
+      (check) =>
+        `${check.site}: ${check.error || 'prezzo non trovato'}; fonte ${check.source || '-'}`
+    )
+    .join(' | ');
+}
+
+function hasAnyPartialError(checks: SiteCheck[]) {
+  return checks.some(
+    (check) => !check.skipped && check.price === null && check.error !== null
+  );
 }
 
 function getLowestPrice(checks: SiteCheck[]): number | null {
@@ -201,7 +224,7 @@ function getLowestPrice(checks: SiteCheck[]): number | null {
 
 function mergeSources(checks: SiteCheck[]) {
   return checks
-    .filter((check) => check.source || check.error)
+    .filter((check) => !check.skipped && (check.source || check.error))
     .map(
       (check) =>
         `${check.site}: ${check.source || check.error || 'nessuna fonte'}`
@@ -289,9 +312,7 @@ export async function runMonitor(
         amazonItCheck
       ];
 
-      const configuredChecks = checks.filter(
-        (check) => check.target !== null || check.source !== null
-      );
+      const configuredChecks = checks.filter((check) => !check.skipped);
 
       const checkedWithError = configuredChecks.filter(
         (check) => check.price === null && check.error !== null
@@ -306,6 +327,7 @@ export async function runMonitor(
       const hasAllErrors =
         configuredChecks.length > 0 &&
         checkedWithError.length === configuredChecks.length;
+      const hasPartialError = hasAnyPartialError(checks);
 
       const nextStatus: MonitorRunStatus = hasAllErrors
         ? 'error'
@@ -313,7 +335,7 @@ export async function runMonitor(
           ? 'below_target'
           : 'ok';
 
-      if (hasAllErrors) {
+      if (hasAllErrors || hasPartialError) {
         errors += 1;
       }
 
@@ -349,12 +371,19 @@ export async function runMonitor(
         nextAlertSent = false;
       }
 
+      const fullMessage = buildMessage(checks);
+      const visibleErrorMessage = hasPartialError
+        ? buildErrorMessage(checks)
+        : hasAllErrors
+          ? fullMessage
+          : null;
+
       await supabase.from('price_checks').insert({
         monitor_id: monitor.id,
         checked_at: checkedAt,
         price: lowestPrice,
         status: nextStatus,
-        error_message: hasAllErrors ? buildMessage(checks) : null,
+        error_message: visibleErrorMessage,
         source: mergeSources(checks)
       });
 
@@ -369,7 +398,7 @@ export async function runMonitor(
           current_price: lowestPrice,
           last_checked_at: checkedAt,
           last_status: nextStatus,
-          last_error: hasAllErrors ? buildMessage(checks) : null,
+          last_error: visibleErrorMessage,
           alert_sent: nextAlertSent,
           updated_at: checkedAt
         })
@@ -381,9 +410,9 @@ export async function runMonitor(
         album: monitor.album,
         status: nextStatus,
         price: lowestPrice,
-        error: hasAllErrors ? buildMessage(checks) : null,
+        error: visibleErrorMessage,
         alertSent: alertSentNow,
-        message: buildMessage(checks)
+        message: fullMessage
       });
     } catch (error) {
       errors += 1;
