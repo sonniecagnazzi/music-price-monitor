@@ -138,18 +138,13 @@ function looksLikeWrongFormatOrAccessory(context: string): boolean {
     lower.includes('accessorio') ||
     lower.includes('accessory') ||
     lower.includes('patch') ||
-    lower.includes('vinile da') ||
-    lower.includes('vinyl from') ||
-    lower.includes('audio, cassetta') ||
-    lower.includes('audio cassette') ||
-    lower.includes('musicassetta') ||
+    lower.includes('prime video') ||
+    lower.includes('kindle') ||
+    lower.includes('audible') ||
     lower.includes('frequently bought together') ||
     lower.includes('spesso comprati insieme') ||
     lower.includes('fréquemment achetés ensemble') ||
-    lower.includes('wird oft zusammen gekauft') ||
-    lower.includes('prime video') ||
-    lower.includes('kindle') ||
-    lower.includes('audible')
+    lower.includes('wird oft zusammen gekauft')
   );
 }
 
@@ -185,15 +180,14 @@ function extractExactAsinOfferCandidatesFromText(
   const candidates: PriceCandidate[] = [];
 
   /*
-    Caso IT reale:
-    [27 Nuovo da 8,99 €](https://www.amazon.it/gp/offer-listing/B07JBCR129/...condition=new)
+    Caso buono:
+    [27 Nuovo da 8,99 €](.../gp/offer-listing/B07JBCR129/...condition=new)
 
-    Questa regola è la più importante: prende il prezzo "Nuovo" solo se il link
-    punta all'offer-listing dello stesso ASIN. Così evita accessori, vinili,
-    cassette e altri formati.
+    Qui il prezzo viene accettato solo se il link offer-listing contiene
+    lo stesso ASIN monitorato.
   */
   const markdownExactNewOffer = new RegExp(
-    String.raw`\[[^\]]{0,90}?(?:Nuovo|New|Neuf|Neu)[^\]]{0,90}?(?:da|from|à partir de|ab|von)\s*€?\s*(\d{1,5}(?:[.,]\d{2}))\s*€?[^\]]{0,90}?\]\([^)]*\/gp\/offer-listing\/${escapedAsin}[^)]*condition=(?:new|NEW)[^)]*\)`,
+    String.raw`\[[^\]]{0,120}?(?:Nuovo|New|Neuf|Neu)[^\]]{0,120}?(?:da|from|à partir de|ab|von)\s*€?\s*(\d{1,5}(?:[.,]\d{2}))\s*€?[^\]]{0,120}?\]\([^)]*\/gp\/offer-listing\/${escapedAsin}[^)]*condition=(?:new|NEW)[^)]*\)`,
     'gi'
   );
 
@@ -202,9 +196,13 @@ function extractExactAsinOfferCandidatesFromText(
   while (markdownMatch !== null) {
     const raw = markdownMatch[1] || '';
     const price = parsePrice(raw);
-    const context = getContext(normalized, markdownMatch.index, 700, 700);
+    const context = getContext(normalized, markdownMatch.index, 800, 800);
 
-    if (price !== null && !hasUsd(context)) {
+    if (
+      price !== null &&
+      !hasUsd(context) &&
+      !looksLikeWrongFormatOrAccessory(context)
+    ) {
       candidates.push({
         price,
         rawPrice: price,
@@ -219,15 +217,16 @@ function extractExactAsinOfferCandidatesFromText(
   }
 
   /*
-    Caso generico con stesso ASIN vicino:
-    offer-listing/B07... condition=new ... Nuovo da 8,99 €
+    Caso solo link:
+    .../gp/offer-listing/B0DVH4P8DB/...condition=new
+    Questa regola NON può più prendere prezzi vicini ad ASIN diversi.
   */
-  const exactLinkAroundNewOffer = new RegExp(
-    String.raw`\/gp\/offer-listing\/${escapedAsin}[\s\S]{0,700}?condition=(?:new|NEW)[\s\S]{0,700}?(?:Nuovo|New|Neuf|Neu)[\s\S]{0,180}?(?:da|from|à partir de|ab|von)\s*€?\s*(\d{1,5}(?:[.,]\d{2}))\s*€?`,
+  const exactOfferLinkPrice = new RegExp(
+    String.raw`\/gp\/offer-listing\/${escapedAsin}[^)\]\s]{0,700}?condition=(?:new|NEW)[^)\]\s]{0,700}?[\s\S]{0,260}?(?:Nuovo|New|Neuf|Neu)?[\s\S]{0,220}?(?:da|from|à partir de|ab|von)?\s*€?\s*(\d{1,5}(?:[.,]\d{2}))\s*€`,
     'gi'
   );
 
-  let exactLinkMatch = exactLinkAroundNewOffer.exec(normalized);
+  let exactLinkMatch = exactOfferLinkPrice.exec(normalized);
 
   while (exactLinkMatch !== null) {
     const raw = exactLinkMatch[1] || '';
@@ -237,6 +236,7 @@ function extractExactAsinOfferCandidatesFromText(
     if (
       price !== null &&
       !hasUsd(context) &&
+      isOfferContext(context) &&
       !looksLikeWrongFormatOrAccessory(context)
     ) {
       candidates.push({
@@ -249,7 +249,57 @@ function extractExactAsinOfferCandidatesFromText(
       });
     }
 
-    exactLinkMatch = exactLinkAroundNewOffer.exec(normalized);
+    exactLinkMatch = exactOfferLinkPrice.exec(normalized);
+  }
+
+  return candidates;
+}
+
+function extractCurrentAsinFormatCoreCandidatesFromText(
+  text: string,
+  sourcePrefix: string,
+  asin: string
+): PriceCandidate[] {
+  const normalized = normalizeText(text);
+  const escapedAsin = escapeRegex(asin);
+  const candidates: PriceCandidate[] = [];
+
+  /*
+    Caso reale B0DVH4P8DB:
+    [](https://www.amazon.it/dp/B0DVH4P8DB)Vinyl, Import...
+    "Please retry"€32.70[€32.24](.../gp/offer-listing/B0DVH4P8DB...)
+
+    Qui vogliamo prendere 32,70, non 32,24 e non il CD B0DVH3Q4QG.
+  */
+  const currentFormatWithOffer = new RegExp(
+    String.raw`amazon\.[a-z.]+\/dp\/${escapedAsin}[^\\n\r]{0,500}?(?:Vinyl|Vinile|LP|Import|Audio CD|CD)[\s\S]{0,500}?€\s*(\d{1,5}(?:[.,]\d{2}))[\s\S]{0,260}?\/gp\/offer-listing\/${escapedAsin}[^)]*condition=(?:new|NEW)`,
+    'gi'
+  );
+
+  let currentMatch = currentFormatWithOffer.exec(normalized);
+
+  while (currentMatch !== null) {
+    const raw = currentMatch[1] || '';
+    const price = parsePrice(raw);
+    const context = getContext(normalized, currentMatch.index, 900, 900);
+
+    if (
+      price !== null &&
+      price >= 20 &&
+      !hasUsd(context) &&
+      !looksLikeWrongFormatOrAccessory(context)
+    ) {
+      candidates.push({
+        price,
+        rawPrice: price,
+        source: `${sourcePrefix}:current-asin-format-core`,
+        context,
+        index: currentMatch.index,
+        kind: 'core'
+      });
+    }
+
+    currentMatch = currentFormatWithOffer.exec(normalized);
   }
 
   return candidates;
@@ -262,10 +312,6 @@ function extractPageOfferCandidatesFromText(
   const normalized = normalizeText(text);
   const candidates: PriceCandidate[] = [];
 
-  /*
-    Caso DE reale:
-    Andere Verkäufer bei Amazon Neu & Gebraucht (34) von 9,99€9,99€
-  */
   const pagePatterns = [
     {
       source: 'de-other-sellers-new-used',
@@ -434,11 +480,17 @@ function chooseBestCore(
   candidates: PriceCandidate[],
   marketplace: AmazonMarketplace
 ): PriceCandidate | null {
-  /*
-    Amazon DE da Vercel è troppo instabile: accettiamo solo offer listing,
-    mai core price.
-  */
   if (marketplace === 'DE') return null;
+
+  const currentAsinFormatCores = candidates
+    .filter((candidate) => candidate.kind === 'core')
+    .filter((candidate) => candidate.source.includes('current-asin-format-core'))
+    .filter((candidate) => candidate.price >= 20)
+    .sort((a, b) => b.price - a.price || a.index - b.index);
+
+  if (currentAsinFormatCores[0]) {
+    return currentAsinFormatCores[0];
+  }
 
   const cores = candidates
     .filter((candidate) => candidate.kind === 'core')
@@ -449,6 +501,25 @@ function chooseBestCore(
   return cores[0] || null;
 }
 
+function shouldPreferCoreOverOffer(
+  core: PriceCandidate | null,
+  offer: PriceCandidate | null
+): boolean {
+  if (!core) return false;
+  if (!offer) return true;
+
+  /*
+    Caso B0DVH4P8DB:
+    se il core è il formato corrente dello stesso ASIN e vale >=20,
+    preferiamo il core perché è il prezzo pagina del vinile corrente.
+  */
+  return (
+    core.source.includes('current-asin-format-core') &&
+    core.price >= 20 &&
+    offer.price >= 20
+  );
+}
+
 function applyVatForCore(
   candidate: PriceCandidate,
   marketplace: AmazonMarketplace,
@@ -457,17 +528,6 @@ function applyVatForCore(
   finalPrice: number;
   vatApplied: boolean;
 } {
-  if (candidate.kind !== 'core') {
-    return {
-      finalPrice: candidate.price,
-      vatApplied: false
-    };
-  }
-
-  /*
-    Per Vercel Amazon viene quasi sempre servito come indirizzo USA.
-    Quando il core price è >= 20, lo trattiamo come prezzo senza IVA.
-  */
   const mustAddVat =
     candidate.price >= 20 || looksVatExcluded(`${candidate.context} ${pageContext}`);
 
@@ -729,6 +789,11 @@ export async function scrapeAmazonPrice(
           'direct',
           cleanedAsin
         ),
+        ...extractCurrentAsinFormatCoreCandidatesFromText(
+          directPlainText,
+          'direct',
+          cleanedAsin
+        ),
         ...extractPageOfferCandidatesFromText(directPlainText, 'direct'),
         ...extractCoreCandidatesFromHtml(direct.text, 'direct')
       ];
@@ -742,6 +807,11 @@ export async function scrapeAmazonPrice(
       candidates = [
         ...candidates,
         ...extractExactAsinOfferCandidatesFromText(
+          reader.text,
+          'reader',
+          cleanedAsin
+        ),
+        ...extractCurrentAsinFormatCoreCandidatesFromText(
           reader.text,
           'reader',
           cleanedAsin
@@ -762,11 +832,31 @@ export async function scrapeAmazonPrice(
           'search',
           cleanedAsin
         ),
+        ...extractCurrentAsinFormatCoreCandidatesFromText(
+          search.text,
+          'search',
+          cleanedAsin
+        ),
         ...extractPageOfferCandidatesFromText(search.text, 'search')
       ];
     }
 
     const offer = chooseBestOffer(candidates);
+    const core = chooseBestCore(candidates, marketplace);
+
+    if (shouldPreferCoreOverOffer(core, offer) && core) {
+      const normalized = applyVatForCore(core, marketplace, pageContext);
+
+      return {
+        price: normalized.finalPrice,
+        source: `${marketplace}:${core.source} kind=core rawPrice=${core.rawPrice} finalPrice=${normalized.finalPrice} vatApplied=${normalized.vatApplied ? 'yes' : 'no'} | contesto: ${cleanContext(
+          core.context
+        )}`,
+        error: null,
+        url,
+        marketplace
+      };
+    }
 
     if (offer) {
       return {
@@ -779,8 +869,6 @@ export async function scrapeAmazonPrice(
         marketplace
       };
     }
-
-    const core = chooseBestCore(candidates, marketplace);
 
     if (core) {
       const normalized = applyVatForCore(core, marketplace, pageContext);
