@@ -8,6 +8,7 @@ import { buildAmazonUrl } from '@/lib/amazon-scraper';
 type SortKey =
   | 'status'
   | 'is_active'
+  | 'has_url'
   | 'type'
   | 'artist'
   | 'album'
@@ -22,7 +23,7 @@ type SortKey =
   | 'medimops_target_price'
   | 'momox_target_price';
 
-type MultiFilterKey = 'status' | 'type' | 'is_active';
+type MultiFilterKey = 'status' | 'type' | 'is_active' | 'has_url';
 
 type FormState = {
   id?: string;
@@ -66,13 +67,15 @@ const emptyForm: FormState = {
 const emptyMultiFilters: MultiFilters = {
   status: [],
   type: [],
-  is_active: []
+  is_active: [],
+  has_url: []
 };
 
 const multiFilterOptions: Record<MultiFilterKey, string[]> = {
   status: ['In target', 'ok'],
   type: ['CD', 'LP'],
-  is_active: ['Sì', 'No']
+  is_active: ['Sì', 'No'],
+  has_url: ['Con URL', 'Senza URL']
 };
 
 const statusLabels: Record<LastStatus | 'never_checked', string> = {
@@ -368,6 +371,17 @@ function isSiteInTarget(
   );
 }
 
+function hasAnyUrl(monitor: Monitor): boolean {
+  return Boolean(
+    String(monitor.medimops_url || '').trim() ||
+      String(monitor.momox_url || '').trim()
+  );
+}
+
+function getUrlStatusLabel(monitor: Monitor): 'Con URL' | 'Senza URL' {
+  return hasAnyUrl(monitor) ? 'Con URL' : 'Senza URL';
+}
+
 function getBestPrice(monitor: Monitor): number | null {
   const prices = [
     monitor.medimops_current_price,
@@ -446,6 +460,10 @@ function compareValues(a: Monitor, b: Monitor, key: SortKey): number {
 
   if (key === 'is_active') {
     return Number(a.is_active) - Number(b.is_active);
+  }
+
+  if (key === 'has_url') {
+    return Number(hasAnyUrl(a)) - Number(hasAnyUrl(b));
   }
 
   if (key === 'last_checked_at') {
@@ -529,6 +547,28 @@ function DetailCell({ value }: { value: string | null }) {
   );
 }
 
+function UrlStatusCell({ monitor }: { monitor: Monitor }) {
+  if (hasAnyUrl(monitor)) {
+    return (
+      <span
+        className="inline-flex items-center rounded-full bg-green-100 px-2 py-1 text-xs font-semibold text-green-800"
+        title="Almeno un URL tra Medimops e Momox è presente"
+      >
+        ✓ Con URL
+      </span>
+    );
+  }
+
+  return (
+    <span
+      className="inline-flex items-center rounded-full bg-red-100 px-2 py-1 text-xs font-semibold text-red-800"
+      title="Nessun URL Medimops/Momox presente"
+    >
+      ✕ Senza URL
+    </span>
+  );
+}
+
 export default function Dashboard() {
   const [monitors, setMonitors] = useState<Monitor[]>([]);
   const [form, setForm] = useState<FormState>(emptyForm);
@@ -540,6 +580,9 @@ export default function Dashboard() {
   const [message, setMessage] = useState('Caricamento...');
   const [busy, setBusy] = useState(false);
   const [isFormOpen, setIsFormOpen] = useState(false);
+  const [isImportOpen, setIsImportOpen] = useState(false);
+  const [dragActive, setDragActive] = useState(false);
+  const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [filtersOpen, setFiltersOpen] = useState(false);
   const [openMultiFilter, setOpenMultiFilter] =
     useState<MultiFilterKey | null>(null);
@@ -610,6 +653,8 @@ export default function Dashboard() {
       }
 
       await loadData();
+      setSelectedIds([]);
+      setIsImportOpen(false);
 
       setMessage(
         json.message ||
@@ -623,6 +668,7 @@ export default function Dashboard() {
       );
     } finally {
       setBusy(false);
+      setDragActive(false);
 
       if (csvInputRef.current) {
         csvInputRef.current.value = '';
@@ -638,6 +684,65 @@ export default function Dashboard() {
     importCsvFile(file);
   }
 
+  function handleImportDrop(event: React.DragEvent<HTMLDivElement>) {
+    event.preventDefault();
+    event.stopPropagation();
+    setDragActive(false);
+
+    const file = event.dataTransfer.files?.[0];
+
+    if (!file) return;
+
+    importCsvFile(file);
+  }
+
+  async function applyQuickTarget() {
+    if (selectedIds.length === 0) {
+      setMessage('Quicktarget: seleziona almeno una riga.');
+      return;
+    }
+
+    const value = window.prompt(
+      `Inserisci il nuovo target da applicare a ${selectedIds.length} record selezionati. Esempio: 5 oppure 5,00`
+    );
+
+    if (value === null) return;
+
+    setBusy(true);
+    setMessage('Quicktarget in corso...');
+
+    try {
+      const response = await fetch('/api/monitors/quick-target', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          ids: selectedIds,
+          target: value
+        })
+      });
+
+      const json = (await response.json()) as {
+        ok?: boolean;
+        message?: string;
+        error?: string;
+      };
+
+      if (!response.ok) {
+        throw new Error(json.error || 'Errore Quicktarget.');
+      }
+
+      await loadData();
+
+      setMessage(json.message || 'Quicktarget completato.');
+    } catch (error) {
+      setMessage(
+        error instanceof Error ? error.message : 'Errore Quicktarget.'
+      );
+    } finally {
+      setBusy(false);
+    }
+  }
+
   const filtered = useMemo(() => {
     const lower = (value: unknown) => String(value ?? '').toLowerCase();
 
@@ -645,6 +750,7 @@ export default function Dashboard() {
       const status = getDisplayStatus(monitor);
       const statusLabel = statusLabels[status];
       const activeLabel = monitor.is_active ? 'Sì' : 'No';
+      const urlStatusLabel = getUrlStatusLabel(monitor);
       const bestPrice = getBestPrice(monitor);
 
       if (
@@ -668,9 +774,17 @@ export default function Dashboard() {
         return false;
       }
 
+      if (
+        multiFilters.has_url.length > 0 &&
+        !multiFilters.has_url.includes(urlStatusLabel)
+      ) {
+        return false;
+      }
+
       const row: Record<string, unknown> = {
         ...monitor,
         status: statusLabel,
+        has_url: urlStatusLabel,
         best_price:
           bestPrice === null ? '' : `${bestPrice} ${formatEuro(bestPrice)}`
       };
@@ -700,6 +814,30 @@ export default function Dashboard() {
       return compareValues(a, b, 'release_year');
     });
   }, [monitors, filters, multiFilters, sortKey, sortAsc]);
+
+  const filteredIds = filtered.map((monitor) => monitor.id);
+  const allVisibleSelected =
+    filteredIds.length > 0 && filteredIds.every((id) => selectedIds.includes(id));
+
+  function toggleSelected(id: string) {
+    if (selectedIds.includes(id)) {
+      setSelectedIds(selectedIds.filter((selectedId) => selectedId !== id));
+      return;
+    }
+
+    setSelectedIds([...selectedIds, id]);
+  }
+
+  function toggleAllVisible() {
+    if (allVisibleSelected) {
+      setSelectedIds(
+        selectedIds.filter((selectedId) => !filteredIds.includes(selectedId))
+      );
+      return;
+    }
+
+    setSelectedIds(Array.from(new Set([...selectedIds, ...filteredIds])));
+  }
 
   function openNewMonitorModal() {
     setForm(emptyForm);
@@ -832,6 +970,7 @@ export default function Dashboard() {
       }
 
       await loadData();
+      setSelectedIds(selectedIds.filter((selectedId) => selectedId !== id));
       setMessage('Monitor eliminato.');
     } catch (error) {
       setMessage(
@@ -975,18 +1114,10 @@ export default function Dashboard() {
           </div>
 
           <div className="flex flex-wrap gap-2">
-            <input
-              ref={csvInputRef}
-              type="file"
-              accept=".csv,text/csv"
-              className="hidden"
-              onChange={handleCsvInputChange}
-            />
-
             <button
               className="rounded-lg border border-blue-700 px-4 py-2 font-semibold text-blue-700 shadow-sm hover:bg-blue-50 disabled:opacity-50"
               disabled={busy}
-              onClick={() => csvInputRef.current?.click()}
+              onClick={() => setIsImportOpen(true)}
             >
               Importa CSV
             </button>
@@ -1020,6 +1151,14 @@ export default function Dashboard() {
 
           <div className="flex flex-wrap gap-2">
             <button
+              className="rounded-lg bg-amber-600 px-4 py-2 font-semibold text-white shadow-sm hover:bg-amber-700 disabled:opacity-50"
+              disabled={busy || selectedIds.length === 0}
+              onClick={applyQuickTarget}
+            >
+              Quicktarget ({selectedIds.length})
+            </button>
+
+            <button
               className="inline-flex items-center gap-2 rounded-lg bg-green-700 px-4 py-2 font-semibold text-white shadow-sm hover:bg-green-800 disabled:opacity-50"
               disabled={busy || filtered.length === 0}
               onClick={checkVisibleRows}
@@ -1051,7 +1190,7 @@ export default function Dashboard() {
               </button>
             </div>
 
-            <div className="grid gap-3 md:grid-cols-3">
+            <div className="grid gap-3 md:grid-cols-4">
               <CompactMultiSelectFilter
                 label="Stato"
                 value={multiFilters.status}
@@ -1094,6 +1233,21 @@ export default function Dashboard() {
                   setMultiFilters({ ...multiFilters, is_active: value })
                 }
               />
+
+              <CompactMultiSelectFilter
+                label="URL"
+                value={multiFilters.has_url}
+                options={multiFilterOptions.has_url}
+                isOpen={openMultiFilter === 'has_url'}
+                onToggle={() =>
+                  setOpenMultiFilter(
+                    openMultiFilter === 'has_url' ? null : 'has_url'
+                  )
+                }
+                onChange={(value) =>
+                  setMultiFilters({ ...multiFilters, has_url: value })
+                }
+              />
             </div>
 
             <div className="mt-3 grid gap-2 md:grid-cols-3 lg:grid-cols-6">
@@ -1105,6 +1259,7 @@ export default function Dashboard() {
                 ['edition', 'Filtro label'],
                 ['release_year', 'Filtro anno'],
                 ['country', 'Filtro country'],
+                ['has_url', 'Filtro URL'],
                 ['medimops_current_price', 'Filtro Medimops €'],
                 ['momox_current_price', 'Filtro Momox €'],
                 ['last_checked_at', 'Filtro ultimo rilievo'],
@@ -1128,6 +1283,14 @@ export default function Dashboard() {
           <table className="min-w-full border-collapse text-sm">
             <thead>
               <tr className="bg-slate-100 text-left">
+                <th className="border-b p-2">
+                  <input
+                    type="checkbox"
+                    checked={allVisibleSelected}
+                    onChange={toggleAllVisible}
+                    title="Seleziona tutte le righe visibili"
+                  />
+                </th>
                 <SortableHeader
                   label="Azioni"
                   activeSortKey={sortKey}
@@ -1137,6 +1300,13 @@ export default function Dashboard() {
                 <SortableHeader
                   label="Stato"
                   sortKey="status"
+                  activeSortKey={sortKey}
+                  sortAsc={sortAsc}
+                  onDoubleClick={handleHeaderDoubleClick}
+                />
+                <SortableHeader
+                  label="URL"
+                  sortKey="has_url"
                   activeSortKey={sortKey}
                   sortAsc={sortAsc}
                   onDoubleClick={handleHeaderDoubleClick}
@@ -1255,6 +1425,14 @@ export default function Dashboard() {
                 return (
                   <tr key={monitor.id} className="border-b align-top">
                     <td className="p-2">
+                      <input
+                        type="checkbox"
+                        checked={selectedIds.includes(monitor.id)}
+                        onChange={() => toggleSelected(monitor.id)}
+                      />
+                    </td>
+
+                    <td className="p-2">
                       <div className="flex items-center justify-start gap-2">
                         <button
                           className="inline-flex h-9 w-9 items-center justify-center rounded-lg border text-slate-700 hover:bg-slate-50"
@@ -1288,6 +1466,9 @@ export default function Dashboard() {
                     </td>
 
                     <td className="p-2">{badge(monitor)}</td>
+                    <td className="p-2">
+                      <UrlStatusCell monitor={monitor} />
+                    </td>
                     <td className="p-2">
                       <DetailCell value={monitor.last_error} />
                     </td>
@@ -1342,7 +1523,7 @@ export default function Dashboard() {
 
               {filtered.length === 0 && (
                 <tr>
-                  <td className="p-4 text-center text-slate-500" colSpan={17}>
+                  <td className="p-4 text-center text-slate-500" colSpan={19}>
                     Nessun monitor trovato.
                   </td>
                 </tr>
@@ -1351,6 +1532,84 @@ export default function Dashboard() {
           </table>
         </div>
       </section>
+
+      {isImportOpen && (
+        <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-slate-900/50 p-4 sm:items-center">
+          <div className="w-full max-w-xl rounded-2xl bg-white p-6 shadow-xl">
+            <div className="mb-5 flex items-start justify-between gap-4">
+              <div>
+                <h2 className="text-xl font-semibold">Importa CSV</h2>
+                <p className="mt-1 text-sm text-slate-500">
+                  Trascina qui il file CSV oppure selezionalo dal computer.
+                  Se anche una sola riga contiene errori, non verrà importato
+                  nulla.
+                </p>
+              </div>
+
+              <button
+                className="rounded-lg border p-2 text-slate-600 hover:bg-slate-50"
+                onClick={() => setIsImportOpen(false)}
+                aria-label="Chiudi"
+              >
+                <CloseIcon />
+              </button>
+            </div>
+
+            <input
+              ref={csvInputRef}
+              type="file"
+              accept=".csv,text/csv"
+              className="hidden"
+              onChange={handleCsvInputChange}
+            />
+
+            <div
+              className={`rounded-2xl border-2 border-dashed p-8 text-center ${
+                dragActive
+                  ? 'border-blue-600 bg-blue-50'
+                  : 'border-slate-300 bg-slate-50'
+              }`}
+              onDragEnter={(event) => {
+                event.preventDefault();
+                event.stopPropagation();
+                setDragActive(true);
+              }}
+              onDragOver={(event) => {
+                event.preventDefault();
+                event.stopPropagation();
+                setDragActive(true);
+              }}
+              onDragLeave={(event) => {
+                event.preventDefault();
+                event.stopPropagation();
+                setDragActive(false);
+              }}
+              onDrop={handleImportDrop}
+            >
+              <div className="text-lg font-semibold text-slate-800">
+                Trascina qui il CSV
+              </div>
+              <div className="mt-2 text-sm text-slate-500">
+                oppure
+              </div>
+
+              <button
+                type="button"
+                disabled={busy}
+                className="mt-4 rounded-lg bg-blue-700 px-4 py-2 font-semibold text-white hover:bg-blue-800 disabled:opacity-50"
+                onClick={() => csvInputRef.current?.click()}
+              >
+                Scegli file CSV
+              </button>
+            </div>
+
+            <div className="mt-4 rounded-lg bg-amber-50 p-3 text-sm text-amber-900">
+              Campi obbligatori: Tipo, Artista, Album, EAN, Target.
+              L’EAN deve essere presente e non già esistente.
+            </div>
+          </div>
+        </div>
+      )}
 
       {isFormOpen && (
         <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-slate-900/50 p-4 sm:items-center">
