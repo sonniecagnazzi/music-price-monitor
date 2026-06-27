@@ -143,25 +143,33 @@ function isOfferListingContext(context: string): boolean {
     'other sellers on amazon',
     'new & used',
     'new and used',
+    'new (',
+    'used (',
     'from€',
     'from €',
-    'fromeur',
 
     'altri venditori',
     'nuovo e usato',
     'nuovi e usati',
+    'nuovo (',
+    'usato (',
     'da€',
     'da €',
 
     'autres vendeurs',
     'neuf et occasion',
     'neuf & occasion',
+    'neuf (',
+    'occasion (',
     'à partir de€',
     'à partir de €',
 
     'andere verkäufer',
+    'andere verkaeufer',
     'neu und gebraucht',
     'neu & gebraucht',
+    'neu (',
+    'gebraucht (',
     'ab€',
     'ab €'
   ];
@@ -180,12 +188,11 @@ function isCoreProductPriceContext(context: string): boolean {
     'free returns',
     'retours gratuits',
     'retournez cet article gratuitement',
-    'retours',
     'return this item for free',
     'the prices of products sold on amazon include vat',
     'prices for items sold by amazon include vat',
-    'i prezzi dei prodotti venduti su amazon includono l’iva',
-    'i prezzi dei prodotti venduti su amazon includono iva'
+    'i prezzi dei prodotti venduti su amazon',
+    'produits vendus par amazon'
   ];
 
   return signals.some((signal) => lower.includes(signal));
@@ -203,19 +210,40 @@ function addCandidate(
 
   const context = contextOverride || getContext(fullText, index);
 
+  if (hasUsdPrice(context) && !hasEuroPrice(context)) return;
+
   let score = 10;
 
-  if (source.includes('offer-listing')) score += 1000;
-  if (source.includes('reader')) score += 120;
-  if (source.includes('direct')) score += 80;
-  if (source.includes('core-price')) score += 120;
+  /*
+    Priorità massima: il prezzo “Other sellers / New & Used from”.
+    È quello che dai debug reali vuoi usare per Amazon.
+  */
+  if (source.includes('offer-listing')) score += 5000;
 
-  if (isOfferListingContext(context)) score += 500;
-  if (isCoreProductPriceContext(context)) score += 150;
+  /*
+    Reader spesso espone meglio “New & Used from”.
+  */
+  if (source.includes('reader')) score += 700;
+  if (source.includes('direct')) score += 300;
 
-  if (isDeliveryContext(context)) score -= 600;
-  if (isBadSectionContext(context)) score -= 800;
-  if (hasUsdPrice(context) && !hasEuroPrice(context)) score -= 1000;
+  /*
+    Il core price è un fallback basso, non deve battere offer-listing.
+  */
+  if (source.includes('core-price')) score += 50;
+
+  if (isOfferListingContext(context)) score += 2500;
+  if (isCoreProductPriceContext(context)) score += 100;
+
+  /*
+    La delivery può comparire nello stesso blocco “from €9 + delivery”.
+    Non scartiamo subito se il blocco è offer-listing, ma abbassiamo solo
+    i core price vicini a delivery.
+  */
+  if (isDeliveryContext(context) && !source.includes('offer-listing')) {
+    score -= 1400;
+  }
+
+  if (isBadSectionContext(context)) score -= 900;
 
   candidates.push({
     price,
@@ -234,34 +262,37 @@ function extractOfferListingCandidates(
   const candidates: PriceCandidate[] = [];
 
   /*
-    Casi visti dal debug reale di Vercel:
+    Pattern specifici per quello che Vercel/Jina restituisce davvero:
 
-    FR:
-    Other sellers on Amazon ... New & Used (11) from€9.00€9.00+ €10.56 delivery
-
-    IT:
-    Other sellers on Amazon ... New & Used (12) from€8.99€8.99+ €11.66 delivery
+    FR/IT debug:
+    Other sellers on Amazon * * * [New & Used (11) from€9.00€9.00+ €10.56 delivery]
+    Other sellers on Amazon * * * [New & Used (12) from€8.99€8.99+ €11.66 delivery]
   */
   const patterns = [
     {
-      source: 'offer-listing-new-used-from',
+      source: 'offer-listing-other-sellers-new-used-from-euro-prefix',
       pattern:
-        /(?:Other sellers on Amazon|Altri venditori|Autres vendeurs|Andere Verkäufer)[\s\S]{0,900}?(?:New\s*&\s*Used|New\s+and\s+Used|Nuovo\s+e\s+usato|Nuovi\s+e\s+usati|Neuf\s+et\s+occasion|Neuf\s*&\s*occasion|Neu\s+und\s+gebraucht|Neu\s*&\s*Gebraucht)[\s\S]{0,220}?(?:from|da|à partir de|ab)\s*€\s*(\d{1,5}(?:[.,]\d{2}))/gi
+        /(?:Other sellers on Amazon|Altri venditori(?:\s+su\s+Amazon)?|Autres vendeurs(?:\s+sur\s+Amazon)?|Andere Verkäufer(?:\s+bei\s+Amazon)?)[\s\S]{0,1400}?(?:New\s*&\s*Used|New\s+and\s+Used|Nuovo\s+e\s+usato|Nuovi\s+e\s+usati|Neuf\s+et\s+occasion|Neuf\s*&\s*occasion|Neu\s+und\s+gebraucht|Neu\s*&\s*Gebraucht)[\s\S]{0,280}?(?:from|da|à partir de|ab)\s*€\s*(\d{1,5}(?:[.,]\d{2}))/gi
     },
     {
-      source: 'offer-listing-new-used-from-no-space',
+      source: 'offer-listing-other-sellers-new-used-euro-after',
       pattern:
-        /(?:Other sellers on Amazon|Altri venditori|Autres vendeurs|Andere Verkäufer)[\s\S]{0,900}?(?:New\s*&\s*Used|New\s+and\s+Used|Nuovo\s+e\s+usato|Nuovi\s+e\s+usati|Neuf\s+et\s+occasion|Neuf\s*&\s*occasion|Neu\s+und\s+gebraucht|Neu\s*&\s*Gebraucht)[\s\S]{0,220}?(?:from|da|à partir de|ab)\s*€?(\d{1,5}(?:[.,]\d{2}))\s*€/gi
+        /(?:Other sellers on Amazon|Altri venditori(?:\s+su\s+Amazon)?|Autres vendeurs(?:\s+sur\s+Amazon)?|Andere Verkäufer(?:\s+bei\s+Amazon)?)[\s\S]{0,1400}?(?:New\s*&\s*Used|New\s+and\s+Used|Nuovo\s+e\s+usato|Nuovi\s+e\s+usati|Neuf\s+et\s+occasion|Neuf\s*&\s*occasion|Neu\s+und\s+gebraucht|Neu\s*&\s*Gebraucht)[\s\S]{0,280}?(?:from|da|à partir de|ab)\s*(\d{1,5}(?:[.,]\d{2}))\s*€/gi
     },
     {
-      source: 'offer-listing-generic-from',
+      source: 'offer-listing-new-used-from-euro-prefix',
       pattern:
-        /(?:New\s*&\s*Used|New\s+and\s+Used|Nuovo\s+e\s+usato|Nuovi\s+e\s+usati|Neuf\s+et\s+occasion|Neuf\s*&\s*occasion|Neu\s+und\s+gebraucht|Neu\s*&\s*Gebraucht)\s*\(\d+\)[\s\S]{0,180}?(?:from|da|à partir de|ab)\s*€\s*(\d{1,5}(?:[.,]\d{2}))/gi
+        /(?:New\s*&\s*Used|New\s+and\s+Used|Nuovo\s+e\s+usato|Nuovi\s+e\s+usati|Neuf\s+et\s+occasion|Neuf\s*&\s*occasion|Neu\s+und\s+gebraucht|Neu\s*&\s*Gebraucht)\s*\(\d+\)[\s\S]{0,260}?(?:from|da|à partir de|ab)\s*€\s*(\d{1,5}(?:[.,]\d{2}))/gi
     },
     {
-      source: 'offer-listing-link-condition',
+      source: 'offer-listing-new-used-from-euro-after',
       pattern:
-        /gp\/offer-listing\/[A-Z0-9]{10}[\s\S]{0,360}?(?:condition=ALL|condition=new)[\s\S]{0,220}?(?:from|da|à partir de|ab)?\s*€\s*(\d{1,5}(?:[.,]\d{2}))/gi
+        /(?:New\s*&\s*Used|New\s+and\s+Used|Nuovo\s+e\s+usato|Nuovi\s+e\s+usati|Neuf\s+et\s+occasion|Neuf\s*&\s*occasion|Neu\s+und\s+gebraucht|Neu\s*&\s*Gebraucht)\s*\(\d+\)[\s\S]{0,260}?(?:from|da|à partir de|ab)\s*(\d{1,5}(?:[.,]\d{2}))\s*€/gi
+    },
+    {
+      source: 'offer-listing-link-near-price',
+      pattern:
+        /gp\/offer-listing\/[A-Z0-9]{10}[\s\S]{0,700}?(?:from|da|à partir de|ab)?\s*€\s*(\d{1,5}(?:[.,]\d{2}))/gi
     }
   ];
 
@@ -271,7 +302,7 @@ function extractOfferListingCandidates(
     while (match !== null) {
       const raw = match[1] || '';
       const price = parseEuroPrice(`€${raw}`);
-      const context = getContext(normalized, match.index, 260, 420);
+      const context = getContext(normalized, match.index, 320, 520);
 
       addCandidate(
         candidates,
@@ -387,19 +418,19 @@ function extractCorePriceCandidatesFromText(
 
   const patterns = [
     {
-      source: 'core-amazon-choice',
+      source: 'core-amazon-choice-price-after',
       pattern:
-        /Amazon'?s?\s+Choice[\s\S]{0,360}?€\s*(\d{1,5}(?:[.,]\d{2}))/gi
+        /Amazon'?s?\s+Choice[\s\S]{0,520}?€\s*(\d{1,5}(?:[.,]\d{2}))/gi
     },
     {
-      source: 'core-choice-before',
+      source: 'core-amazon-choice-price-before',
       pattern:
-        /€\s*(\d{1,5}(?:[.,]\d{2}))[\s\S]{0,360}?Amazon'?s?\s+Choice/gi
+        /€\s*(\d{1,5}(?:[.,]\d{2}))[\s\S]{0,520}?Amazon'?s?\s+Choice/gi
     },
     {
       source: 'core-price-near-vat',
       pattern:
-        /€\s*(\d{1,5}(?:[.,]\d{2}))[\s\S]{0,500}?(?:prices of products sold on Amazon include VAT|prodotti venduti su Amazon includono|produits vendus par Amazon incluent)/gi
+        /€\s*(\d{1,5}(?:[.,]\d{2}))[\s\S]{0,700}?(?:prices of products sold on Amazon include VAT|prodotti venduti su Amazon|produits vendus par Amazon)/gi
     }
   ];
 
@@ -408,7 +439,7 @@ function extractCorePriceCandidatesFromText(
 
     while (match !== null) {
       const price = parseEuroPrice(`€${match[1] || ''}`);
-      const context = getContext(normalized, match.index, 260, 420);
+      const context = getContext(normalized, match.index, 260, 520);
 
       addCandidate(
         candidates,
@@ -426,62 +457,38 @@ function extractCorePriceCandidatesFromText(
   return candidates;
 }
 
-function extractPriceFromAmazonHtml(html: string): ScrapeResult & {
-  candidates: PriceCandidate[];
-} {
+function extractCandidatesFromAmazonHtml(
+  html: string,
+  sourcePrefix: string
+): PriceCandidate[] {
   const pageText = cheerio.load(html).root().text().replace(/\u00a0/g, ' ');
 
-  const candidates = [
-    ...extractOfferListingCandidates(pageText, 'direct'),
-    ...extractCorePriceCandidatesFromHtml(html, 'direct'),
-    ...extractCorePriceCandidatesFromText(pageText, 'direct')
+  return [
+    ...extractOfferListingCandidates(pageText, sourcePrefix),
+    ...extractCorePriceCandidatesFromHtml(html, sourcePrefix),
+    ...extractCorePriceCandidatesFromText(pageText, sourcePrefix)
   ];
-
-  const valid = candidates
-    .filter((candidate) => {
-      if (candidate.price <= 0) return false;
-      if (hasUsdPrice(candidate.context) && !hasEuroPrice(candidate.context)) {
-        return false;
-      }
-
-      return candidate.score > -200;
-    })
-    .sort((a, b) => b.score - a.score || a.index - b.index);
-
-  const best = valid[0];
-
-  if (!best) {
-    return {
-      price: null,
-      source: 'amazon-price-not-visible',
-      error: null,
-      candidates
-    };
-  }
-
-  return {
-    price: best.price,
-    source: `${best.source} score=${best.score} | contesto: ${cleanContext(
-      best.context
-    )}`,
-    error: null,
-    candidates
-  };
 }
 
-function extractPriceFromAmazonText(text: string): ScrapeResult & {
-  candidates: PriceCandidate[];
-} {
+function extractCandidatesFromAmazonText(
+  text: string,
+  sourcePrefix: string
+): PriceCandidate[] {
   const normalized = text.replace(/\u00a0/g, ' ');
 
-  const candidates = [
-    ...extractOfferListingCandidates(normalized, 'reader'),
-    ...extractCorePriceCandidatesFromText(normalized, 'reader')
+  return [
+    ...extractOfferListingCandidates(normalized, sourcePrefix),
+    ...extractCorePriceCandidatesFromText(normalized, sourcePrefix)
   ];
+}
 
+function chooseBestCandidate(
+  candidates: PriceCandidate[]
+): PriceCandidate | null {
   const valid = candidates
     .filter((candidate) => {
       if (candidate.price <= 0) return false;
+      if (candidate.price >= 1000) return false;
       if (hasUsdPrice(candidate.context) && !hasEuroPrice(candidate.context)) {
         return false;
       }
@@ -490,25 +497,7 @@ function extractPriceFromAmazonText(text: string): ScrapeResult & {
     })
     .sort((a, b) => b.score - a.score || a.index - b.index);
 
-  const best = valid[0];
-
-  if (!best) {
-    return {
-      price: null,
-      source: 'amazon-reader-price-not-visible',
-      error: null,
-      candidates
-    };
-  }
-
-  return {
-    price: best.price,
-    source: `${best.source} score=${best.score} | contesto: ${cleanContext(
-      best.context
-    )}`,
-    error: null,
-    candidates
-  };
+  return valid[0] || null;
 }
 
 function getCorePriceTexts($: cheerio.CheerioAPI): string[] {
@@ -580,8 +569,10 @@ function findKeywordSnippets(text: string): string[] {
   const keywords = [
     'other sellers on amazon',
     'new & used',
+    'new and used',
     'altri venditori',
     'nuovo e usato',
+    'nuovi e usati',
     'autres vendeurs',
     'neuf et occasion',
     'andere verkäufer',
@@ -653,10 +644,10 @@ function buildDebugSource(input: {
 
   const candidates = (input.candidates || [])
     .sort((a, b) => b.score - a.score)
-    .slice(0, 12)
+    .slice(0, 20)
     .map(
       (candidate, index) =>
-        `${index + 1}) price=${candidate.price} score=${candidate.score} source=${candidate.source} context=${cleanContext(candidate.context, 650)}`
+        `${index + 1}) price=${candidate.price} score=${candidate.score} source=${candidate.source} context=${cleanContext(candidate.context, 700)}`
     );
 
   return [
@@ -759,58 +750,52 @@ export async function scrapeAmazonPrice(
     const direct = await fetchText(url);
     let reader: FetchResult | null = null;
     let search: FetchResult | null = null;
+
     let allCandidates: PriceCandidate[] = [];
 
     if (direct.ok && direct.text) {
-      const result = extractPriceFromAmazonHtml(direct.text);
-
-      allCandidates = [...allCandidates, ...result.candidates];
-
-      if (result.price !== null) {
-        return {
-          price: result.price,
-          source: `${marketplace}:direct:${result.source}`,
-          error: null,
-          url,
-          marketplace
-        };
-      }
+      allCandidates = [
+        ...allCandidates,
+        ...extractCandidatesFromAmazonHtml(direct.text, 'direct')
+      ];
     }
 
+    /*
+      Importante:
+      Non ritorniamo subito il direct core price.
+      Prima leggiamo anche Jina Reader, perché lì Amazon espone spesso
+      il blocco “Other sellers / New & Used from” che vogliamo preferire.
+    */
     reader = await fetchJinaReader(url);
 
     if (reader.ok && reader.text) {
-      const result = extractPriceFromAmazonText(reader.text);
-
-      allCandidates = [...allCandidates, ...result.candidates];
-
-      if (result.price !== null) {
-        return {
-          price: result.price,
-          source: `${marketplace}:jina-reader:${result.source}`,
-          error: null,
-          url,
-          marketplace
-        };
-      }
+      allCandidates = [
+        ...allCandidates,
+        ...extractCandidatesFromAmazonText(reader.text, 'reader')
+      ];
     }
 
     search = await fetchJinaSearch(url);
 
     if (search.ok && search.text) {
-      const result = extractPriceFromAmazonText(search.text);
+      allCandidates = [
+        ...allCandidates,
+        ...extractCandidatesFromAmazonText(search.text, 'search')
+      ];
+    }
 
-      allCandidates = [...allCandidates, ...result.candidates];
+    const best = chooseBestCandidate(allCandidates);
 
-      if (result.price !== null) {
-        return {
-          price: result.price,
-          source: `${marketplace}:jina-search:${result.source}`,
-          error: null,
-          url,
-          marketplace
-        };
-      }
+    if (best) {
+      return {
+        price: best.price,
+        source: `${marketplace}:${best.source} score=${best.score} | contesto: ${cleanContext(
+          best.context
+        )}`,
+        error: null,
+        url,
+        marketplace
+      };
     }
 
     return {
