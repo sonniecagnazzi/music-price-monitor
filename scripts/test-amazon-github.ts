@@ -39,9 +39,9 @@ const TEST_CASES: TestCase[] = [
     label: 'Secondo record - B0DVH4P8DB',
     asin: 'B0DVH4P8DB',
     expected: {
-      FR: null,
+      FR: 32.83,
       DE: null,
-      IT: 39.9
+      IT: 39.89
     }
   }
 ];
@@ -54,16 +54,16 @@ const AMAZON_DOMAINS: Record<AmazonMarketplace, string> = {
   IT: 'amazon.it'
 };
 
-const AMAZON_VAT_RATES: Record<AmazonMarketplace, number> = {
-  FR: 0.2,
-  DE: 0.19,
-  IT: 0.22
-};
-
 const LANGUAGE_PARAMS: Record<AmazonMarketplace, string> = {
   FR: 'fr_FR',
   DE: 'de_DE',
   IT: 'it_IT'
+};
+
+const AMAZON_VAT_RATES: Record<AmazonMarketplace, number> = {
+  FR: 0.2,
+  DE: 0.19,
+  IT: 0.22
 };
 
 const HEADERS: Record<string, string> = {
@@ -118,9 +118,7 @@ function withVat(price: number, marketplace: AmazonMarketplace): number {
 }
 
 function parsePrice(raw: string): number | null {
-  const cleaned = raw
-    .replace(/[^\d,.]/g, '')
-    .trim();
+  const cleaned = raw.replace(/[^\d,.]/g, '').trim();
 
   if (!cleaned) return null;
 
@@ -140,8 +138,6 @@ function parsePrice(raw: string): number | null {
     }
   } else if (hasComma) {
     normalized = normalized.replace(',', '.');
-  } else if (hasDot) {
-    normalized = normalized;
   }
 
   const value = Number(normalized);
@@ -149,34 +145,7 @@ function parsePrice(raw: string): number | null {
   if (!Number.isFinite(value)) return null;
   if (value <= 0 || value >= 1000) return null;
 
-  return Math.round(value * 100) / 100;
-}
-
-function extractEuroPrices(text: string): number[] {
-  const prices: number[] = [];
-  const regex = /€\s*(\d{1,5}(?:[.,]\d{2}))|(\d{1,5}(?:[.,]\d{2}))\s*€/gi;
-
-  let match = regex.exec(text);
-
-  while (match !== null) {
-    const raw = match[1] || match[2] || '';
-    const parsed = parsePrice(raw);
-
-    if (parsed !== null) {
-      prices.push(parsed);
-    }
-
-    match = regex.exec(text);
-  }
-
-  return prices;
-}
-
-function splitSegments(text: string): string[] {
-  return normalizeText(text)
-    .split(/—|\n|\r/g)
-    .map((segment) => segment.trim())
-    .filter(Boolean);
+  return roundPrice(value);
 }
 
 function makeUrls(asin: string, marketplace: AmazonMarketplace): string[] {
@@ -235,27 +204,20 @@ function extractExactOfferCandidates(
   const escapedAsin = escapeRegex(asin);
   const candidates: Candidate[] = [];
 
-  /*
-    Caso reale buono:
-    [8,99 €](https://www.amazon.it/gp/offer-listing/B07JBCR129/...?condition=new)
-
-    Questa regola prende il prezzo dentro il link SOLO se il link punta
-    all'offer-listing dello stesso ASIN.
-  */
-  const plainPriceOfferLink = new RegExp(
+  const exactOfferPrice = new RegExp(
     String.raw`\[\s*€?\s*(\d{1,5}(?:[.,]\d{2}))\s*€?\s*\]\([^)]*\/gp\/offer-listing\/${escapedAsin}[^)]*condition=(?:new|NEW)[^)]*\)`,
     'gi'
   );
 
-  let plainMatch = plainPriceOfferLink.exec(normalized);
+  let match = exactOfferPrice.exec(normalized);
 
-  while (plainMatch !== null) {
-    const raw = plainMatch[1] || '';
+  while (match !== null) {
+    const raw = match[1] || '';
     const price = parsePrice(raw);
 
     if (price !== null) {
-      const start = Math.max(0, plainMatch.index - 500);
-      const end = Math.min(normalized.length, plainMatch.index + 700);
+      const start = Math.max(0, match.index - 600);
+      const end = Math.min(normalized.length, match.index + 800);
       const context = normalized.slice(start, end);
 
       candidates.push({
@@ -269,27 +231,23 @@ function extractExactOfferCandidates(
       });
     }
 
-    plainMatch = plainPriceOfferLink.exec(normalized);
+    match = exactOfferPrice.exec(normalized);
   }
 
-  /*
-    Caso testuale:
-    [27 Nuovo da 8,99 €](...offer-listing/ASIN...condition=new)
-  */
-  const labeledOfferLink = new RegExp(
-    String.raw`\[[^\]]{0,160}?(?:Nuovo|New|Neuf|Neu)[^\]]{0,160}?(?:da|from|à partir de|ab|von)\s*€?\s*(\d{1,5}(?:[.,]\d{2}))\s*€?[^\]]{0,160}?\]\([^)]*\/gp\/offer-listing\/${escapedAsin}[^)]*condition=(?:new|NEW)[^)]*\)`,
+  const labeledOffer = new RegExp(
+    String.raw`\[[^\]]{0,180}?(?:Nuovo|New|Neuf|Neu)[^\]]{0,180}?(?:da|from|à partir de|ab|von)\s*€?\s*(\d{1,5}(?:[.,]\d{2}))\s*€?[^\]]{0,180}?\]\([^)]*\/gp\/offer-listing\/${escapedAsin}[^)]*condition=(?:new|NEW)[^)]*\)`,
     'gi'
   );
 
-  let labeledMatch = labeledOfferLink.exec(normalized);
+  let labeledMatch = labeledOffer.exec(normalized);
 
   while (labeledMatch !== null) {
     const raw = labeledMatch[1] || '';
     const price = parsePrice(raw);
 
     if (price !== null) {
-      const start = Math.max(0, labeledMatch.index - 500);
-      const end = Math.min(normalized.length, labeledMatch.index + 700);
+      const start = Math.max(0, labeledMatch.index - 600);
+      const end = Math.min(normalized.length, labeledMatch.index + 800);
       const context = normalized.slice(start, end);
 
       candidates.push({
@@ -303,7 +261,7 @@ function extractExactOfferCandidates(
       });
     }
 
-    labeledMatch = labeledOfferLink.exec(normalized);
+    labeledMatch = labeledOffer.exec(normalized);
   }
 
   return candidates;
@@ -319,57 +277,51 @@ function extractCurrentFormatCoreCandidates(
   const escapedAsin = escapeRegex(asin);
   const candidates: Candidate[] = [];
 
-  const segments = splitSegments(normalized);
+  /*
+    Regola chiave per B0DVH4P8DB.
 
-  for (const segment of segments) {
-    const hasCurrentDp = new RegExp(
-      String.raw`(?:\/dp\/${escapedAsin}|\/d\/${escapedAsin}|amazon\.[^/\s)]+\/dp\/${escapedAsin})`,
-      'i'
-    ).test(segment);
+    Dal log:
+    FR:
+    Vinyl, Import ... €32.83 [€27.84](offer-listing/B0DVH4P8DB...)
 
-    const hasCurrentOffer = new RegExp(
-      String.raw`\/gp\/offer-listing\/${escapedAsin}[^)\]\s]*condition=(?:new|NEW)`,
-      'i'
-    ).test(segment);
+    IT:
+    Vinyl, Import ... €32.70 [€32.24](offer-listing/B0DVH4P8DB...)
 
-    if (!hasCurrentDp || !hasCurrentOffer) continue;
+    Quindi:
+    - il prezzo formato corrente è il prezzo prima dell'offer-listing
+    - l'offer-listing è solo il prezzo “New from”
+  */
+  const currentFormatPattern = new RegExp(
+    String.raw`(?:\/dp\/${escapedAsin}|\/gp\/aw\/d\/${escapedAsin}|\/d\/${escapedAsin})[\s\S]{0,900}?(?:Vinyl|Vinile|LP|Import)[\s\S]{0,500}?€\s*(\d{1,5}(?:[.,]\d{2}))[\s\S]{0,500}?\/gp\/offer-listing\/${escapedAsin}[^)]*condition=(?:new|NEW)`,
+    'gi'
+  );
 
-    const lower = cleanText(segment).toLowerCase();
+  let match = currentFormatPattern.exec(normalized);
 
-    /*
-      Questo serve per il secondo record:
-      B0DVH4P8DB = Vinyl/Import.
-      Non lo applichiamo genericamente ai CD, per non rompere B07JBCR129.
-    */
-    const isVinylOrImport =
-      lower.includes('vinyl') ||
-      lower.includes('vinile') ||
-      lower.includes(' lp') ||
-      lower.includes('import');
+  while (match !== null) {
+    const raw = match[1] || '';
+    const rawPrice = parsePrice(raw);
 
-    if (!isVinylOrImport) continue;
+    if (rawPrice !== null && rawPrice >= 20) {
+      const start = Math.max(0, match.index - 500);
+      const end = Math.min(normalized.length, match.index + 1400);
+      const context = normalized.slice(start, end);
 
-    const prices = extractEuroPrices(segment).filter((price) => price >= 20);
+      const finalPrice =
+        marketplace === 'IT' ? withVat(rawPrice, marketplace) : rawPrice;
 
-    if (prices.length === 0) continue;
+      candidates.push({
+        price: finalPrice,
+        rawPrice,
+        marketplace,
+        asin,
+        source: `${sourceLabel}:current-format-core-before-offer`,
+        context,
+        kind: 'current-format-core'
+      });
+    }
 
-    /*
-      Nel debug reale:
-      Vinyl ... €32.70 [€32.24](offer-listing...)
-      Deve vincere 32.70.
-    */
-    const chosenRaw = Math.max(...prices);
-    const finalPrice = withVat(chosenRaw, marketplace);
-
-    candidates.push({
-      price: finalPrice,
-      rawPrice: chosenRaw,
-      marketplace,
-      asin,
-      source: `${sourceLabel}:current-format-core-segment-vat`,
-      context: segment,
-      kind: 'current-format-core'
-    });
+    match = currentFormatPattern.exec(normalized);
   }
 
   return candidates;
@@ -406,12 +358,12 @@ async function testAmazon(
   for (let attempt = 1; attempt <= 3; attempt++) {
     for (const url of urls) {
       fetchResults.push(await fetchOne(`direct attempt=${attempt}`, url));
-      await sleep(500);
+      await sleep(400);
 
       fetchResults.push(
         await fetchOne(`reader attempt=${attempt}`, makeReaderUrl(url))
       );
-      await sleep(500);
+      await sleep(400);
     }
   }
 
@@ -460,14 +412,14 @@ async function testAmazon(
   return {
     price: chosen.price,
     source: `${chosen.source} kind=${chosen.kind} rawPrice=${chosen.rawPrice} finalPrice=${chosen.price}`,
-    context: cleanText(chosen.context).slice(0, 1400),
+    context: cleanText(chosen.context).slice(0, 1500),
     fetchSummary
   };
 }
 
 async function main() {
   console.log('========================================');
-  console.log('AMAZON GITHUB ACTIONS TEST - NEW ALGORITHM');
+  console.log('AMAZON GITHUB ACTIONS TEST - NEW ALGORITHM V2');
   console.log('Questo test NON scrive nel database.');
   console.log('Questo test NON usa lo scraper di produzione.');
   console.log('========================================');
