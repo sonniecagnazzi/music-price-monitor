@@ -2,7 +2,7 @@ name: Music Price Monitor
 
 on:
   schedule:
-    - cron: '0 */4 * * *'
+    - cron: '17 */4 * * *'
   workflow_dispatch:
 
 jobs:
@@ -10,6 +10,13 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
+      - name: Print trigger info
+        run: |
+          echo "Event name: ${{ github.event_name }}"
+          echo "Ref: ${{ github.ref }}"
+          echo "SHA: ${{ github.sha }}"
+          echo "UTC now: $(date -u)"
+
       - name: Checkout repository
         uses: actions/checkout@v4
 
