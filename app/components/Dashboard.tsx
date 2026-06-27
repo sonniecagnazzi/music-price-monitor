@@ -13,19 +13,25 @@ import { formatDate, formatEuro, toNumberFromItalianInput } from '@/lib/format';
 type SortKey =
   | 'artist'
   | 'album'
+  | 'site'
   | 'target_price'
   | 'current_price'
-  | 'last_checked_at';
+  | 'last_checked_at'
+  | 'release_year'
+  | 'ean_code';
 
 type MultiFilterKey = 'status' | 'type' | 'site' | 'is_active';
 
 type FormState = {
   id?: string;
   type: MonitorType;
+  site: MonitorSite;
   artist: string;
   album: string;
   edition: string;
-  site: MonitorSite;
+  ean_code: string;
+  release_year: string;
+  country: string;
   url: string;
   target_price: string;
   alert_email: string;
@@ -36,10 +42,13 @@ type MultiFilters = Record<MultiFilterKey, string[]>;
 
 const emptyForm: FormState = {
   type: 'CD',
+  site: 'Momox',
   artist: '',
   album: '',
   edition: '',
-  site: 'Momox',
+  ean_code: '',
+  release_year: '',
+  country: '',
   url: '',
   target_price: '0,00',
   alert_email: '',
@@ -145,6 +154,38 @@ function TrashIcon() {
   );
 }
 
+function ExternalLinkIcon() {
+  return (
+    <svg
+      aria-hidden="true"
+      className="h-4 w-4"
+      viewBox="0 0 24 24"
+      fill="none"
+    >
+      <path
+        d="M14 5h5v5"
+        stroke="currentColor"
+        strokeWidth="1.8"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+      <path
+        d="M10 14 19 5"
+        stroke="currentColor"
+        strokeWidth="1.8"
+        strokeLinecap="round"
+      />
+      <path
+        d="M19 14v5H5V5h5"
+        stroke="currentColor"
+        strokeWidth="1.8"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </svg>
+  );
+}
+
 function CloseIcon() {
   return (
     <svg
@@ -203,6 +244,22 @@ function MultiSelectFilter({
       </select>
     </label>
   );
+}
+
+function toOptionalYear(value: string): number | null {
+  const trimmed = value.trim();
+
+  if (!trimmed) return null;
+
+  const numberValue = Number(trimmed);
+
+  if (!Number.isFinite(numberValue)) return null;
+
+  return Math.trunc(numberValue);
+}
+
+function normalizeEan(value: string): string {
+  return value.replace(/\D/g, '').slice(0, 32);
 }
 
 export default function Dashboard() {
@@ -328,10 +385,16 @@ export default function Dashboard() {
     setForm({
       id: monitor.id,
       type: monitor.type,
+      site: monitor.site,
       artist: monitor.artist,
       album: monitor.album,
       edition: monitor.edition || '',
-      site: monitor.site,
+      ean_code: monitor.ean_code || '',
+      release_year:
+        monitor.release_year === null || monitor.release_year === undefined
+          ? ''
+          : String(monitor.release_year),
+      country: monitor.country || '',
       url: monitor.url,
       target_price: String(monitor.target_price).replace('.', ','),
       alert_email: monitor.alert_email || '',
@@ -349,10 +412,15 @@ export default function Dashboard() {
 
     const input: MonitorInput = {
       type: form.type,
+      site: form.site,
       artist: form.artist,
       album: form.album,
       edition: form.edition || null,
-      site: form.site,
+      ean_code: form.ean_code.trim() ? normalizeEan(form.ean_code) : null,
+      release_year: toOptionalYear(form.release_year),
+      country: form.country.trim()
+        ? form.country.trim().toUpperCase().slice(0, 3)
+        : null,
       url: form.url,
       target_price: toNumberFromItalianInput(form.target_price),
       alert_email: form.alert_email || null,
@@ -502,9 +570,12 @@ export default function Dashboard() {
             >
               <option value="artist">Artista</option>
               <option value="album">Album</option>
-              <option value="target_price">Prezzo target</option>
+              <option value="site">Sito</option>
               <option value="current_price">Prezzo attuale</option>
+              <option value="target_price">Prezzo target</option>
               <option value="last_checked_at">Data ultimo rilievo</option>
+              <option value="ean_code">EAN</option>
+              <option value="release_year">Anno</option>
             </select>
 
             <button
@@ -570,7 +641,10 @@ export default function Dashboard() {
             {[
               ['artist', 'Filtro artista'],
               ['album', 'Filtro album'],
-              ['edition', 'Filtro edizione'],
+              ['ean_code', 'Filtro EAN'],
+              ['edition', 'Filtro label'],
+              ['release_year', 'Filtro anno'],
+              ['country', 'Filtro country'],
               ['url', 'Filtro URL'],
               ['target_price', 'Filtro prezzo target'],
               ['current_price', 'Filtro prezzo attuale'],
@@ -594,19 +668,21 @@ export default function Dashboard() {
             <thead>
               <tr className="bg-slate-100 text-left">
                 {[
+                  'Azioni',
+                  'URL',
                   'Stato',
+                  'Attivo',
                   'Tipo',
                   'Artista',
                   'Album',
-                  'Edizione',
                   'Sito',
-                  'URL',
-                  'Target',
-                  'Attuale',
-                  'Ultimo rilievo',
-                  'Attivo',
-                  'Errore',
-                  'Azioni'
+                  'Prezzo Attuale',
+                  'Prezzo Target',
+                  'Ultimo Rilievo',
+                  'EAN',
+                  'Label',
+                  'Anno',
+                  'Country'
                 ].map((heading) => (
                   <th key={heading} className="border-b p-2">
                     {heading}
@@ -624,42 +700,6 @@ export default function Dashboard() {
                 return (
                   <tr key={monitor.id} className="border-b align-top">
                     <td className="p-2">
-                      {badge(
-                        monitor.last_status,
-                        monitor.current_price,
-                        monitor.target_price
-                      )}
-                    </td>
-                    <td className="p-2">{monitor.type}</td>
-                    <td className="p-2 font-medium">{monitor.artist}</td>
-                    <td className="p-2">{monitor.album}</td>
-                    <td className="p-2">{monitor.edition || '-'}</td>
-                    <td className="p-2">{monitor.site}</td>
-                    <td className="max-w-xs truncate p-2">
-                      <a
-                        className="text-blue-700 underline"
-                        href={monitor.url}
-                        target="_blank"
-                      >
-                        apri
-                      </a>
-                    </td>
-                    <td className="p-2">{formatEuro(monitor.target_price)}</td>
-                    <td
-                      className={`p-2 font-semibold ${
-                        under ? 'text-green-700' : ''
-                      }`}
-                    >
-                      {formatEuro(monitor.current_price)}
-                    </td>
-                    <td className="p-2">
-                      {formatDate(monitor.last_checked_at)}
-                    </td>
-                    <td className="p-2">{monitor.is_active ? 'Sì' : 'No'}</td>
-                    <td className="max-w-xs p-2 text-red-700">
-                      {monitor.last_error || '-'}
-                    </td>
-                    <td className="p-2">
                       <div className="flex items-center justify-start gap-2">
                         <button
                           className="inline-flex h-9 w-9 items-center justify-center rounded-lg border text-slate-700 hover:bg-slate-50"
@@ -671,16 +711,6 @@ export default function Dashboard() {
                         </button>
 
                         <button
-                          className="inline-flex h-9 w-9 items-center justify-center rounded-lg border text-blue-700 hover:bg-blue-50 disabled:opacity-50"
-                          disabled={busy}
-                          onClick={() => checkOne(monitor.id)}
-                          title="Controlla ora"
-                          aria-label="Controlla ora"
-                        >
-                          <CheckIcon />
-                        </button>
-
-                        <button
                           className="inline-flex h-9 w-9 items-center justify-center rounded-lg border border-red-300 text-red-700 hover:bg-red-50 disabled:opacity-50"
                           disabled={busy}
                           onClick={() => deleteMonitor(monitor.id)}
@@ -689,15 +719,66 @@ export default function Dashboard() {
                         >
                           <TrashIcon />
                         </button>
+
+                        <button
+                          className="inline-flex h-9 w-9 items-center justify-center rounded-lg border text-blue-700 hover:bg-blue-50 disabled:opacity-50"
+                          disabled={busy}
+                          onClick={() => checkOne(monitor.id)}
+                          title="Controlla ora"
+                          aria-label="Controlla ora"
+                        >
+                          <CheckIcon />
+                        </button>
                       </div>
                     </td>
+
+                    <td className="p-2">
+                      <a
+                        className="inline-flex h-9 w-9 items-center justify-center rounded-lg border text-blue-700 hover:bg-blue-50"
+                        href={monitor.url}
+                        target="_blank"
+                        rel="noreferrer"
+                        title="Apri URL"
+                        aria-label="Apri URL"
+                      >
+                        <ExternalLinkIcon />
+                      </a>
+                    </td>
+
+                    <td className="p-2">
+                      {badge(
+                        monitor.last_status,
+                        monitor.current_price,
+                        monitor.target_price
+                      )}
+                    </td>
+                    <td className="p-2">{monitor.is_active ? 'Sì' : 'No'}</td>
+                    <td className="p-2">{monitor.type}</td>
+                    <td className="p-2 font-medium">{monitor.artist}</td>
+                    <td className="p-2">{monitor.album}</td>
+                    <td className="p-2">{monitor.site}</td>
+                    <td
+                      className={`p-2 font-semibold ${
+                        under ? 'text-green-700' : ''
+                      }`}
+                    >
+                      {formatEuro(monitor.current_price)}
+                    </td>
+                    <td className="p-2">{formatEuro(monitor.target_price)}</td>
+                    <td className="p-2">
+                      {formatDate(monitor.last_checked_at)}
+                    </td>
+                    <td className="p-2">{monitor.ean_code || '-'}</td>
+                    <td className="p-2">{monitor.edition || '-'}</td>
+                    <td className="p-2">{monitor.release_year || '-'}</td>
+                    <td className="p-2">{monitor.country || '-'}</td>
                   </tr>
                 );
               })}
 
               {filtered.length === 0 && (
                 <tr>
-                  <td className="p-4 text-center text-slate-500" colSpan={13}>
+                  <td className="p-4 text-center text-slate-500" colSpan={15}>
                     Nessun monitor trovato.
                   </td>
                 </tr>
@@ -752,6 +833,23 @@ export default function Dashboard() {
               </label>
 
               <label className="text-sm font-medium">
+                Sito
+                <select
+                  className="mt-1 w-full rounded-lg border p-2"
+                  value={form.site}
+                  onChange={(event) =>
+                    setForm({
+                      ...form,
+                      site: event.target.value as MonitorSite
+                    })
+                  }
+                >
+                  <option>Momox</option>
+                  <option>Medimops</option>
+                </select>
+              </label>
+
+              <label className="text-sm font-medium">
                 Artista
                 <input
                   required
@@ -776,7 +874,7 @@ export default function Dashboard() {
               </label>
 
               <label className="text-sm font-medium">
-                Edizione
+                Label
                 <input
                   className="mt-1 w-full rounded-lg border p-2"
                   value={form.edition}
@@ -787,30 +885,47 @@ export default function Dashboard() {
               </label>
 
               <label className="text-sm font-medium">
-                Sito
-                <select
+                EAN
+                <input
+                  inputMode="numeric"
+                  maxLength={32}
                   className="mt-1 w-full rounded-lg border p-2"
-                  value={form.site}
+                  value={form.ean_code}
                   onChange={(event) =>
                     setForm({
                       ...form,
-                      site: event.target.value as MonitorSite
+                      ean_code: normalizeEan(event.target.value)
                     })
                   }
-                >
-                  <option>Momox</option>
-                  <option>Medimops</option>
-                </select>
+                />
               </label>
 
               <label className="text-sm font-medium">
-                Prezzo target
+                Anno
                 <input
-                  required
+                  type="number"
+                  inputMode="numeric"
+                  min="1900"
+                  max="2100"
                   className="mt-1 w-full rounded-lg border p-2"
-                  value={form.target_price}
+                  value={form.release_year}
                   onChange={(event) =>
-                    setForm({ ...form, target_price: event.target.value })
+                    setForm({ ...form, release_year: event.target.value })
+                  }
+                />
+              </label>
+
+              <label className="text-sm font-medium">
+                Country
+                <input
+                  maxLength={3}
+                  className="mt-1 w-full rounded-lg border p-2 uppercase"
+                  value={form.country}
+                  onChange={(event) =>
+                    setForm({
+                      ...form,
+                      country: event.target.value.toUpperCase().slice(0, 3)
+                    })
                   }
                 />
               </label>
@@ -824,6 +939,18 @@ export default function Dashboard() {
                   value={form.url}
                   onChange={(event) =>
                     setForm({ ...form, url: event.target.value })
+                  }
+                />
+              </label>
+
+              <label className="text-sm font-medium">
+                Prezzo Target
+                <input
+                  required
+                  className="mt-1 w-full rounded-lg border p-2"
+                  value={form.target_price}
+                  onChange={(event) =>
+                    setForm({ ...form, target_price: event.target.value })
                   }
                 />
               </label>
