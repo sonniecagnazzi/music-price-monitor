@@ -15,6 +15,16 @@ type SettingsWithLegacyEmail = Settings & {
 
 type MonitorRunStatus = 'ok' | 'below_target' | 'error';
 
+type SiteCheck = {
+  site: 'Medimops' | 'Momox';
+  url: string | null;
+  target: number | null;
+  price: number | null;
+  error: string | null;
+  source: string | null;
+  isBelowTarget: boolean;
+};
+
 type MonitorRunDetail = {
   id: string;
   artist: string;
@@ -58,41 +68,68 @@ function getMonitorAlertEmail(
   return monitor.alert_email || globalAlertEmail;
 }
 
-function shouldSendAlert(monitor: Monitor, price: number): boolean {
-  return price <= monitor.target_price && !monitor.alert_sent;
+function hasConfiguredSite(url: string | null, target: number | null): boolean {
+  return Boolean(url && target && target > 0);
 }
 
-function shouldResetAlert(monitor: Monitor, price: number): boolean {
-  return price > monitor.target_price && monitor.alert_sent;
+async function checkSite(site: 'Medimops' | 'Momox', url: string | null, target: number | null): Promise<SiteCheck> {
+  if (!hasConfiguredSite(url, target)) {
+    return {
+      site,
+      url,
+      target,
+      price: null,
+      error: null,
+      source: null,
+      isBelowTarget: false
+    };
+  }
+
+  const result = await scrapePrice(url as string);
+
+  const price = result.price;
+  const isBelowTarget =
+    price !== null && target !== null && price <= target;
+
+  return {
+    site,
+    url,
+    target,
+    price,
+    error: result.error,
+    source: result.source,
+    isBelowTarget
+  };
 }
 
-function buildSuccessMessage({
-  price,
-  target,
-  alertSent,
-  source
-}: {
-  price: number;
-  target: number;
-  alertSent: boolean;
-  source: string | null;
-}) {
-  const statusText =
-    price <= target
-      ? `in target: prezzo ${price} <= target ${target}`
-      : `ok: prezzo ${price} > target ${target}`;
+function buildMessage(checks: SiteCheck[]) {
+  return checks
+    .filter((check) => check.url)
+    .map((check) => {
+      if (check.price === null) {
+        return `${check.site}: errore ${check.error || 'prezzo non trovato'}`;
+      }
 
-  const alertText = alertSent ? 'alert inviato' : 'nessun alert inviato';
-  const sourceText = source ? `fonte: ${source}` : 'fonte non disponibile';
-
-  return `${statusText}; ${alertText}; ${sourceText}`;
+      return `${check.site}: prezzo ${check.price}, target ${check.target}`;
+    })
+    .join(' | ');
 }
 
-function buildErrorMessage(error: string | null, source: string | null) {
-  const errorText = error || 'Errore sconosciuto';
-  const sourceText = source ? `fonte: ${source}` : 'fonte non disponibile';
+function getLowestPrice(checks: SiteCheck[]): number | null {
+  const prices = checks
+    .map((check) => check.price)
+    .filter((price): price is number => price !== null);
 
-  return `${errorText}; ${sourceText}`;
+  if (prices.length === 0) return null;
+
+  return Math.min(...prices);
+}
+
+function mergeSources(checks: SiteCheck[]) {
+  return checks
+    .filter((check) => check.url)
+    .map((check) => `${check.site}: ${check.source || check.error || 'nessuna fonte'}`)
+    .join(' | ');
 }
 
 export async function runMonitor(
@@ -137,83 +174,89 @@ export async function runMonitor(
     const checkedAt = new Date().toISOString();
 
     try {
-      const scrapeResult = await scrapePrice(monitor.url);
+      const medimopsCheck = await checkSite(
+        'Medimops',
+        monitor.medimops_url,
+        monitor.medimops_target_price
+      );
 
-      if (scrapeResult.price === null) {
+      const momoxCheck = await checkSite(
+        'Momox',
+        monitor.momox_url,
+        monitor.momox_target_price
+      );
+
+      const checks = [medimopsCheck, momoxCheck];
+      const configuredChecks = checks.filter((check) => check.url);
+      const checkedWithError = configuredChecks.filter(
+        (check) => check.price === null
+      );
+      const belowTargetChecks = configuredChecks.filter(
+        (check) => check.isBelowTarget
+      );
+
+      const hasAnyPrice = configuredChecks.some((check) => check.price !== null);
+      const hasAnyBelowTarget = belowTargetChecks.length > 0;
+      const hasAllErrors =
+        configuredChecks.length > 0 && checkedWithError.length === configuredChecks.length;
+
+      const nextStatus: MonitorRunStatus = hasAllErrors
+        ? 'error'
+        : hasAnyBelowTarget
+          ? 'below_target'
+          : 'ok';
+
+      if (hasAllErrors) {
         errors += 1;
-
-        await supabase.from('price_checks').insert({
-          monitor_id: monitor.id,
-          checked_at: checkedAt,
-          price: null,
-          status: 'error',
-          error_message: scrapeResult.error,
-          source: scrapeResult.source
-        });
-
-        await supabase
-          .from('monitors')
-          .update({
-            last_checked_at: checkedAt,
-            last_status: 'error',
-            last_error: scrapeResult.error,
-            updated_at: checkedAt
-          })
-          .eq('id', monitor.id);
-
-        details.push({
-          id: monitor.id,
-          artist: monitor.artist,
-          album: monitor.album,
-          status: 'error',
-          price: null,
-          error: scrapeResult.error,
-          alertSent: false,
-          message: buildErrorMessage(scrapeResult.error, scrapeResult.source)
-        });
-
-        continue;
       }
 
-      const price = scrapeResult.price;
-      const isBelowTarget = price <= monitor.target_price;
-      const nextStatus: MonitorRunStatus = isBelowTarget ? 'below_target' : 'ok';
+      const lowestPrice = getLowestPrice(checks);
       const alertEmail = getMonitorAlertEmail(monitor, globalEmail);
 
       let nextAlertSent = monitor.alert_sent;
       let alertSentNow = false;
 
-      if (shouldSendAlert(monitor, price) && alertEmail) {
+      if (hasAnyBelowTarget && !monitor.alert_sent && alertEmail) {
+        const monitorForEmail: Monitor = {
+          ...monitor,
+          medimops_current_price: medimopsCheck.price,
+          momox_current_price: momoxCheck.price,
+          current_price: lowestPrice
+        };
+
         await sendPriceAlert({
           to: alertEmail,
-          monitor,
-          price,
-          source: scrapeResult.source
+          monitor: monitorForEmail,
+          price: lowestPrice || 0,
+          source: mergeSources(checks),
+          triggeredSites: belowTargetChecks.map((check) => check.site)
         });
 
         nextAlertSent = true;
         alertSentNow = true;
         alertsSent += 1;
-      } else if (shouldResetAlert(monitor, price)) {
+      } else if (!hasAnyBelowTarget && monitor.alert_sent && hasAnyPrice) {
         nextAlertSent = false;
       }
 
       await supabase.from('price_checks').insert({
         monitor_id: monitor.id,
         checked_at: checkedAt,
-        price,
+        price: lowestPrice,
         status: nextStatus,
-        error_message: null,
-        source: scrapeResult.source
+        error_message: hasAllErrors ? buildMessage(checks) : null,
+        source: mergeSources(checks)
       });
 
       await supabase
         .from('monitors')
         .update({
-          current_price: price,
+          medimops_current_price: medimopsCheck.price,
+          momox_current_price: momoxCheck.price,
+          current_price: lowestPrice,
           last_checked_at: checkedAt,
           last_status: nextStatus,
-          last_error: null,
+          last_error: hasAllErrors ? buildMessage(checks) : null,
           alert_sent: nextAlertSent,
           updated_at: checkedAt
         })
@@ -224,15 +267,10 @@ export async function runMonitor(
         artist: monitor.artist,
         album: monitor.album,
         status: nextStatus,
-        price,
-        error: null,
+        price: lowestPrice,
+        error: hasAllErrors ? buildMessage(checks) : null,
         alertSent: alertSentNow,
-        message: buildSuccessMessage({
-          price,
-          target: monitor.target_price,
-          alertSent: alertSentNow,
-          source: scrapeResult.source
-        })
+        message: buildMessage(checks)
       });
     } catch (error) {
       errors += 1;
@@ -269,7 +307,7 @@ export async function runMonitor(
         price: null,
         error: message,
         alertSent: false,
-        message: buildErrorMessage(message, 'exception')
+        message
       });
     }
   }
