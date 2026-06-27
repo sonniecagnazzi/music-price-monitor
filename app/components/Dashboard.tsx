@@ -6,17 +6,21 @@ import { formatDate, formatEuro, toNumberFromItalianInput } from '@/lib/format';
 import { buildAmazonUrl } from '@/lib/amazon-scraper';
 
 type SortKey =
+  | 'status'
+  | 'is_active'
+  | 'type'
   | 'artist'
   | 'album'
-  | 'type'
   | 'best_price'
-  | 'medimops_target_price'
   | 'medimops_current_price'
-  | 'momox_target_price'
   | 'momox_current_price'
   | 'last_checked_at'
+  | 'ean_code'
+  | 'edition'
   | 'release_year'
-  | 'ean_code';
+  | 'country'
+  | 'medimops_target_price'
+  | 'momox_target_price';
 
 type MultiFilterKey = 'status' | 'type' | 'is_active';
 
@@ -172,6 +176,53 @@ function ChevronDownIcon() {
         strokeLinejoin="round"
       />
     </svg>
+  );
+}
+
+function SortIndicator({
+  active,
+  ascending
+}: {
+  active: boolean;
+  ascending: boolean;
+}) {
+  if (!active) {
+    return <span className="text-slate-300">↕</span>;
+  }
+
+  return <span className="text-blue-700">{ascending ? '↑' : '↓'}</span>;
+}
+
+function SortableHeader({
+  label,
+  sortKey,
+  activeSortKey,
+  sortAsc,
+  onDoubleClick
+}: {
+  label: string;
+  sortKey?: SortKey;
+  activeSortKey: SortKey | null;
+  sortAsc: boolean;
+  onDoubleClick: (key: SortKey) => void;
+}) {
+  if (!sortKey) {
+    return <th className="border-b p-2">{label}</th>;
+  }
+
+  const active = activeSortKey === sortKey;
+
+  return (
+    <th
+      className="cursor-pointer select-none border-b p-2 hover:bg-slate-200"
+      title="Doppio click: crescente, decrescente, non ordinato"
+      onDoubleClick={() => onDoubleClick(sortKey)}
+    >
+      <span className="inline-flex items-center gap-1">
+        {label}
+        <SortIndicator active={active} ascending={sortAsc} />
+      </span>
+    </th>
   );
 }
 
@@ -366,9 +417,39 @@ function compareNullableNumbers(
   return left - right;
 }
 
+function compareDates(left: string | null, right: string | null): number {
+  if (!left && !right) return 0;
+  if (!left) return 1;
+  if (!right) return -1;
+
+  const leftTime = new Date(left).getTime();
+  const rightTime = new Date(right).getTime();
+
+  if (!Number.isFinite(leftTime) && !Number.isFinite(rightTime)) return 0;
+  if (!Number.isFinite(leftTime)) return 1;
+  if (!Number.isFinite(rightTime)) return -1;
+
+  return leftTime - rightTime;
+}
+
 function compareValues(a: Monitor, b: Monitor, key: SortKey): number {
   if (key === 'best_price') {
     return compareNullableNumbers(getBestPrice(a), getBestPrice(b));
+  }
+
+  if (key === 'status') {
+    return statusLabels[getDisplayStatus(a)].localeCompare(
+      statusLabels[getDisplayStatus(b)],
+      'it'
+    );
+  }
+
+  if (key === 'is_active') {
+    return Number(a.is_active) - Number(b.is_active);
+  }
+
+  if (key === 'last_checked_at') {
+    return compareDates(a.last_checked_at, b.last_checked_at);
   }
 
   const left = a[key];
@@ -454,7 +535,7 @@ export default function Dashboard() {
   const [filters, setFilters] = useState<Record<string, string>>({});
   const [multiFilters, setMultiFilters] =
     useState<MultiFilters>(emptyMultiFilters);
-  const [sortKey, setSortKey] = useState<SortKey>('artist');
+  const [sortKey, setSortKey] = useState<SortKey | null>(null);
   const [sortAsc, setSortAsc] = useState(true);
   const [message, setMessage] = useState('Caricamento...');
   const [busy, setBusy] = useState(false);
@@ -486,62 +567,83 @@ export default function Dashboard() {
 
   const activeFilterCount = countActiveFilters(filters, multiFilters);
 
+  function handleHeaderDoubleClick(key: SortKey) {
+    if (sortKey !== key) {
+      setSortKey(key);
+      setSortAsc(true);
+      return;
+    }
+
+    if (sortAsc) {
+      setSortAsc(false);
+      return;
+    }
+
+    setSortKey(null);
+    setSortAsc(true);
+  }
+
   const filtered = useMemo(() => {
     const lower = (value: unknown) => String(value ?? '').toLowerCase();
 
-    return monitors
-      .filter((monitor) => {
-        const status = getDisplayStatus(monitor);
-        const statusLabel = statusLabels[status];
-        const activeLabel = monitor.is_active ? 'Sì' : 'No';
-        const bestPrice = getBestPrice(monitor);
+    const filteredRows = monitors.filter((monitor) => {
+      const status = getDisplayStatus(monitor);
+      const statusLabel = statusLabels[status];
+      const activeLabel = monitor.is_active ? 'Sì' : 'No';
+      const bestPrice = getBestPrice(monitor);
 
-        if (
-          multiFilters.status.length > 0 &&
-          !multiFilters.status.includes(statusLabel)
-        ) {
-          return false;
-        }
+      if (
+        multiFilters.status.length > 0 &&
+        !multiFilters.status.includes(statusLabel)
+      ) {
+        return false;
+      }
 
-        if (
-          multiFilters.type.length > 0 &&
-          !multiFilters.type.includes(monitor.type)
-        ) {
-          return false;
-        }
+      if (
+        multiFilters.type.length > 0 &&
+        !multiFilters.type.includes(monitor.type)
+      ) {
+        return false;
+      }
 
-        if (
-          multiFilters.is_active.length > 0 &&
-          !multiFilters.is_active.includes(activeLabel)
-        ) {
-          return false;
-        }
+      if (
+        multiFilters.is_active.length > 0 &&
+        !multiFilters.is_active.includes(activeLabel)
+      ) {
+        return false;
+      }
 
-        const row: Record<string, unknown> = {
-          ...monitor,
-          best_price:
-            bestPrice === null ? '' : `${bestPrice} ${formatEuro(bestPrice)}`
-        };
+      const row: Record<string, unknown> = {
+        ...monitor,
+        status: statusLabel,
+        best_price:
+          bestPrice === null ? '' : `${bestPrice} ${formatEuro(bestPrice)}`
+      };
 
-        return Object.entries(filters).every(
-          ([key, filterValue]) =>
-            !filterValue ||
-            lower(row[key]).includes(filterValue.toLowerCase())
-        );
-      })
-      .sort((a, b) => {
-        const primary = compareValues(a, b, sortKey);
+      return Object.entries(filters).every(
+        ([key, filterValue]) =>
+          !filterValue ||
+          lower(row[key]).includes(filterValue.toLowerCase())
+      );
+    });
 
-        if (primary !== 0) {
-          return sortAsc ? primary : -primary;
-        }
+    if (!sortKey) {
+      return filteredRows;
+    }
 
-        const byArtist = compareValues(a, b, 'artist');
+    return [...filteredRows].sort((a, b) => {
+      const primary = compareValues(a, b, sortKey);
 
-        if (byArtist !== 0) return byArtist;
+      if (primary !== 0) {
+        return sortAsc ? primary : -primary;
+      }
 
-        return compareValues(a, b, 'release_year');
-      });
+      const byArtist = compareValues(a, b, 'artist');
+
+      if (byArtist !== 0) return byArtist;
+
+      return compareValues(a, b, 'release_year');
+    });
   }, [monitors, filters, multiFilters, sortKey, sortAsc]);
 
   function openNewMonitorModal() {
@@ -837,6 +939,10 @@ export default function Dashboard() {
             <p className="mt-1 text-sm text-slate-500">
               Record visibili: {filtered.length}
             </p>
+            <p className="mt-1 text-xs text-slate-400">
+              Doppio click sulle intestazioni per ordinare: crescente,
+              decrescente, non ordinato.
+            </p>
           </div>
 
           <div className="flex flex-wrap gap-2">
@@ -855,31 +961,6 @@ export default function Dashboard() {
             >
               {filtersOpen ? 'Nascondi filtri' : 'Mostra filtri'}
               {activeFilterCount > 0 ? ` (${activeFilterCount})` : ''}
-            </button>
-
-            <select
-              className="rounded-lg border p-2"
-              value={sortKey}
-              onChange={(event) => setSortKey(event.target.value as SortKey)}
-            >
-              <option value="artist">Artista</option>
-              <option value="album">Album</option>
-              <option value="type">Tipo</option>
-              <option value="best_price">Best€</option>
-              <option value="medimops_current_price">Medimops €</option>
-              <option value="momox_current_price">Momox €</option>
-              <option value="medimops_target_price">Medimops T</option>
-              <option value="momox_target_price">Momox T</option>
-              <option value="last_checked_at">Data ultimo rilievo</option>
-              <option value="ean_code">EAN</option>
-              <option value="release_year">Anno</option>
-            </select>
-
-            <button
-              className="rounded-lg border px-3"
-              onClick={() => setSortAsc(!sortAsc)}
-            >
-              {sortAsc ? 'Crescente' : 'Decrescente'}
             </button>
           </div>
         </div>
@@ -974,29 +1055,123 @@ export default function Dashboard() {
           <table className="min-w-full border-collapse text-sm">
             <thead>
               <tr className="bg-slate-100 text-left">
-                {[
-                  'Azioni',
-                  'Stato',
-                  'Dettaglio',
-                  'Attivo',
-                  'Tipo',
-                  'Artista',
-                  'Album',
-                  'Best€',
-                  'Medimops €',
-                  'Momox €',
-                  'Ultimo Rilievo',
-                  'EAN',
-                  'Label',
-                  'Anno',
-                  'Country',
-                  'Medimops T',
-                  'Momox T'
-                ].map((heading) => (
-                  <th key={heading} className="border-b p-2">
-                    {heading}
-                  </th>
-                ))}
+                <SortableHeader
+                  label="Azioni"
+                  activeSortKey={sortKey}
+                  sortAsc={sortAsc}
+                  onDoubleClick={handleHeaderDoubleClick}
+                />
+                <SortableHeader
+                  label="Stato"
+                  sortKey="status"
+                  activeSortKey={sortKey}
+                  sortAsc={sortAsc}
+                  onDoubleClick={handleHeaderDoubleClick}
+                />
+                <SortableHeader
+                  label="Dettaglio"
+                  activeSortKey={sortKey}
+                  sortAsc={sortAsc}
+                  onDoubleClick={handleHeaderDoubleClick}
+                />
+                <SortableHeader
+                  label="Attivo"
+                  sortKey="is_active"
+                  activeSortKey={sortKey}
+                  sortAsc={sortAsc}
+                  onDoubleClick={handleHeaderDoubleClick}
+                />
+                <SortableHeader
+                  label="Tipo"
+                  sortKey="type"
+                  activeSortKey={sortKey}
+                  sortAsc={sortAsc}
+                  onDoubleClick={handleHeaderDoubleClick}
+                />
+                <SortableHeader
+                  label="Artista"
+                  sortKey="artist"
+                  activeSortKey={sortKey}
+                  sortAsc={sortAsc}
+                  onDoubleClick={handleHeaderDoubleClick}
+                />
+                <SortableHeader
+                  label="Album"
+                  sortKey="album"
+                  activeSortKey={sortKey}
+                  sortAsc={sortAsc}
+                  onDoubleClick={handleHeaderDoubleClick}
+                />
+                <SortableHeader
+                  label="Best€"
+                  sortKey="best_price"
+                  activeSortKey={sortKey}
+                  sortAsc={sortAsc}
+                  onDoubleClick={handleHeaderDoubleClick}
+                />
+                <SortableHeader
+                  label="Medimops €"
+                  sortKey="medimops_current_price"
+                  activeSortKey={sortKey}
+                  sortAsc={sortAsc}
+                  onDoubleClick={handleHeaderDoubleClick}
+                />
+                <SortableHeader
+                  label="Momox €"
+                  sortKey="momox_current_price"
+                  activeSortKey={sortKey}
+                  sortAsc={sortAsc}
+                  onDoubleClick={handleHeaderDoubleClick}
+                />
+                <SortableHeader
+                  label="Ultimo Rilievo"
+                  sortKey="last_checked_at"
+                  activeSortKey={sortKey}
+                  sortAsc={sortAsc}
+                  onDoubleClick={handleHeaderDoubleClick}
+                />
+                <SortableHeader
+                  label="EAN"
+                  sortKey="ean_code"
+                  activeSortKey={sortKey}
+                  sortAsc={sortAsc}
+                  onDoubleClick={handleHeaderDoubleClick}
+                />
+                <SortableHeader
+                  label="Label"
+                  sortKey="edition"
+                  activeSortKey={sortKey}
+                  sortAsc={sortAsc}
+                  onDoubleClick={handleHeaderDoubleClick}
+                />
+                <SortableHeader
+                  label="Anno"
+                  sortKey="release_year"
+                  activeSortKey={sortKey}
+                  sortAsc={sortAsc}
+                  onDoubleClick={handleHeaderDoubleClick}
+                />
+                <SortableHeader
+                  label="Country"
+                  sortKey="country"
+                  activeSortKey={sortKey}
+                  sortAsc={sortAsc}
+                  onDoubleClick={handleHeaderDoubleClick}
+                />
+                <SortableHeader
+                  label="Medimops T"
+                  sortKey="medimops_target_price"
+                  activeSortKey={sortKey}
+                  sortAsc={sortAsc}
+                  onDoubleClick={handleHeaderDoubleClick}
+                />
+                <SortableHeader
+                  label="Momox T"
+                  sortKey="momox_target_price"
+                  activeSortKey={sortKey}
+                  sortAsc={sortAsc}
+                  onDoubleClick={handleHeaderDoubleClick}
+                />
               </tr>
             </thead>
 
