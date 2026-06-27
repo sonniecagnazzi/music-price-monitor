@@ -551,20 +551,20 @@ function UrlStatusCell({ monitor }: { monitor: Monitor }) {
   if (hasAnyUrl(monitor)) {
     return (
       <span
-        className="inline-flex items-center rounded-full bg-green-100 px-2 py-1 text-xs font-semibold text-green-800"
+        className="inline-flex h-7 w-7 items-center justify-center rounded-full bg-green-100 text-base font-bold text-green-800"
         title="Almeno un URL tra Medimops e Momox è presente"
       >
-        ✓ Con URL
+        ✓
       </span>
     );
   }
 
   return (
     <span
-      className="inline-flex items-center rounded-full bg-red-100 px-2 py-1 text-xs font-semibold text-red-800"
+      className="inline-flex h-7 w-7 items-center justify-center rounded-full bg-red-100 text-base font-bold text-red-800"
       title="Nessun URL Medimops/Momox presente"
     >
-      ✕ Senza URL
+      ✕
     </span>
   );
 }
