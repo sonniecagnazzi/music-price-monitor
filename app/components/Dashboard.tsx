@@ -436,6 +436,22 @@ export default function Dashboard() {
     setIsFormOpen(true);
   }
 
+  function updateMedimopsTargetPrice(value: string) {
+    setForm((previous) => {
+      const shouldSyncMomox =
+        previous.momox_target_price.trim() === '' ||
+        previous.momox_target_price === previous.medimops_target_price;
+
+      return {
+        ...previous,
+        medimops_target_price: value,
+        momox_target_price: shouldSyncMomox
+          ? value
+          : previous.momox_target_price
+      };
+    });
+  }
+
   async function saveMonitor(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
 
@@ -620,7 +636,9 @@ export default function Dashboard() {
     );
     const momoxInTarget = isSiteInTarget(momoxCurrentPrice, momoxTargetPrice);
     const value =
-      medimopsInTarget || momoxInTarget ? 'below_target' : status || 'never_checked';
+      medimopsInTarget || momoxInTarget
+        ? 'below_target'
+        : status || 'never_checked';
 
     const cls =
       value === 'error'
@@ -1090,10 +1108,7 @@ export default function Dashboard() {
                       placeholder="es. 10,00"
                       value={form.medimops_target_price}
                       onChange={(event) =>
-                        setForm({
-                          ...form,
-                          medimops_target_price: event.target.value
-                        })
+                        updateMedimopsTargetPrice(event.target.value)
                       }
                     />
                   </label>
