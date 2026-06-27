@@ -124,6 +124,13 @@ function findOfferPrice(value: unknown, context = ''): ScrapeResult {
 
   const record = value as Record<string, unknown>;
 
+  /*
+    IMPORTANTE:
+    Non usiamo lowPrice/highPrice perché su Momox/Medimops spesso indicano
+    il prezzo minimo tra più condizioni, non il prezzo principale selezionato.
+    Esempio: Bon état 7,59 € vs Très bon état 8,99 €.
+  */
+
   if (typeof record.price === 'string' || typeof record.price === 'number') {
     const price = normalizePrice(String(record.price));
 
@@ -131,42 +138,6 @@ function findOfferPrice(value: unknown, context = ''): ScrapeResult {
       return {
         price,
         source: makeSource('json-ld-price', context || JSON.stringify(record)),
-        error: null
-      };
-    }
-  }
-
-  if (
-    typeof record.lowPrice === 'string' ||
-    typeof record.lowPrice === 'number'
-  ) {
-    const price = normalizePrice(String(record.lowPrice));
-
-    if (price !== null) {
-      return {
-        price,
-        source: makeSource(
-          'json-ld-lowPrice',
-          context || JSON.stringify(record)
-        ),
-        error: null
-      };
-    }
-  }
-
-  if (
-    typeof record.highPrice === 'string' ||
-    typeof record.highPrice === 'number'
-  ) {
-    const price = normalizePrice(String(record.highPrice));
-
-    if (price !== null) {
-      return {
-        price,
-        source: makeSource(
-          'json-ld-highPrice',
-          context || JSON.stringify(record)
-        ),
         error: null
       };
     }
@@ -197,56 +168,6 @@ function findOfferPrice(value: unknown, context = ''): ScrapeResult {
   return { price: null, source: 'json-ld-none', error: null };
 }
 
-function extractWithSelectors($: cheerio.CheerioAPI): ScrapeResult | null {
-  const candidates: PriceCandidate[] = [];
-
-  for (const selector of PRICE_SELECTORS) {
-    const nodes = $(selector).toArray().slice(0, 80);
-
-    for (const node of nodes) {
-      const element = $(node);
-      const content =
-        element.attr('content') ||
-        element.attr('value') ||
-        element.attr('data-price') ||
-        element.attr('aria-label') ||
-        element.text();
-
-      const price = normalizePrice(content);
-
-      if (price !== null && price < 300) {
-        const parentContext =
-          element.parent().text() ||
-          element.closest('section, article, div').text() ||
-          content;
-
-        const context = parentContext || content;
-
-        candidates.push({
-          price,
-          context,
-          index: 0,
-          score: scoreCandidate(price, context, 0)
-        });
-      }
-    }
-  }
-
-  const valid = candidates
-    .filter((candidate) => candidate.score > -80)
-    .sort((a, b) => b.score - a.score || a.index - b.index);
-
-  const best = valid[0];
-
-  if (!best) return null;
-
-  return {
-    price: best.price,
-    source: makeSource(`css-smart score=${best.score}`, best.context),
-    error: null
-  };
-}
-
 function isLikelyShippingOrNoise(context: string): boolean {
   const lower = context.toLowerCase();
 
@@ -256,7 +177,6 @@ function isLikelyShippingOrNoise(context: string): boolean {
     'frais de livraison',
     'frais de port',
     'port offert',
-    'hors frais de livraison',
     'shipping',
     'delivery',
     'free shipping',
@@ -367,17 +287,17 @@ function scoreCandidate(price: number, context: string, index: number): number {
   if (lower.includes('inklusive mwst')) score += 45;
   if (lower.includes('tva incluse')) score += 45;
   if (lower.includes('iva inclusa')) score += 45;
-  if (lower.includes('hors frais de livraison')) score += 25;
+  if (lower.includes('hors frais de livraison')) score += 45;
 
   if (lower.includes('warenkorb')) score += 35;
   if (lower.includes('in den warenkorb')) score += 35;
   if (lower.includes('ajouter au panier')) score += 35;
   if (lower.includes('aggiungi al carrello')) score += 35;
 
-  if (hasVeryGoodConditionSignal(context)) score += 120;
+  if (hasVeryGoodConditionSignal(context)) score += 90;
 
   if (hasPlainGoodConditionSignal(context) && !hasVeryGoodConditionSignal(context)) {
-    score -= 70;
+    score -= 80;
   }
 
   if (lower.includes('choisissez l’état')) score += 10;
@@ -385,8 +305,8 @@ function scoreCandidate(price: number, context: string, index: number): number {
   if (lower.includes('zustand wählen')) score += 10;
   if (lower.includes('choose condition')) score += 10;
 
-  if (lower.includes('preis')) score += 15;
   if (lower.includes('prix')) score += 15;
+  if (lower.includes('preis')) score += 15;
   if (lower.includes('prezzo')) score += 15;
   if (lower.includes('price')) score += 15;
 
@@ -401,72 +321,71 @@ function scoreCandidate(price: number, context: string, index: number): number {
   return score;
 }
 
-function findBestPriceNearPrimaryBlock(text: string): ScrapeResult | null {
+function findBestPriceAfterMarker(
+  text: string,
+  marker: string
+): ScrapeResult | null {
   const normalizedText = text.replace(/\u00a0/g, ' ');
   const lower = normalizedText.toLowerCase();
+  const markerIndex = lower.indexOf(marker.toLowerCase());
 
-  const primaryMarkers = [
-    'en stock',
-    'auf lager',
-    'in stock',
-    'disponibile',
-    'tva incluse',
-    'iva inclusa',
-    'inkl. mwst',
-    'hors frais de livraison'
-  ];
+  if (markerIndex < 0) return null;
 
-  const markerIndexes = primaryMarkers
-    .map((marker) => lower.indexOf(marker))
-    .filter((index) => index >= 0)
-    .sort((a, b) => a - b);
+  /*
+    Regola forte per Momox/Medimops:
+    quando troviamo “En stock” / “TVA incluse” / “hors frais de livraison”,
+    preferiamo il primo prezzo ragionevole DOPO quel marker, non quelli prima.
+    Nel caso visto:
+    Bon état 7,59 € sta prima del blocco principale,
+    En stock 8,99 € sta nel blocco principale.
+  */
 
-  if (markerIndexes.length === 0) return null;
-
+  const afterText = normalizedText.slice(markerIndex, markerIndex + 700);
   const priceRegex = /(?:€\s*)?(\d{1,4}(?:[.,]\d{2}))\s*€/g;
-  const candidates: PriceCandidate[] = [];
 
-  for (const markerIndex of markerIndexes) {
-    const start = Math.max(0, markerIndex - 500);
-    const end = Math.min(normalizedText.length, markerIndex + 500);
-    const block = normalizedText.slice(start, end);
+  let match = priceRegex.exec(afterText);
 
-    let match = priceRegex.exec(block);
+  while (match !== null) {
+    const price = normalizePrice(match[1]);
 
-    while (match !== null) {
-      const price = normalizePrice(match[1]);
+    if (price !== null && price < 300) {
+      const globalIndex = markerIndex + match.index;
+      const contextStart = Math.max(0, globalIndex - 300);
+      const contextEnd = Math.min(normalizedText.length, globalIndex + 300);
+      const context = normalizedText.slice(contextStart, contextEnd);
 
-      if (price !== null && price < 300) {
-        const globalIndex = start + match.index;
-        const contextStart = Math.max(0, globalIndex - 300);
-        const contextEnd = Math.min(normalizedText.length, globalIndex + 300);
-        const context = normalizedText.slice(contextStart, contextEnd);
-
-        candidates.push({
-          price,
-          context,
-          index: globalIndex,
-          score: scoreCandidate(price, context, globalIndex) + 80
-        });
-      }
-
-      match = priceRegex.exec(block);
+      return {
+        price,
+        source: makeSource(`regex-after-marker:${marker}`, context),
+        error: null
+      };
     }
+
+    match = priceRegex.exec(afterText);
   }
 
-  const valid = candidates
-    .filter((candidate) => candidate.score > -80)
-    .sort((a, b) => b.score - a.score || a.index - b.index);
+  return null;
+}
 
-  const best = valid[0];
+function findBestPriceNearPrimaryBlock(text: string): ScrapeResult | null {
+  const markers = [
+    'en stock',
+    'tva incluse',
+    'hors frais de livraison',
+    'auf lager',
+    'inkl. mwst',
+    'in stock',
+    'disponibile',
+    'iva inclusa'
+  ];
 
-  if (!best) return null;
+  for (const marker of markers) {
+    const result = findBestPriceAfterMarker(text, marker);
 
-  return {
-    price: best.price,
-    source: makeSource(`regex-primary-block score=${best.score}`, best.context),
-    error: null
-  };
+    if (result !== null) return result;
+  }
+
+  return null;
 }
 
 function extractSmartPriceFromText(text: string): ScrapeResult | null {
@@ -520,14 +439,19 @@ function extractSmartPriceFromText(text: string): ScrapeResult | null {
 }
 
 function extractWithRegex(text: string): ScrapeResult | null {
+  /*
+    Prima smart extraction, poi fallback strutturati.
+    Non vogliamo che lowPrice o valori simili vincano sul prezzo principale.
+  */
+
+  const smart = extractSmartPriceFromText(text);
+
+  if (smart !== null) return smart;
+
   const structuredPatterns = [
     {
       name: 'structured-price',
       pattern: /"price"\s*:\s*"?(\d{1,4}(?:[.,]\d{2}))"?/i
-    },
-    {
-      name: 'structured-lowPrice',
-      pattern: /"lowPrice"\s*:\s*"?(\d{1,4}(?:[.,]\d{2}))"?/i
     },
     {
       name: 'label-price',
@@ -558,7 +482,57 @@ function extractWithRegex(text: string): ScrapeResult | null {
     }
   }
 
-  return extractSmartPriceFromText(text);
+  return null;
+}
+
+function extractWithSelectors($: cheerio.CheerioAPI): ScrapeResult | null {
+  const candidates: PriceCandidate[] = [];
+
+  for (const selector of PRICE_SELECTORS) {
+    const nodes = $(selector).toArray().slice(0, 80);
+
+    for (const node of nodes) {
+      const element = $(node);
+      const content =
+        element.attr('content') ||
+        element.attr('value') ||
+        element.attr('data-price') ||
+        element.attr('aria-label') ||
+        element.text();
+
+      const price = normalizePrice(content);
+
+      if (price !== null && price < 300) {
+        const parentContext =
+          element.parent().text() ||
+          element.closest('section, article, div').text() ||
+          content;
+
+        const context = parentContext || content;
+
+        candidates.push({
+          price,
+          context,
+          index: 0,
+          score: scoreCandidate(price, context, 0)
+        });
+      }
+    }
+  }
+
+  const valid = candidates
+    .filter((candidate) => candidate.score > -80)
+    .sort((a, b) => b.score - a.score || a.index - b.index);
+
+  const best = valid[0];
+
+  if (!best) return null;
+
+  return {
+    price: best.price,
+    source: makeSource(`css-smart score=${best.score}`, best.context),
+    error: null
+  };
 }
 
 function buildReferer(url: string): string {
@@ -674,6 +648,17 @@ async function fetchViaJinaSearch(url: string): Promise<{
 }
 
 function extractPriceFromHtml(html: string): ScrapeResult {
+  /*
+    Ordine importante:
+    1. Regex smart sul testo completo.
+    2. CSS selectors.
+    3. JSON-LD solo come ultima risorsa.
+  */
+
+  const regex = extractWithRegex(html);
+
+  if (regex !== null) return { ...regex, source: `html:${regex.source}` };
+
   const selected = extractWithSelectors(cheerio.load(html));
 
   if (selected !== null) return selected;
@@ -681,10 +666,6 @@ function extractPriceFromHtml(html: string): ScrapeResult {
   const jsonLd = extractFromJsonLd(cheerio.load(html));
 
   if (jsonLd !== null) return jsonLd;
-
-  const regex = extractWithRegex(html);
-
-  if (regex !== null) return { ...regex, source: `html:${regex.source}` };
 
   return {
     price: null,
