@@ -1,4 +1,4 @@
-import { createServiceClient } from '@/lib/supabase-admin';
+import { createClient } from '@supabase/supabase-js';
 import { env } from '@/lib/env';
 import { scrapePrice } from '@/lib/scraper';
 import { sendPriceAlert } from '@/lib/email';
@@ -7,6 +7,14 @@ import type { Monitor, Settings } from '@/lib/types';
 export type RunMonitorOptions = {
   monitorId?: string;
 };
+
+function getSupabaseAdmin() {
+  return createClient(env.supabaseUrl(), env.supabaseServiceRoleKey(), {
+    auth: {
+      persistSession: false
+    }
+  });
+}
 
 function getGlobalAlertEmail(settings: Settings | null): string {
   return settings?.global_alert_email || env.defaultAlertEmail();
@@ -28,7 +36,7 @@ function shouldResetAlert(monitor: Monitor, price: number): boolean {
 }
 
 export async function runMonitor(options: RunMonitorOptions = {}) {
-  const supabase = createServiceClient();
+  const supabase = getSupabaseAdmin();
 
   const settingsResult = await supabase
     .from('settings')
