@@ -1,6 +1,10 @@
 import { createClient } from '@supabase/supabase-js';
 import { env } from '@/lib/env';
 import { scrapePrice } from '@/lib/scraper';
+import {
+  scrapeAmazonPrice,
+  type AmazonMarketplace
+} from '@/lib/amazon-scraper';
 import { sendPriceAlert } from '@/lib/email';
 import type { Monitor, Settings } from '@/lib/types';
 
@@ -16,10 +20,9 @@ type SettingsWithLegacyEmail = Settings & {
 type MonitorRunStatus = 'ok' | 'below_target' | 'error';
 
 type SiteCheck = {
-  site: 'Medimops' | 'Momox';
-  url: string | null;
-  target: number | null;
+  site: string;
   price: number | null;
+  target: number | null;
   error: string | null;
   source: string | null;
   isBelowTarget: boolean;
@@ -72,39 +75,110 @@ function hasConfiguredSite(url: string | null, target: number | null): boolean {
   return Boolean(url && target && target > 0);
 }
 
-async function checkSite(site: 'Medimops' | 'Momox', url: string | null, target: number | null): Promise<SiteCheck> {
+function hasConfiguredAmazon(
+  asin: string | null,
+  target: number | null
+): boolean {
+  return Boolean(asin && target && target > 0);
+}
+
+async function checkStoreSite(
+  site: 'Medimops' | 'Momox',
+  url: string | null,
+  target: number | null
+): Promise<SiteCheck> {
   if (!hasConfiguredSite(url, target)) {
     return {
       site,
-      url,
-      target,
       price: null,
+      target,
       error: null,
       source: null,
       isBelowTarget: false
     };
   }
 
-  const result = await scrapePrice(url as string);
+  try {
+    const result = await scrapePrice(url as string);
+    const price = result.price;
+    const isBelowTarget =
+      price !== null && target !== null && price <= target;
 
-  const price = result.price;
-  const isBelowTarget =
-    price !== null && target !== null && price <= target;
+    return {
+      site,
+      price,
+      target,
+      error: result.error,
+      source: result.source,
+      isBelowTarget
+    };
+  } catch (error) {
+    const message =
+      error instanceof Error ? error.message : 'Errore scraping sconosciuto';
 
-  return {
-    site,
-    url,
-    target,
-    price,
-    error: result.error,
-    source: result.source,
-    isBelowTarget
-  };
+    return {
+      site,
+      price: null,
+      target,
+      error: message,
+      source: `${site}:exception`,
+      isBelowTarget: false
+    };
+  }
+}
+
+async function checkAmazonSite(
+  asin: string | null,
+  target: number | null,
+  marketplace: AmazonMarketplace
+): Promise<SiteCheck> {
+  const site = `Amazon ${marketplace}`;
+
+  if (!hasConfiguredAmazon(asin, target)) {
+    return {
+      site,
+      price: null,
+      target,
+      error: null,
+      source: null,
+      isBelowTarget: false
+    };
+  }
+
+  try {
+    const result = await scrapeAmazonPrice(asin as string, marketplace);
+    const price = result.price;
+    const isBelowTarget =
+      price !== null && target !== null && price <= target;
+
+    return {
+      site,
+      price,
+      target,
+      error: result.error,
+      source: result.source,
+      isBelowTarget
+    };
+  } catch (error) {
+    const message =
+      error instanceof Error
+        ? error.message
+        : 'Errore scraping Amazon sconosciuto';
+
+    return {
+      site,
+      price: null,
+      target,
+      error: message,
+      source: `${site}:exception`,
+      isBelowTarget: false
+    };
+  }
 }
 
 function buildMessage(checks: SiteCheck[]) {
   return checks
-    .filter((check) => check.url)
+    .filter((check) => check.target !== null || check.source !== null)
     .map((check) => {
       if (check.price === null) {
         return `${check.site}: errore ${check.error || 'prezzo non trovato'}`;
@@ -127,8 +201,11 @@ function getLowestPrice(checks: SiteCheck[]): number | null {
 
 function mergeSources(checks: SiteCheck[]) {
   return checks
-    .filter((check) => check.url)
-    .map((check) => `${check.site}: ${check.source || check.error || 'nessuna fonte'}`)
+    .filter((check) => check.source || check.error)
+    .map(
+      (check) =>
+        `${check.site}: ${check.source || check.error || 'nessuna fonte'}`
+    )
     .join(' | ');
 }
 
@@ -174,23 +251,52 @@ export async function runMonitor(
     const checkedAt = new Date().toISOString();
 
     try {
-      const medimopsCheck = await checkSite(
+      const medimopsCheck = await checkStoreSite(
         'Medimops',
         monitor.medimops_url,
         monitor.medimops_target_price
       );
 
-      const momoxCheck = await checkSite(
+      const momoxCheck = await checkStoreSite(
         'Momox',
         monitor.momox_url,
         monitor.momox_target_price
       );
 
-      const checks = [medimopsCheck, momoxCheck];
-      const configuredChecks = checks.filter((check) => check.url);
-      const checkedWithError = configuredChecks.filter(
-        (check) => check.price === null
+      const amazonFrCheck = await checkAmazonSite(
+        monitor.amazon_asin,
+        monitor.amazon_target_price,
+        'FR'
       );
+
+      const amazonDeCheck = await checkAmazonSite(
+        monitor.amazon_asin,
+        monitor.amazon_target_price,
+        'DE'
+      );
+
+      const amazonItCheck = await checkAmazonSite(
+        monitor.amazon_asin,
+        monitor.amazon_target_price,
+        'IT'
+      );
+
+      const checks = [
+        medimopsCheck,
+        momoxCheck,
+        amazonFrCheck,
+        amazonDeCheck,
+        amazonItCheck
+      ];
+
+      const configuredChecks = checks.filter(
+        (check) => check.target !== null || check.source !== null
+      );
+
+      const checkedWithError = configuredChecks.filter(
+        (check) => check.price === null && check.error !== null
+      );
+
       const belowTargetChecks = configuredChecks.filter(
         (check) => check.isBelowTarget
       );
@@ -198,7 +304,8 @@ export async function runMonitor(
       const hasAnyPrice = configuredChecks.some((check) => check.price !== null);
       const hasAnyBelowTarget = belowTargetChecks.length > 0;
       const hasAllErrors =
-        configuredChecks.length > 0 && checkedWithError.length === configuredChecks.length;
+        configuredChecks.length > 0 &&
+        checkedWithError.length === configuredChecks.length;
 
       const nextStatus: MonitorRunStatus = hasAllErrors
         ? 'error'
@@ -216,14 +323,17 @@ export async function runMonitor(
       let nextAlertSent = monitor.alert_sent;
       let alertSentNow = false;
 
-      if (hasAnyBelowTarget && !monitor.alert_sent && alertEmail) {
-        const monitorForEmail: Monitor = {
-          ...monitor,
-          medimops_current_price: medimopsCheck.price,
-          momox_current_price: momoxCheck.price,
-          current_price: lowestPrice
-        };
+      const monitorForEmail: Monitor = {
+        ...monitor,
+        medimops_current_price: medimopsCheck.price,
+        momox_current_price: momoxCheck.price,
+        amazon_fr_current_price: amazonFrCheck.price,
+        amazon_de_current_price: amazonDeCheck.price,
+        amazon_it_current_price: amazonItCheck.price,
+        current_price: lowestPrice
+      };
 
+      if (hasAnyBelowTarget && !monitor.alert_sent && alertEmail) {
         await sendPriceAlert({
           to: alertEmail,
           monitor: monitorForEmail,
@@ -253,6 +363,9 @@ export async function runMonitor(
         .update({
           medimops_current_price: medimopsCheck.price,
           momox_current_price: momoxCheck.price,
+          amazon_fr_current_price: amazonFrCheck.price,
+          amazon_de_current_price: amazonDeCheck.price,
+          amazon_it_current_price: amazonItCheck.price,
           current_price: lowestPrice,
           last_checked_at: checkedAt,
           last_status: nextStatus,
@@ -286,7 +399,7 @@ export async function runMonitor(
         price: null,
         status: 'error',
         error_message: message,
-        source: 'exception'
+        source: 'record-exception'
       });
 
       await supabase
