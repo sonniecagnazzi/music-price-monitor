@@ -6,6 +6,11 @@ import type { Monitor, Settings } from '@/lib/types';
 
 export type RunMonitorOptions = {
   monitorId?: string;
+  onlyActive?: boolean;
+};
+
+type SettingsWithLegacyEmail = Settings & {
+  alert_email?: string | null;
 };
 
 function getSupabaseAdmin() {
@@ -16,8 +21,12 @@ function getSupabaseAdmin() {
   });
 }
 
-function getGlobalAlertEmail(settings: Settings | null): string {
-  return settings?.global_alert_email || env.defaultAlertEmail();
+function getGlobalAlertEmail(settings: SettingsWithLegacyEmail | null): string {
+  return (
+    settings?.global_alert_email ||
+    settings?.alert_email ||
+    env.defaultAlertEmail()
+  );
 }
 
 function getMonitorAlertEmail(
@@ -42,7 +51,7 @@ export async function runMonitor(options: RunMonitorOptions = {}) {
     .from('settings')
     .select('*')
     .eq('id', 1)
-    .maybeSingle<Settings>();
+    .maybeSingle<SettingsWithLegacyEmail>();
 
   const globalEmail = getGlobalAlertEmail(settingsResult.data || null);
 
@@ -55,19 +64,20 @@ export async function runMonitor(options: RunMonitorOptions = {}) {
     query = query.eq('id', options.monitorId);
   }
 
+  if (options.onlyActive) {
+    query = query.eq('is_active', true);
+  }
+
   const { data: monitors, error } = await query.returns<Monitor[]>();
 
   if (error) {
     throw new Error(error.message);
   }
 
-  const activeMonitors = (monitors || []).filter(
-    (monitor) => monitor.is_active
-  );
-
+  const monitorsToCheck = monitors || [];
   const results = [];
 
-  for (const monitor of activeMonitors) {
+  for (const monitor of monitorsToCheck) {
     const checkedAt = new Date().toISOString();
 
     try {
@@ -191,7 +201,7 @@ export async function runMonitor(options: RunMonitorOptions = {}) {
   }
 
   return {
-    checked: activeMonitors.length,
+    checked: monitorsToCheck.length,
     results
   };
 }
