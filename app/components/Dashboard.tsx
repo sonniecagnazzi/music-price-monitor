@@ -505,6 +505,65 @@ export default function Dashboard() {
     }
   }
 
+  async function checkVisibleRows() {
+    if (filtered.length === 0) {
+      setMessage('Nessun record visibile da controllare.');
+      return;
+    }
+
+    const confirmed = confirm(
+      `Vuoi controllare ora tutti i ${filtered.length} record visibili nel datagrid?`
+    );
+
+    if (!confirmed) return;
+
+    setBusy(true);
+
+    let checked = 0;
+    let failed = 0;
+
+    try {
+      for (const monitor of filtered) {
+        checked += 1;
+        setMessage(
+          `Controllo ${checked}/${filtered.length}: ${monitor.artist} - ${monitor.album}`
+        );
+
+        const response = await fetch(`/api/monitors/${monitor.id}/check`, {
+          method: 'POST'
+        });
+
+        const json = (await response.json()) as { error?: string };
+
+        if (!response.ok) {
+          failed += 1;
+          console.error(
+            `Errore controllo ${monitor.artist} - ${monitor.album}`,
+            json.error
+          );
+        }
+      }
+
+      await loadData();
+
+      if (failed > 0) {
+        setMessage(
+          `Controllo datagrid completato: ${checked - failed} ok, ${failed} errori.`
+        );
+      } else {
+        setMessage(`Controllo datagrid completato: ${checked} record controllati.`);
+      }
+    } catch (error) {
+      setMessage(
+        error instanceof Error
+          ? error.message
+          : 'Errore durante controllo datagrid'
+      );
+    } finally {
+      setBusy(false);
+    }
+  }
+
   function clearAllFilters() {
     setFilters({});
     setMultiFilters(emptyMultiFilters);
@@ -560,9 +619,23 @@ export default function Dashboard() {
 
       <section className="rounded-2xl bg-white p-4 shadow-sm">
         <div className="mb-4 flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
-          <h2 className="text-xl font-semibold">Monitor</h2>
+          <div>
+            <h2 className="text-xl font-semibold">Monitor</h2>
+            <p className="mt-1 text-sm text-slate-500">
+              Record visibili: {filtered.length}
+            </p>
+          </div>
 
-          <div className="flex gap-2">
+          <div className="flex flex-wrap gap-2">
+            <button
+              className="inline-flex items-center gap-2 rounded-lg bg-green-700 px-4 py-2 font-semibold text-white shadow-sm hover:bg-green-800 disabled:opacity-50"
+              disabled={busy || filtered.length === 0}
+              onClick={checkVisibleRows}
+            >
+              <CheckIcon />
+              Controlla tutto il datagrid
+            </button>
+
             <select
               className="rounded-lg border p-2"
               value={sortKey}
