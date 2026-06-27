@@ -17,6 +17,27 @@ function getSupabaseAdmin() {
   });
 }
 
+function getLegacyFields(input: {
+  medimops_url: string | null;
+  medimops_target_price: number | null;
+  momox_url: string | null;
+  momox_target_price: number | null;
+}) {
+  if (input.medimops_url && input.medimops_target_price) {
+    return {
+      site: 'Medimops',
+      url: input.medimops_url,
+      target_price: input.medimops_target_price
+    };
+  }
+
+  return {
+    site: 'Momox',
+    url: input.momox_url || '',
+    target_price: input.momox_target_price || 1
+  };
+}
+
 export async function PUT(
   request: NextRequest,
   context: { params: { id: string } }
@@ -33,23 +54,33 @@ export async function PUT(
     }
 
     const supabase = getSupabaseAdmin();
+    const legacy = getLegacyFields(parsed.data);
+    const now = new Date().toISOString();
 
     const { data, error } = await supabase
       .from('monitors')
       .update({
         type: parsed.data.type,
-        site: parsed.data.site,
         artist: parsed.data.artist,
         album: parsed.data.album,
         edition: parsed.data.edition,
         ean_code: parsed.data.ean_code,
         release_year: parsed.data.release_year,
         country: parsed.data.country,
-        url: parsed.data.url,
-        target_price: parsed.data.target_price,
+
+        site: legacy.site,
+        url: legacy.url,
+        target_price: legacy.target_price,
+
+        medimops_url: parsed.data.medimops_url,
+        medimops_target_price: parsed.data.medimops_target_price,
+
+        momox_url: parsed.data.momox_url,
+        momox_target_price: parsed.data.momox_target_price,
+
         alert_email: parsed.data.alert_email,
         is_active: parsed.data.is_active,
-        updated_at: new Date().toISOString()
+        updated_at: now
       })
       .eq('id', context.params.id)
       .select('*')
