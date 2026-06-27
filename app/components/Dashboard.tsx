@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import type { LastStatus, Monitor, MonitorInput, MonitorType } from '@/lib/types';
 import { formatDate, formatEuro, toNumberFromItalianInput } from '@/lib/format';
 import { buildAmazonUrl } from '@/lib/amazon-scraper';
@@ -544,6 +544,8 @@ export default function Dashboard() {
   const [openMultiFilter, setOpenMultiFilter] =
     useState<MultiFilterKey | null>(null);
 
+  const csvInputRef = useRef<HTMLInputElement | null>(null);
+
   async function loadData() {
     const monitorsResponse = await fetch('/api/monitors');
     const monitorsJson = (await monitorsResponse.json()) as {
@@ -581,6 +583,59 @@ export default function Dashboard() {
 
     setSortKey(null);
     setSortAsc(true);
+  }
+
+  async function importCsvFile(file: File) {
+    setBusy(true);
+    setMessage(`Import CSV in corso: ${file.name}`);
+
+    try {
+      const formData = new FormData();
+      formData.append('file', file);
+
+      const response = await fetch('/api/monitors/import-csv', {
+        method: 'POST',
+        body: formData
+      });
+
+      const json = (await response.json()) as {
+        ok?: boolean;
+        imported?: number;
+        message?: string;
+        error?: string;
+      };
+
+      if (!response.ok) {
+        throw new Error(json.error || 'Errore durante import CSV.');
+      }
+
+      await loadData();
+
+      setMessage(
+        json.message ||
+          `Import CSV completato: ${json.imported || 0} righe caricate.`
+      );
+    } catch (error) {
+      setMessage(
+        error instanceof Error
+          ? `Import CSV bloccato: ${error.message}`
+          : 'Import CSV bloccato: errore sconosciuto.'
+      );
+    } finally {
+      setBusy(false);
+
+      if (csvInputRef.current) {
+        csvInputRef.current.value = '';
+      }
+    }
+  }
+
+  function handleCsvInputChange(event: React.ChangeEvent<HTMLInputElement>) {
+    const file = event.target.files?.[0];
+
+    if (!file) return;
+
+    importCsvFile(file);
   }
 
   const filtered = useMemo(() => {
@@ -919,12 +974,30 @@ export default function Dashboard() {
             </p>
           </div>
 
-          <button
-            className="rounded-lg bg-blue-700 px-4 py-2 font-semibold text-white shadow-sm hover:bg-blue-800"
-            onClick={openNewMonitorModal}
-          >
-            Nuovo monitor
-          </button>
+          <div className="flex flex-wrap gap-2">
+            <input
+              ref={csvInputRef}
+              type="file"
+              accept=".csv,text/csv"
+              className="hidden"
+              onChange={handleCsvInputChange}
+            />
+
+            <button
+              className="rounded-lg border border-blue-700 px-4 py-2 font-semibold text-blue-700 shadow-sm hover:bg-blue-50 disabled:opacity-50"
+              disabled={busy}
+              onClick={() => csvInputRef.current?.click()}
+            >
+              Importa CSV
+            </button>
+
+            <button
+              className="rounded-lg bg-blue-700 px-4 py-2 font-semibold text-white shadow-sm hover:bg-blue-800"
+              onClick={openNewMonitorModal}
+            >
+              Nuovo monitor
+            </button>
+          </div>
         </div>
 
         <p className="mt-4 rounded-lg bg-slate-100 p-3 text-sm">
