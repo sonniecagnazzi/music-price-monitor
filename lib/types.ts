@@ -29,6 +29,12 @@ export type Monitor = {
   momox_target_price: number | null;
   momox_current_price: number | null;
 
+  amazon_asin: string | null;
+  amazon_target_price: number | null;
+  amazon_fr_current_price: number | null;
+  amazon_de_current_price: number | null;
+  amazon_it_current_price: number | null;
+
   last_checked_at: string | null;
   last_status: LastStatus | null;
   last_error: string | null;
@@ -53,6 +59,9 @@ export type MonitorInput = {
 
   momox_url: string | null;
   momox_target_price: number | null;
+
+  amazon_asin: string | null;
+  amazon_target_price: number | null;
 
   alert_email: string | null;
   is_active: boolean;
@@ -175,6 +184,19 @@ const optionalTargetPrice = z
     message: 'Prezzo target non valido.'
   });
 
+const optionalAmazonAsin = z
+  .union([z.string(), z.null(), z.undefined()])
+  .transform((value) => {
+    if (value === null || value === undefined) return null;
+
+    const cleaned = value.trim().toUpperCase();
+
+    return cleaned.length === 0 ? null : cleaned;
+  })
+  .refine((value) => value === null || /^[A-Z0-9]{10}$/.test(value), {
+    message: 'ASIN Amazon non valido. Deve contenere 10 caratteri.'
+  });
+
 export const monitorInputSchema = z
   .object({
     type: z.enum(['CD', 'LP']),
@@ -191,16 +213,20 @@ export const monitorInputSchema = z
     momox_url: optionalUrl,
     momox_target_price: optionalTargetPrice,
 
+    amazon_asin: optionalAmazonAsin,
+    amazon_target_price: optionalTargetPrice,
+
     alert_email: optionalEmail,
     is_active: z.boolean()
   })
   .refine(
     (value) =>
       Boolean(value.medimops_url && value.medimops_target_price) ||
-      Boolean(value.momox_url && value.momox_target_price),
+      Boolean(value.momox_url && value.momox_target_price) ||
+      Boolean(value.amazon_asin && value.amazon_target_price),
     {
       message:
-        'Inserisci almeno un URL con relativo prezzo target tra Medimops e Momox.'
+        'Inserisci almeno un controllo tra Medimops, Momox o Amazon.'
     }
   )
   .refine(
@@ -229,6 +255,20 @@ export const monitorInputSchema = z
     (value) => !value.momox_target_price || Boolean(value.momox_url),
     {
       message: 'Inserisci l’URL Momox.'
+    }
+  )
+  .refine(
+    (value) =>
+      !value.amazon_asin ||
+      Boolean(value.amazon_target_price && value.amazon_target_price > 0),
+    {
+      message: 'Inserisci il prezzo target Amazon.'
+    }
+  )
+  .refine(
+    (value) => !value.amazon_target_price || Boolean(value.amazon_asin),
+    {
+      message: 'Inserisci l’ASIN Amazon.'
     }
   );
 
