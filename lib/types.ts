@@ -15,10 +15,20 @@ export type Monitor = {
   ean_code: string | null;
   release_year: number | null;
   country: string | null;
+
   site: MonitorSite;
   url: string;
   target_price: number;
   current_price: number | null;
+
+  medimops_url: string | null;
+  medimops_target_price: number | null;
+  medimops_current_price: number | null;
+
+  momox_url: string | null;
+  momox_target_price: number | null;
+  momox_current_price: number | null;
+
   last_checked_at: string | null;
   last_status: LastStatus | null;
   last_error: string | null;
@@ -37,9 +47,13 @@ export type MonitorInput = {
   ean_code: string | null;
   release_year: number | null;
   country: string | null;
-  site: MonitorSite;
-  url: string;
-  target_price: number;
+
+  medimops_url: string | null;
+  medimops_target_price: number | null;
+
+  momox_url: string | null;
+  momox_target_price: number | null;
+
   alert_email: string | null;
   is_active: boolean;
 };
@@ -137,20 +151,86 @@ const optionalReleaseYear = z
     }
   );
 
-export const monitorInputSchema = z.object({
-  type: z.enum(['CD', 'LP']),
-  site: z.enum(['Momox', 'Medimops']),
-  artist: z.string().trim().min(1, 'Artista obbligatorio.'),
-  album: z.string().trim().min(1, 'Album obbligatorio.'),
-  edition: optionalText,
-  ean_code: optionalEanCode,
-  release_year: optionalReleaseYear,
-  country: optionalCountry,
-  url: z.string().trim().url('URL non valido.'),
-  target_price: z.number().positive('Prezzo target non valido.'),
-  alert_email: optionalEmail,
-  is_active: z.boolean()
-});
+const optionalUrl = z
+  .union([z.string(), z.null(), z.undefined()])
+  .transform((value) => {
+    if (value === null || value === undefined) return null;
+
+    const trimmed = value.trim();
+
+    return trimmed.length === 0 ? null : trimmed;
+  })
+  .refine((value) => value === null || /^https?:\/\/.+/i.test(value), {
+    message: 'URL non valido.'
+  });
+
+const optionalTargetPrice = z
+  .union([z.number(), z.null(), z.undefined()])
+  .transform((value) => {
+    if (value === null || value === undefined) return null;
+
+    return value;
+  })
+  .refine((value) => value === null || value > 0, {
+    message: 'Prezzo target non valido.'
+  });
+
+export const monitorInputSchema = z
+  .object({
+    type: z.enum(['CD', 'LP']),
+    artist: z.string().trim().min(1, 'Artista obbligatorio.'),
+    album: z.string().trim().min(1, 'Album obbligatorio.'),
+    edition: optionalText,
+    ean_code: optionalEanCode,
+    release_year: optionalReleaseYear,
+    country: optionalCountry,
+
+    medimops_url: optionalUrl,
+    medimops_target_price: optionalTargetPrice,
+
+    momox_url: optionalUrl,
+    momox_target_price: optionalTargetPrice,
+
+    alert_email: optionalEmail,
+    is_active: z.boolean()
+  })
+  .refine(
+    (value) =>
+      Boolean(value.medimops_url && value.medimops_target_price) ||
+      Boolean(value.momox_url && value.momox_target_price),
+    {
+      message:
+        'Inserisci almeno un URL con relativo prezzo target tra Medimops e Momox.'
+    }
+  )
+  .refine(
+    (value) =>
+      !value.medimops_url ||
+      Boolean(value.medimops_target_price && value.medimops_target_price > 0),
+    {
+      message: 'Inserisci il prezzo target Medimops.'
+    }
+  )
+  .refine(
+    (value) => !value.medimops_target_price || Boolean(value.medimops_url),
+    {
+      message: 'Inserisci l’URL Medimops.'
+    }
+  )
+  .refine(
+    (value) =>
+      !value.momox_url ||
+      Boolean(value.momox_target_price && value.momox_target_price > 0),
+    {
+      message: 'Inserisci il prezzo target Momox.'
+    }
+  )
+  .refine(
+    (value) => !value.momox_target_price || Boolean(value.momox_url),
+    {
+      message: 'Inserisci l’URL Momox.'
+    }
+  );
 
 export const settingsInputSchema = z.object({
   global_alert_email: z
