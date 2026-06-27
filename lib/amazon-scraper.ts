@@ -15,7 +15,7 @@ const AMAZON_VAT_RATES: Record<AmazonMarketplace, number> = {
   IT: 0.22
 };
 
-const BROWSER_HEADERS: HeadersInit = {
+const BROWSER_HEADERS: Record<string, string> = {
   'user-agent':
     'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36',
   accept:
@@ -27,7 +27,7 @@ const BROWSER_HEADERS: HeadersInit = {
   'upgrade-insecure-requests': '1'
 };
 
-const JINA_HEADERS: HeadersInit = {
+const JINA_HEADERS: Record<string, string> = {
   'user-agent':
     'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36',
   accept: 'text/plain, text/markdown, application/json, */*',
@@ -61,7 +61,7 @@ function cleanText(value: string): string {
   return value.replace(/\u00a0/g, ' ').replace(/\s+/g, ' ').trim();
 }
 
-function cleanContext(value: string, maxLength = 1200): string {
+function cleanContext(value: string, maxLength = 1300): string {
   return cleanText(value).slice(0, maxLength);
 }
 
@@ -73,6 +73,14 @@ function buildJinaSearchUrl(url: string): string {
   return `https://s.jina.ai/?q=${encodeURIComponent(url)}`;
 }
 
+function escapeRegex(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+function normalizeText(value: string): string {
+  return value.replace(/\u00a0/g, ' ');
+}
+
 function roundPrice(value: number): number {
   return Math.round(value * 100) / 100;
 }
@@ -81,21 +89,19 @@ function withVat(price: number, marketplace: AmazonMarketplace): number {
   return roundPrice(price * (1 + AMAZON_VAT_RATES[marketplace]));
 }
 
-function getContext(text: string, index: number, before = 850, after = 950) {
+function parsePrice(raw: string): number | null {
+  const value = normalizePrice(`${raw} €`);
+
+  if (value === null || value <= 0 || value >= 1000) return null;
+
+  return value;
+}
+
+function getContext(text: string, index: number, before = 900, after = 1000) {
   return text.slice(
     Math.max(0, index - before),
     Math.min(text.length, index + after)
   );
-}
-
-function normalizeText(value: string): string {
-  return value.replace(/\u00a0/g, ' ');
-}
-
-function parseEuroPrice(raw: string): number | null {
-  if (!raw.includes('€')) return null;
-
-  return normalizePrice(raw);
 }
 
 function hasUsd(text: string): boolean {
@@ -125,102 +131,181 @@ function looksVatExcluded(text: string): boolean {
   );
 }
 
-function looksLikeBadProductSection(text: string): boolean {
-  const lower = cleanText(text).toLowerCase();
+function looksLikeWrongFormatOrAccessory(context: string): boolean {
+  const lower = cleanText(context).toLowerCase();
 
   return (
+    lower.includes('accessorio') ||
+    lower.includes('accessory') ||
+    lower.includes('patch') ||
+    lower.includes('vinile da') ||
+    lower.includes('vinyl from') ||
+    lower.includes('audio, cassetta') ||
+    lower.includes('audio cassette') ||
+    lower.includes('musicassetta') ||
     lower.includes('frequently bought together') ||
     lower.includes('spesso comprati insieme') ||
     lower.includes('fréquemment achetés ensemble') ||
     lower.includes('wird oft zusammen gekauft') ||
-    lower.includes('amazon music unlimited') ||
     lower.includes('prime video') ||
     lower.includes('kindle') ||
     lower.includes('audible')
   );
 }
 
-function isOfferContext(text: string): boolean {
-  const lower = cleanText(text).toLowerCase();
+function isOfferContext(context: string): boolean {
+  const lower = cleanText(context).toLowerCase();
 
   return (
     lower.includes('new & used') ||
     lower.includes('new and used') ||
     lower.includes('other sellers on amazon') ||
+    lower.includes('nuovo da') ||
     lower.includes('nuovo e usato') ||
     lower.includes('nuovi e usati') ||
     lower.includes('altri venditori') ||
-    lower.includes('neuf et occasion') ||
-    lower.includes('neuf & occasion') ||
+    lower.includes('neuf') ||
+    lower.includes('occasion') ||
     lower.includes('autres vendeurs') ||
-    lower.includes('neu und gebraucht') ||
     lower.includes('neu & gebraucht') ||
+    lower.includes('neu und gebraucht') ||
     lower.includes('andere verkäufer') ||
     lower.includes('andere verkaeufer') ||
     lower.includes('offer-listing')
   );
 }
 
-function extractOfferCandidatesFromText(
+function extractExactAsinOfferCandidatesFromText(
+  text: string,
+  sourcePrefix: string,
+  asin: string
+): PriceCandidate[] {
+  const normalized = normalizeText(text);
+  const escapedAsin = escapeRegex(asin);
+  const candidates: PriceCandidate[] = [];
+
+  /*
+    Caso IT reale:
+    [27 Nuovo da 8,99 €](https://www.amazon.it/gp/offer-listing/B07JBCR129/...condition=new)
+
+    Questa regola è la più importante: prende il prezzo "Nuovo" solo se il link
+    punta all'offer-listing dello stesso ASIN. Così evita accessori, vinili,
+    cassette e altri formati.
+  */
+  const markdownExactNewOffer = new RegExp(
+    String.raw`\[[^\]]{0,90}?(?:Nuovo|New|Neuf|Neu)[^\]]{0,90}?(?:da|from|à partir de|ab|von)\s*€?\s*(\d{1,5}(?:[.,]\d{2}))\s*€?[^\]]{0,90}?\]\([^)]*\/gp\/offer-listing\/${escapedAsin}[^)]*condition=(?:new|NEW)[^)]*\)`,
+    'gi'
+  );
+
+  let markdownMatch = markdownExactNewOffer.exec(normalized);
+
+  while (markdownMatch !== null) {
+    const raw = markdownMatch[1] || '';
+    const price = parsePrice(raw);
+    const context = getContext(normalized, markdownMatch.index, 700, 700);
+
+    if (price !== null && !hasUsd(context)) {
+      candidates.push({
+        price,
+        rawPrice: price,
+        source: `${sourcePrefix}:exact-asin-markdown-new-offer`,
+        context,
+        index: markdownMatch.index,
+        kind: 'offer'
+      });
+    }
+
+    markdownMatch = markdownExactNewOffer.exec(normalized);
+  }
+
+  /*
+    Caso generico con stesso ASIN vicino:
+    offer-listing/B07... condition=new ... Nuovo da 8,99 €
+  */
+  const exactLinkAroundNewOffer = new RegExp(
+    String.raw`\/gp\/offer-listing\/${escapedAsin}[\s\S]{0,700}?condition=(?:new|NEW)[\s\S]{0,700}?(?:Nuovo|New|Neuf|Neu)[\s\S]{0,180}?(?:da|from|à partir de|ab|von)\s*€?\s*(\d{1,5}(?:[.,]\d{2}))\s*€?`,
+    'gi'
+  );
+
+  let exactLinkMatch = exactLinkAroundNewOffer.exec(normalized);
+
+  while (exactLinkMatch !== null) {
+    const raw = exactLinkMatch[1] || '';
+    const price = parsePrice(raw);
+    const context = getContext(normalized, exactLinkMatch.index, 800, 800);
+
+    if (
+      price !== null &&
+      !hasUsd(context) &&
+      !looksLikeWrongFormatOrAccessory(context)
+    ) {
+      candidates.push({
+        price,
+        rawPrice: price,
+        source: `${sourcePrefix}:exact-asin-link-new-offer`,
+        context,
+        index: exactLinkMatch.index,
+        kind: 'offer'
+      });
+    }
+
+    exactLinkMatch = exactLinkAroundNewOffer.exec(normalized);
+  }
+
+  return candidates;
+}
+
+function extractPageOfferCandidatesFromText(
   text: string,
   sourcePrefix: string
 ): PriceCandidate[] {
   const normalized = normalizeText(text);
   const candidates: PriceCandidate[] = [];
 
-  const patterns = [
+  /*
+    Caso DE reale:
+    Andere Verkäufer bei Amazon Neu & Gebraucht (34) von 9,99€9,99€
+  */
+  const pagePatterns = [
     {
-      source: 'new-used-from-euro-prefix',
+      source: 'de-other-sellers-new-used',
       pattern:
-        /(?:New\s*&\s*Used|New\s+and\s+Used|Nuovo\s+e\s+usato|Nuovi\s+e\s+usati|Neuf\s+et\s+occasion|Neuf\s*&\s*occasion|Neu\s+und\s+gebraucht|Neu\s*&\s*Gebraucht)[\s\S]{0,900}?(?:from|da|à partir de|ab)\s*€\s*(\d{1,5}(?:[.,]\d{2}))/gi
+        /(?:Andere Verkäufer(?:\s+bei\s+Amazon)?|Andere Verkaeufer(?:\s+bei\s+Amazon)?)[\s\S]{0,900}?(?:Neu\s*&\s*Gebraucht|Neu\s+und\s+Gebraucht)[\s\S]{0,300}?(?:von|ab)\s*(\d{1,5}(?:[.,]\d{2}))\s*€/gi
     },
     {
-      source: 'new-used-from-euro-after',
+      source: 'fr-other-sellers-new-used',
       pattern:
-        /(?:New\s*&\s*Used|New\s+and\s+Used|Nuovo\s+e\s+usato|Nuovi\s+e\s+usati|Neuf\s+et\s+occasion|Neuf\s*&\s*occasion|Neu\s+und\s+gebraucht|Neu\s*&\s*Gebraucht)[\s\S]{0,900}?(?:from|da|à partir de|ab)\s*(\d{1,5}(?:[.,]\d{2}))\s*€/gi
+        /(?:Autres vendeurs(?:\s+sur\s+Amazon)?|Other sellers on Amazon)[\s\S]{0,1200}?(?:Neuf\s+et\s+occasion|Neuf\s*&\s*occasion|New\s*&\s*Used|New\s+and\s+Used)[\s\S]{0,300}?(?:à partir de|from)\s*€?\s*(\d{1,5}(?:[.,]\d{2}))\s*€?/gi
     },
     {
-      source: 'other-sellers-from-euro-prefix',
+      source: 'it-other-sellers-new-used',
       pattern:
-        /(?:Other sellers on Amazon|Altri venditori(?:\s+su\s+Amazon)?|Autres vendeurs(?:\s+sur\s+Amazon)?|Andere Verkäufer(?:\s+bei\s+Amazon)?|Andere Verkaeufer(?:\s+bei\s+Amazon)?)[\s\S]{0,2600}?(?:from|da|à partir de|ab)\s*€\s*(\d{1,5}(?:[.,]\d{2}))/gi
+        /(?:Altri venditori(?:\s+su\s+Amazon)?|Other sellers on Amazon)[\s\S]{0,1200}?(?:Nuovo\s+da|Nuovo\s+e\s+usato|Nuovi\s+e\s+usati|New\s*&\s*Used|New\s+and\s+Used)[\s\S]{0,300}?(?:da|from)\s*€?\s*(\d{1,5}(?:[.,]\d{2}))\s*€?/gi
     },
     {
-      source: 'other-sellers-from-euro-after',
+      source: 'generic-new-used-from',
       pattern:
-        /(?:Other sellers on Amazon|Altri venditori(?:\s+su\s+Amazon)?|Autres vendeurs(?:\s+sur\s+Amazon)?|Andere Verkäufer(?:\s+bei\s+Amazon)?|Andere Verkaeufer(?:\s+bei\s+Amazon)?)[\s\S]{0,2600}?(?:from|da|à partir de|ab)\s*(\d{1,5}(?:[.,]\d{2}))\s*€/gi
-    },
-    {
-      source: 'offer-listing-link-from-euro-prefix',
-      pattern:
-        /gp\/offer-listing\/[A-Z0-9]{10}[\s\S]{0,1800}?(?:from|da|à partir de|ab)\s*€\s*(\d{1,5}(?:[.,]\d{2}))/gi
-    },
-    {
-      source: 'offer-listing-link-from-euro-after',
-      pattern:
-        /gp\/offer-listing\/[A-Z0-9]{10}[\s\S]{0,1800}?(?:from|da|à partir de|ab)\s*(\d{1,5}(?:[.,]\d{2}))\s*€/gi
+        /(?:New\s*&\s*Used|New\s+and\s+Used|Nuovo\s+e\s+usato|Nuovi\s+e\s+usati|Neuf\s+et\s+occasion|Neuf\s*&\s*occasion|Neu\s+und\s+Gebraucht|Neu\s*&\s*Gebraucht)[\s\S]{0,400}?(?:from|da|à partir de|ab|von)\s*€?\s*(\d{1,5}(?:[.,]\d{2}))\s*€?/gi
     }
   ];
 
-  for (const item of patterns) {
+  for (const item of pagePatterns) {
     let match = item.pattern.exec(normalized);
 
     while (match !== null) {
       const raw = match[1] || '';
-      const parsed = parseEuroPrice(`€${raw}`);
-      const context = getContext(normalized, match.index, 1000, 1000);
+      const price = parsePrice(raw);
+      const context = getContext(normalized, match.index, 900, 900);
 
       if (
-        parsed !== null &&
-        parsed > 0 &&
-        parsed < 1000 &&
-        hasEuro(context) &&
+        price !== null &&
         !hasUsd(context) &&
         isOfferContext(context) &&
-        !looksLikeBadProductSection(context)
+        !looksLikeWrongFormatOrAccessory(context)
       ) {
         candidates.push({
-          price: parsed,
-          rawPrice: parsed,
+          price,
+          rawPrice: price,
           source: `${sourcePrefix}:${item.source}`,
           context,
           index: match.index,
@@ -265,9 +350,9 @@ function extractCoreCandidatesFromHtml(
         element.text() ||
         '';
 
-      const parsed = parseEuroPrice(raw);
+      const parsed = parsePrice(raw);
 
-      if (parsed === null || parsed <= 0 || parsed >= 1000) continue;
+      if (parsed === null) continue;
 
       const context =
         element
@@ -277,12 +362,13 @@ function extractCoreCandidatesFromHtml(
           .text() || raw;
 
       if (hasUsd(context) && !hasEuro(context)) continue;
+      if (looksLikeWrongFormatOrAccessory(context)) continue;
 
       candidates.push({
         price: parsed,
         rawPrice: parsed,
         source: `${sourcePrefix}:core:${selector}`,
-        context: `${context} ${pageText.slice(0, 8000)}`,
+        context: `${context} ${pageText.slice(0, 9000)}`,
         index: pageText.indexOf(raw),
         kind: 'core'
       });
@@ -300,10 +386,9 @@ function extractCoreCandidatesFromHtml(
 
     if (!whole || !fraction) return;
 
-    const raw = `${whole},${fraction} €`;
-    const parsed = parseEuroPrice(raw);
+    const parsed = parsePrice(`${whole},${fraction}`);
 
-    if (parsed === null || parsed <= 0 || parsed >= 1000) return;
+    if (parsed === null) return;
 
     const context =
       element
@@ -313,12 +398,13 @@ function extractCoreCandidatesFromHtml(
         .text() || element.text();
 
     if (hasUsd(context) && !hasEuro(context)) return;
+    if (looksLikeWrongFormatOrAccessory(context)) return;
 
     candidates.push({
       price: parsed,
       rawPrice: parsed,
       source: `${sourcePrefix}:core-split`,
-      context: `${context} ${pageText.slice(0, 8000)}`,
+      context: `${context} ${pageText.slice(0, 9000)}`,
       index,
       kind: 'core'
     });
@@ -328,38 +414,74 @@ function extractCoreCandidatesFromHtml(
 }
 
 function chooseBestOffer(candidates: PriceCandidate[]): PriceCandidate | null {
-  const offers = candidates
+  const exactAsinOffers = candidates
+    .filter((candidate) => candidate.kind === 'offer')
+    .filter((candidate) => candidate.source.includes('exact-asin'))
+    .sort((a, b) => a.price - b.price || a.index - b.index);
+
+  if (exactAsinOffers[0]) {
+    return exactAsinOffers[0];
+  }
+
+  const pageOffers = candidates
     .filter((candidate) => candidate.kind === 'offer')
     .sort((a, b) => a.price - b.price || a.index - b.index);
 
-  return offers[0] || null;
+  return pageOffers[0] || null;
 }
 
 function chooseBestCore(
   candidates: PriceCandidate[],
   marketplace: AmazonMarketplace
 ): PriceCandidate | null {
-  if (marketplace === 'DE') {
-    return null;
-  }
+  /*
+    Amazon DE da Vercel è troppo instabile: accettiamo solo offer listing,
+    mai core price.
+  */
+  if (marketplace === 'DE') return null;
 
   const cores = candidates
     .filter((candidate) => candidate.kind === 'core')
-    .filter((candidate) => {
-      /*
-        Regola anti-falsi positivi:
-        core price sotto 20 € lo ignoriamo.
-        Questo evita casi tipo 4,62 € su B07JBCR129.
-        B0DVH4P8DB invece ha core 27/32 €, quindi passa.
-      */
-      if (candidate.price < 20) return false;
-      if (hasUsd(candidate.context) && !hasEuro(candidate.context)) return false;
-
-      return true;
-    })
+    .filter((candidate) => candidate.price >= 20)
+    .filter((candidate) => !looksLikeWrongFormatOrAccessory(candidate.context))
     .sort((a, b) => b.price - a.price || a.index - b.index);
 
   return cores[0] || null;
+}
+
+function applyVatForCore(
+  candidate: PriceCandidate,
+  marketplace: AmazonMarketplace,
+  pageContext: string
+): {
+  finalPrice: number;
+  vatApplied: boolean;
+} {
+  if (candidate.kind !== 'core') {
+    return {
+      finalPrice: candidate.price,
+      vatApplied: false
+    };
+  }
+
+  /*
+    Per Vercel Amazon viene quasi sempre servito come indirizzo USA.
+    Quando il core price è >= 20, lo trattiamo come prezzo senza IVA.
+  */
+  const mustAddVat =
+    candidate.price >= 20 || looksVatExcluded(`${candidate.context} ${pageContext}`);
+
+  if (!mustAddVat) {
+    return {
+      finalPrice: candidate.price,
+      vatApplied: false
+    };
+  }
+
+  return {
+    finalPrice: withVat(candidate.price, marketplace),
+    vatApplied: true
+  };
 }
 
 function getCorePriceTexts($: cheerio.CheerioAPI): string[] {
@@ -408,11 +530,13 @@ function findKeywordSnippets(text: string): string[] {
     'new & used',
     'new and used',
     'altri venditori',
+    'nuovo da',
     'nuovo e usato',
     'nuovi e usati',
     'autres vendeurs',
     'neuf et occasion',
     'andere verkäufer',
+    'neu & gebraucht',
     'neu und gebraucht',
     'offer-listing',
     'from€',
@@ -421,9 +545,9 @@ function findKeywordSnippets(text: string): string[] {
     'da €',
     'à partir de',
     'ab€',
+    'von ',
     'depending on your delivery address',
     'vat may vary',
-    'iva può variare',
     'united states',
     'stati uniti',
     'états-unis',
@@ -482,7 +606,7 @@ function buildDebugSource(input: {
       if (a.kind !== b.kind) return a.kind === 'offer' ? -1 : 1;
       return b.price - a.price;
     })
-    .slice(0, 40)
+    .slice(0, 50)
     .map(
       (candidate, index) =>
         `${index + 1}) kind=${candidate.kind} price=${candidate.price} source=${candidate.source} context=${cleanContext(candidate.context, 900)}`
@@ -600,7 +724,12 @@ export async function scrapeAmazonPrice(
 
       candidates = [
         ...candidates,
-        ...extractOfferCandidatesFromText(directPlainText, 'direct'),
+        ...extractExactAsinOfferCandidatesFromText(
+          directPlainText,
+          'direct',
+          cleanedAsin
+        ),
+        ...extractPageOfferCandidatesFromText(directPlainText, 'direct'),
         ...extractCoreCandidatesFromHtml(direct.text, 'direct')
       ];
     }
@@ -612,7 +741,12 @@ export async function scrapeAmazonPrice(
 
       candidates = [
         ...candidates,
-        ...extractOfferCandidatesFromText(reader.text, 'reader')
+        ...extractExactAsinOfferCandidatesFromText(
+          reader.text,
+          'reader',
+          cleanedAsin
+        ),
+        ...extractPageOfferCandidatesFromText(reader.text, 'reader')
       ];
     }
 
@@ -623,7 +757,12 @@ export async function scrapeAmazonPrice(
 
       candidates = [
         ...candidates,
-        ...extractOfferCandidatesFromText(search.text, 'search')
+        ...extractExactAsinOfferCandidatesFromText(
+          search.text,
+          'search',
+          cleanedAsin
+        ),
+        ...extractPageOfferCandidatesFromText(search.text, 'search')
       ];
     }
 
@@ -644,14 +783,11 @@ export async function scrapeAmazonPrice(
     const core = chooseBestCore(candidates, marketplace);
 
     if (core) {
-      const mustAddVat = looksVatExcluded(`${core.context} ${pageContext}`);
-      const finalPrice = mustAddVat
-        ? withVat(core.price, marketplace)
-        : core.price;
+      const normalized = applyVatForCore(core, marketplace, pageContext);
 
       return {
-        price: finalPrice,
-        source: `${marketplace}:${core.source} kind=core rawPrice=${core.rawPrice} finalPrice=${finalPrice} vatApplied=${mustAddVat ? 'yes' : 'no'} | contesto: ${cleanContext(
+        price: normalized.finalPrice,
+        source: `${marketplace}:${core.source} kind=core rawPrice=${core.rawPrice} finalPrice=${normalized.finalPrice} vatApplied=${normalized.vatApplied ? 'yes' : 'no'} | contesto: ${cleanContext(
           core.context
         )}`,
         error: null,
