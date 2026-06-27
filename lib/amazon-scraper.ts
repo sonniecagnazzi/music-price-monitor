@@ -75,7 +75,7 @@ function buildJinaSearchUrl(url: string): string {
   return `https://s.jina.ai/?q=${encodeURIComponent(url)}`;
 }
 
-function getContext(text: string, index: number, before = 550, after = 900) {
+function getContext(text: string, index: number, before = 600, after = 900) {
   return text.slice(
     Math.max(0, index - before),
     Math.min(text.length, index + after)
@@ -115,18 +115,15 @@ function looksVatExcluded(text: string): boolean {
     lower.includes('états-unis') ||
     lower.includes('etats-unis') ||
     lower.includes('vereinigte staaten') ||
-    lower.includes('depending on your delivery address, vat may vary') ||
-    lower.includes('depending on your delivery address') ||
     lower.includes('vat may vary') ||
+    lower.includes('depending on your delivery address') ||
     lower.includes('iva può variare') ||
     lower.includes('iva puo variare') ||
-    lower.includes('tva peut varier') ||
-    lower.includes('mwst') ||
-    lower.includes('ust. kann')
+    lower.includes('tva peut varier')
   );
 }
 
-function isRealOfferListingContext(context: string): boolean {
+function isOfferListingContext(context: string): boolean {
   const lower = cleanText(context).toLowerCase();
 
   const hasOfferArea =
@@ -160,61 +157,21 @@ function isRealOfferListingContext(context: string): boolean {
   return (hasOfferArea && hasNewUsed) || (hasNewUsed && hasFrom);
 }
 
-function isBadOfferContext(context: string): boolean {
+function isClearlyBadContext(context: string): boolean {
   const lower = cleanText(context).toLowerCase();
 
   const badSignals = [
-    'amazon music unlimited',
-    'mp3 version',
-    'autorip',
-    'prime video',
-    'kindle',
-    'audible',
-    'gift card',
-    'buono regalo',
-    'carte cadeau',
-    'geschenkgutschein',
     'frequently bought together',
     'spesso comprati insieme',
     'fréquemment achetés ensemble',
-    'wird oft zusammen gekauft'
+    'wird oft zusammen gekauft',
+    'this item:',
+    'questo articolo:',
+    'cet article:',
+    'dieser artikel:'
   ];
 
   return badSignals.some((signal) => lower.includes(signal));
-}
-
-function isDeliveryContext(context: string): boolean {
-  const lower = cleanText(context).toLowerCase();
-
-  const deliverySignals = [
-    'consegna a',
-    'consegna prevista',
-    'delivery',
-    'shipping',
-    'livraison',
-    'frais de livraison',
-    'versand',
-    'lieferung',
-    'versandkosten'
-  ];
-
-  return deliverySignals.some((signal) => lower.includes(signal));
-}
-
-function isCorePriceContext(context: string): boolean {
-  const lower = cleanText(context).toLowerCase();
-
-  return (
-    lower.includes('coreprice') ||
-    lower.includes('priceblock') ||
-    lower.includes('apex_desktop') ||
-    lower.includes('price') ||
-    lower.includes('amazon') ||
-    lower.includes('free returns') ||
-    lower.includes('retours gratuits') ||
-    lower.includes('retournez cet article gratuitement') ||
-    lower.includes('return this item for free')
-  );
 }
 
 function addOfferCandidate(
@@ -231,17 +188,17 @@ function addOfferCandidate(
 
   if (!hasEuroPrice(context)) return;
   if (hasUsdPrice(context) && !hasEuroPrice(context)) return;
-  if (!isRealOfferListingContext(context)) return;
-  if (isBadOfferContext(context)) return;
+  if (!isOfferListingContext(context)) return;
+  if (isClearlyBadContext(context)) return;
 
-  let score = 1000;
+  let score = 10000;
 
-  if (source.includes('reader')) score += 500;
-  if (source.includes('direct')) score += 300;
-  if (source.includes('other-sellers')) score += 500;
-  if (source.includes('new-used')) score += 500;
-  if (source.includes('from-euro')) score += 300;
-  if (source.includes('offer-listing-link')) score += 250;
+  if (source.includes('reader')) score += 1000;
+  if (source.includes('direct')) score += 700;
+  if (source.includes('other-sellers')) score += 700;
+  if (source.includes('new-used')) score += 700;
+  if (source.includes('from-euro')) score += 500;
+  if (source.includes('offer-listing-link')) score += 400;
 
   candidates.push({
     price,
@@ -267,16 +224,14 @@ function addCoreCandidate(
 
   if (!hasEuroPrice(context)) return;
   if (hasUsdPrice(context) && !hasEuroPrice(context)) return;
-  if (isBadOfferContext(context)) return;
+  if (isClearlyBadContext(context)) return;
 
   let score = 100;
 
-  if (source.includes('corePrice_feature_div')) score += 300;
-  if (source.includes('corePriceDisplay_desktop_feature_div')) score += 250;
-  if (source.includes('apex_desktop')) score += 200;
-  if (source.includes('priceToPay')) score += 220;
-  if (isCorePriceContext(context)) score += 100;
-  if (isDeliveryContext(context)) score -= 80;
+  if (source.includes('corePrice_feature_div')) score += 600;
+  if (source.includes('corePriceDisplay_desktop_feature_div')) score += 500;
+  if (source.includes('priceToPay')) score += 450;
+  if (source.includes('apex_desktop')) score += 350;
 
   candidates.push({
     price,
@@ -299,32 +254,32 @@ function extractOfferListingCandidates(
     {
       source: 'other-sellers-new-used-from-euro-prefix',
       pattern:
-        /(?:Other sellers on Amazon|Altri venditori(?:\s+su\s+Amazon)?|Autres vendeurs(?:\s+sur\s+Amazon)?|Andere Verkäufer(?:\s+bei\s+Amazon)?|Andere Verkaeufer(?:\s+bei\s+Amazon)?)[\s\S]{0,1800}?(?:New\s*&\s*Used|New\s+and\s+Used|Nuovo\s+e\s+usato|Nuovi\s+e\s+usati|Neuf\s+et\s+occasion|Neuf\s*&\s*occasion|Neu\s+und\s+gebraucht|Neu\s*&\s*Gebraucht)[\s\S]{0,360}?(?:from|da|à partir de|ab)\s*€\s*(\d{1,5}(?:[.,]\d{2}))/gi
+        /(?:Other sellers on Amazon|Altri venditori(?:\s+su\s+Amazon)?|Autres vendeurs(?:\s+sur\s+Amazon)?|Andere Verkäufer(?:\s+bei\s+Amazon)?|Andere Verkaeufer(?:\s+bei\s+Amazon)?)[\s\S]{0,2200}?(?:New\s*&\s*Used|New\s+and\s+Used|Nuovo\s+e\s+usato|Nuovi\s+e\s+usati|Neuf\s+et\s+occasion|Neuf\s*&\s*occasion|Neu\s+und\s+gebraucht|Neu\s*&\s*Gebraucht)[\s\S]{0,500}?(?:from|da|à partir de|ab)\s*€\s*(\d{1,5}(?:[.,]\d{2}))/gi
     },
     {
       source: 'other-sellers-new-used-from-euro-after',
       pattern:
-        /(?:Other sellers on Amazon|Altri venditori(?:\s+su\s+Amazon)?|Autres vendeurs(?:\s+sur\s+Amazon)?|Andere Verkäufer(?:\s+bei\s+Amazon)?|Andere Verkaeufer(?:\s+bei\s+Amazon)?)[\s\S]{0,1800}?(?:New\s*&\s*Used|New\s+and\s+Used|Nuovo\s+e\s+usato|Nuovi\s+e\s+usati|Neuf\s+et\s+occasion|Neuf\s*&\s*occasion|Neu\s+und\s+gebraucht|Neu\s*&\s*Gebraucht)[\s\S]{0,360}?(?:from|da|à partir de|ab)\s*(\d{1,5}(?:[.,]\d{2}))\s*€/gi
+        /(?:Other sellers on Amazon|Altri venditori(?:\s+su\s+Amazon)?|Autres vendeurs(?:\s+sur\s+Amazon)?|Andere Verkäufer(?:\s+bei\s+Amazon)?|Andere Verkaeufer(?:\s+bei\s+Amazon)?)[\s\S]{0,2200}?(?:New\s*&\s*Used|New\s+and\s+Used|Nuovo\s+e\s+usato|Nuovi\s+e\s+usati|Neuf\s+et\s+occasion|Neuf\s*&\s*occasion|Neu\s+und\s+gebraucht|Neu\s*&\s*Gebraucht)[\s\S]{0,500}?(?:from|da|à partir de|ab)\s*(\d{1,5}(?:[.,]\d{2}))\s*€/gi
     },
     {
       source: 'new-used-from-euro-prefix',
       pattern:
-        /(?:New\s*&\s*Used|New\s+and\s+Used|Nuovo\s+e\s+usato|Nuovi\s+e\s+usati|Neuf\s+et\s+occasion|Neuf\s*&\s*occasion|Neu\s+und\s+gebraucht|Neu\s*&\s*Gebraucht)\s*\(\d+\)[\s\S]{0,360}?(?:from|da|à partir de|ab)\s*€\s*(\d{1,5}(?:[.,]\d{2}))/gi
+        /(?:New\s*&\s*Used|New\s+and\s+Used|Nuovo\s+e\s+usato|Nuovi\s+e\s+usati|Neuf\s+et\s+occasion|Neuf\s*&\s*occasion|Neu\s+und\s+gebraucht|Neu\s*&\s*Gebraucht)\s*\(\d+\)[\s\S]{0,500}?(?:from|da|à partir de|ab)\s*€\s*(\d{1,5}(?:[.,]\d{2}))/gi
     },
     {
       source: 'new-used-from-euro-after',
       pattern:
-        /(?:New\s*&\s*Used|New\s+and\s+Used|Nuovo\s+e\s+usato|Nuovi\s+e\s+usati|Neuf\s+et\s+occasion|Neuf\s*&\s*occasion|Neu\s+und\s+gebraucht|Neu\s*&\s*Gebraucht)\s*\(\d+\)[\s\S]{0,360}?(?:from|da|à partir de|ab)\s*(\d{1,5}(?:[.,]\d{2}))\s*€/gi
+        /(?:New\s*&\s*Used|New\s+and\s+Used|Nuovo\s+e\s+usato|Nuovi\s+e\s+usati|Neuf\s+et\s+occasion|Neuf\s*&\s*occasion|Neu\s+und\s+gebraucht|Neu\s*&\s*Gebraucht)\s*\(\d+\)[\s\S]{0,500}?(?:from|da|à partir de|ab)\s*(\d{1,5}(?:[.,]\d{2}))\s*€/gi
     },
     {
       source: 'offer-listing-link-from-euro-prefix',
       pattern:
-        /gp\/offer-listing\/[A-Z0-9]{10}[\s\S]{0,900}?(?:New\s*&\s*Used|New\s+and\s+Used|Nuovo\s+e\s+usato|Nuovi\s+e\s+usati|Neuf\s+et\s+occasion|Neuf\s*&\s*occasion|Neu\s+und\s+gebraucht|Neu\s*&\s*Gebraucht)?[\s\S]{0,360}?(?:from|da|à partir de|ab)\s*€\s*(\d{1,5}(?:[.,]\d{2}))/gi
+        /gp\/offer-listing\/[A-Z0-9]{10}[\s\S]{0,1400}?(?:from|da|à partir de|ab)\s*€\s*(\d{1,5}(?:[.,]\d{2}))/gi
     },
     {
-      source: 'offer-listing-link-from-euro-after',
+      source: 'generic-from-euro-with-new-used',
       pattern:
-        /gp\/offer-listing\/[A-Z0-9]{10}[\s\S]{0,900}?(?:New\s*&\s*Used|New\s+and\s+Used|Nuovo\s+e\s+usato|Nuovi\s+e\s+usati|Neuf\s+et\s+occasion|Neuf\s*&\s*occasion|Neu\s+und\s+gebraucht|Neu\s*&\s*Gebraucht)?[\s\S]{0,360}?(?:from|da|à partir de|ab)\s*(\d{1,5}(?:[.,]\d{2}))\s*€/gi
+        /(?:from|da|à partir de|ab)\s*€\s*(\d{1,5}(?:[.,]\d{2}))[\s\S]{0,700}?(?:delivery|livraison|consegna|versand)/gi
     }
   ];
 
@@ -334,7 +289,7 @@ function extractOfferListingCandidates(
     while (match !== null) {
       const raw = match[1] || '';
       const price = parseEuroPrice(`€${raw}`);
-      const context = getContext(normalized, match.index, 520, 900);
+      const context = getContext(normalized, match.index, 900, 900);
 
       addOfferCandidate(
         candidates,
@@ -347,28 +302,6 @@ function extractOfferListingCandidates(
 
       match = item.pattern.exec(normalized);
     }
-  }
-
-  const genericFromPrice =
-    /(?:from|da|à partir de|ab)\s*€\s*(\d{1,5}(?:[.,]\d{2}))/gi;
-
-  let genericMatch = genericFromPrice.exec(normalized);
-
-  while (genericMatch !== null) {
-    const raw = genericMatch[1] || '';
-    const price = parseEuroPrice(`€${raw}`);
-    const context = getContext(normalized, genericMatch.index, 700, 700);
-
-    addOfferCandidate(
-      candidates,
-      normalized,
-      price,
-      genericMatch.index,
-      `${sourcePrefix}:generic-from-euro`,
-      context
-    );
-
-    genericMatch = genericFromPrice.exec(normalized);
   }
 
   return candidates;
@@ -386,8 +319,8 @@ function extractCorePriceCandidatesFromHtml(
   const selectors = [
     '#corePrice_feature_div .a-price .a-offscreen',
     '#corePriceDisplay_desktop_feature_div .a-price .a-offscreen',
-    '#apex_desktop .a-price .a-offscreen',
     '.priceToPay .a-offscreen',
+    '#apex_desktop .a-price .a-offscreen',
     '#priceblock_ourprice',
     '#priceblock_dealprice',
     '#price_inside_buybox',
@@ -423,7 +356,7 @@ function extractCorePriceCandidatesFromHtml(
           price,
           htmlIndex >= 0 ? htmlIndex : 0,
           `${sourcePrefix}:core-price:${selector}`,
-          `${localContext} ${pageText.slice(0, 2500)}`
+          `${localContext} ${pageText.slice(0, 5000)}`
         );
       }
     }
@@ -455,7 +388,7 @@ function extractCorePriceCandidatesFromHtml(
         price,
         index,
         `${sourcePrefix}:core-price-split`,
-        `${localContext} ${pageText.slice(0, 2500)}`
+        `${localContext} ${pageText.slice(0, 5000)}`
       );
     }
   });
@@ -493,8 +426,8 @@ function chooseBestCandidate(
       if (candidate.price <= 0) return false;
       if (candidate.price >= 1000) return false;
       if (!hasEuroPrice(candidate.context)) return false;
-      if (!isRealOfferListingContext(candidate.context)) return false;
-      if (isBadOfferContext(candidate.context)) return false;
+      if (!isOfferListingContext(candidate.context)) return false;
+      if (isClearlyBadContext(candidate.context)) return false;
 
       return true;
     })
@@ -513,6 +446,7 @@ function chooseBestCandidate(
       if (hasUsdPrice(candidate.context) && !hasEuroPrice(candidate.context)) {
         return false;
       }
+      if (isClearlyBadContext(candidate.context)) return false;
 
       return true;
     })
@@ -555,8 +489,8 @@ function getCorePriceTexts($: cheerio.CheerioAPI): string[] {
   const selectors = [
     '#corePrice_feature_div .a-price .a-offscreen',
     '#corePriceDisplay_desktop_feature_div .a-price .a-offscreen',
-    '#apex_desktop .a-price .a-offscreen',
     '.priceToPay .a-offscreen',
+    '#apex_desktop .a-price .a-offscreen',
     '#priceblock_ourprice',
     '#priceblock_dealprice',
     '#price_inside_buybox',
@@ -687,11 +621,11 @@ function buildDebugSource(input: {
   }
 
   const directPlainText = directText
-    ? cleanContext(cheerio.load(directText).root().text(), 12000)
+    ? cleanContext(cheerio.load(directText).root().text(), 14000)
     : '';
 
-  const readerPlainText = readerText ? cleanContext(readerText, 12000) : '';
-  const searchPlainText = searchText ? cleanContext(searchText, 12000) : '';
+  const readerPlainText = readerText ? cleanContext(readerText, 14000) : '';
+  const searchPlainText = searchText ? cleanContext(searchText, 14000) : '';
 
   const directKeywordSnippets = findKeywordSnippets(directPlainText);
   const readerKeywordSnippets = findKeywordSnippets(readerPlainText);
@@ -703,10 +637,10 @@ function buildDebugSource(input: {
 
   const candidates = (input.candidates || [])
     .sort((a, b) => b.score - a.score)
-    .slice(0, 24)
+    .slice(0, 28)
     .map(
       (candidate, index) =>
-        `${index + 1}) kind=${candidate.kind} price=${candidate.price} score=${candidate.score} source=${candidate.source} context=${cleanContext(candidate.context, 900)}`
+        `${index + 1}) kind=${candidate.kind} price=${candidate.price} score=${candidate.score} source=${candidate.source} context=${cleanContext(candidate.context, 1000)}`
     );
 
   return [
