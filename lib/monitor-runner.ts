@@ -13,14 +13,17 @@ type SettingsWithLegacyEmail = Settings & {
   alert_email?: string | null;
 };
 
-type MonitorRunResult = {
+type MonitorRunStatus = 'ok' | 'below_target' | 'error';
+
+type MonitorRunDetail = {
   id: string;
   artist: string;
   album: string;
-  status: 'ok' | 'below_target' | 'error';
+  status: MonitorRunStatus;
   price: number | null;
   error: string | null;
   alertSent: boolean;
+  message: string;
 };
 
 export type MonitorRunSummary = {
@@ -28,7 +31,8 @@ export type MonitorRunSummary = {
   checked: number;
   alertsSent: number;
   errors: number;
-  results: MonitorRunResult[];
+  details: MonitorRunDetail[];
+  results: MonitorRunDetail[];
 };
 
 function getSupabaseAdmin() {
@@ -60,6 +64,35 @@ function shouldSendAlert(monitor: Monitor, price: number): boolean {
 
 function shouldResetAlert(monitor: Monitor, price: number): boolean {
   return price > monitor.target_price && monitor.alert_sent;
+}
+
+function buildSuccessMessage({
+  price,
+  target,
+  alertSent,
+  source
+}: {
+  price: number;
+  target: number;
+  alertSent: boolean;
+  source: string | null;
+}) {
+  const statusText =
+    price <= target
+      ? `in target: prezzo ${price} <= target ${target}`
+      : `ok: prezzo ${price} > target ${target}`;
+
+  const alertText = alertSent ? 'alert inviato' : 'nessun alert inviato';
+  const sourceText = source ? `fonte: ${source}` : 'fonte non disponibile';
+
+  return `${statusText}; ${alertText}; ${sourceText}`;
+}
+
+function buildErrorMessage(error: string | null, source: string | null) {
+  const errorText = error || 'Errore sconosciuto';
+  const sourceText = source ? `fonte: ${source}` : 'fonte non disponibile';
+
+  return `${errorText}; ${sourceText}`;
 }
 
 export async function runMonitor(
@@ -95,7 +128,7 @@ export async function runMonitor(
   }
 
   const monitorsToCheck = monitors || [];
-  const results: MonitorRunResult[] = [];
+  const details: MonitorRunDetail[] = [];
 
   let alertsSent = 0;
   let errors = 0;
@@ -128,14 +161,15 @@ export async function runMonitor(
           })
           .eq('id', monitor.id);
 
-        results.push({
+        details.push({
           id: monitor.id,
           artist: monitor.artist,
           album: monitor.album,
           status: 'error',
           price: null,
           error: scrapeResult.error,
-          alertSent: false
+          alertSent: false,
+          message: buildErrorMessage(scrapeResult.error, scrapeResult.source)
         });
 
         continue;
@@ -143,10 +177,10 @@ export async function runMonitor(
 
       const price = scrapeResult.price;
       const isBelowTarget = price <= monitor.target_price;
-      const nextStatus = isBelowTarget ? 'below_target' : 'ok';
+      const nextStatus: MonitorRunStatus = isBelowTarget ? 'below_target' : 'ok';
       const alertEmail = getMonitorAlertEmail(monitor, globalEmail);
 
-      let alertSent = monitor.alert_sent;
+      let nextAlertSent = monitor.alert_sent;
       let alertSentNow = false;
 
       if (shouldSendAlert(monitor, price) && alertEmail) {
@@ -157,11 +191,11 @@ export async function runMonitor(
           source: scrapeResult.source
         });
 
-        alertSent = true;
+        nextAlertSent = true;
         alertSentNow = true;
         alertsSent += 1;
       } else if (shouldResetAlert(monitor, price)) {
-        alertSent = false;
+        nextAlertSent = false;
       }
 
       await supabase.from('price_checks').insert({
@@ -180,19 +214,25 @@ export async function runMonitor(
           last_checked_at: checkedAt,
           last_status: nextStatus,
           last_error: null,
-          alert_sent: alertSent,
+          alert_sent: nextAlertSent,
           updated_at: checkedAt
         })
         .eq('id', monitor.id);
 
-      results.push({
+      details.push({
         id: monitor.id,
         artist: monitor.artist,
         album: monitor.album,
         status: nextStatus,
         price,
         error: null,
-        alertSent: alertSentNow
+        alertSent: alertSentNow,
+        message: buildSuccessMessage({
+          price,
+          target: monitor.target_price,
+          alertSent: alertSentNow,
+          source: scrapeResult.source
+        })
       });
     } catch (error) {
       errors += 1;
@@ -221,14 +261,15 @@ export async function runMonitor(
         })
         .eq('id', monitor.id);
 
-      results.push({
+      details.push({
         id: monitor.id,
         artist: monitor.artist,
         album: monitor.album,
         status: 'error',
         price: null,
         error: message,
-        alertSent: false
+        alertSent: false,
+        message: buildErrorMessage(message, 'exception')
       });
     }
   }
@@ -238,6 +279,7 @@ export async function runMonitor(
     checked: monitorsToCheck.length,
     alertsSent,
     errors,
-    results
+    details,
+    results: details
   };
 }
