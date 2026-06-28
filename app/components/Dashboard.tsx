@@ -115,6 +115,83 @@ const statusLabels: Record<LastStatus | 'never_checked', string> = {
   error: 'errore'
 };
 
+function MenuIcon() {
+  return (
+    <svg aria-hidden="true" className="h-5 w-5" viewBox="0 0 24 24" fill="none">
+      <path d="M4 7h16M4 12h16M4 17h16" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+    </svg>
+  );
+}
+
+function WaveIcon() {
+  return (
+    <svg aria-hidden="true" className="h-5 w-5" viewBox="0 0 24 24" fill="none">
+      <path
+        d="M4 12h2l2-6 3 12 3-16 3 10h3"
+        stroke="currentColor"
+        strokeWidth="2"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </svg>
+  );
+}
+
+function HomeIcon() {
+  return (
+    <svg aria-hidden="true" className="h-5 w-5" viewBox="0 0 24 24" fill="none">
+      <path
+        d="M4 10.5 12 4l8 6.5V20a1 1 0 0 1-1 1h-5v-6h-4v6H5a1 1 0 0 1-1-1v-9.5Z"
+        stroke="currentColor"
+        strokeWidth="1.8"
+        strokeLinejoin="round"
+      />
+    </svg>
+  );
+}
+
+function ClockIcon() {
+  return (
+    <svg aria-hidden="true" className="h-5 w-5" viewBox="0 0 24 24" fill="none">
+      <path
+        d="M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18Z"
+        stroke="currentColor"
+        strokeWidth="1.8"
+      />
+      <path d="M12 7v5l3 2" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  );
+}
+
+function TargetIcon() {
+  return (
+    <svg aria-hidden="true" className="h-5 w-5" viewBox="0 0 24 24" fill="none">
+      <path d="M12 21a9 9 0 1 0-9-9" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
+      <path d="M12 17a5 5 0 1 0-5-5" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
+      <path d="M12 13a1 1 0 1 0-1-1" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
+      <path d="m16 8 4-4M17 4h3v3" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  );
+}
+
+function ImportIcon() {
+  return (
+    <svg aria-hidden="true" className="h-4 w-4" viewBox="0 0 24 24" fill="none">
+      <path d="M12 3v12" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
+      <path d="m8 7 4-4 4 4" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
+      <path d="M4 15v4a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-4" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
+    </svg>
+  );
+}
+
+function FilterIcon() {
+  return (
+    <svg aria-hidden="true" className="h-4 w-4" viewBox="0 0 24 24" fill="none">
+      <path d="M4 5h16l-6 7v5l-4 2v-7L4 5Z" stroke="currentColor" strokeWidth="1.8" strokeLinejoin="round" />
+    </svg>
+  );
+}
+
 function EditIcon() {
   return (
     <svg aria-hidden="true" className="h-4 w-4" viewBox="0 0 24 24" fill="none">
@@ -124,12 +201,7 @@ function EditIcon() {
         strokeWidth="1.8"
         strokeLinejoin="round"
       />
-      <path
-        d="M13.5 6 18 10.5"
-        stroke="currentColor"
-        strokeWidth="1.8"
-        strokeLinecap="round"
-      />
+      <path d="M13.5 6 18 10.5" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
     </svg>
   );
 }
@@ -156,19 +228,8 @@ function CartIcon() {
 function CheckIcon() {
   return (
     <svg aria-hidden="true" className="h-4 w-4" viewBox="0 0 24 24" fill="none">
-      <path
-        d="M21 12a9 9 0 1 1-2.64-6.36"
-        stroke="currentColor"
-        strokeWidth="1.8"
-        strokeLinecap="round"
-      />
-      <path
-        d="M8.5 12.5 11 15l7-7"
-        stroke="currentColor"
-        strokeWidth="1.8"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-      />
+      <path d="M21 12a9 9 0 1 1-2.64-6.36" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
+      <path d="M8.5 12.5 11 15l7-7" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
     </svg>
   );
 }
@@ -203,7 +264,7 @@ function ChevronDownIcon() {
 function SortIndicator({ active, ascending }: { active: boolean; ascending: boolean }) {
   if (!active) return <span className="text-slate-300">↕</span>;
 
-  return <span className="text-blue-700">{ascending ? '↑' : '↓'}</span>;
+  return <span className="text-[#24BFBF]">{ascending ? '↑' : '↓'}</span>;
 }
 
 function SortableHeader({
@@ -219,13 +280,19 @@ function SortableHeader({
   sortAsc: boolean;
   onDoubleClick: (key: SortKey) => void;
 }) {
-  if (!sortKey) return <th className="border-b p-2">{label}</th>;
+  if (!sortKey) {
+    return (
+      <th className="whitespace-nowrap border-b border-slate-200 px-3 py-3 text-xs font-bold uppercase tracking-wide text-slate-500">
+        {label}
+      </th>
+    );
+  }
 
   const active = activeSortKey === sortKey;
 
   return (
     <th
-      className="cursor-pointer select-none border-b p-2 hover:bg-slate-200"
+      className="cursor-pointer select-none whitespace-nowrap border-b border-slate-200 px-3 py-3 text-xs font-bold uppercase tracking-wide text-slate-500 hover:bg-slate-50"
       title="Doppio click: crescente, decrescente, non ordinato"
       onDoubleClick={() => onDoubleClick(sortKey)}
     >
@@ -271,17 +338,13 @@ function CompactMultiSelectFilter({
     onChange([...value, option]);
   }
 
-  const labelText = value.length === 0 ? 'Tutti' : value.join(', ');
+  const labelText = value.length === 0 ? label : value.join(', ');
 
   return (
     <div className="relative">
-      <label className="mb-1 block text-xs font-medium text-slate-600">
-        {label}
-      </label>
-
       <button
         type="button"
-        className="flex w-full items-center justify-between gap-2 rounded-lg border bg-white px-3 py-2 text-left text-sm hover:bg-slate-50"
+        className="mpm-focus flex h-11 w-full items-center justify-between gap-2 rounded-xl border border-slate-200 bg-white px-4 text-left text-sm font-semibold text-slate-700 shadow-sm hover:bg-slate-50"
         onClick={onToggle}
       >
         <span className="truncate">{labelText}</span>
@@ -289,19 +352,19 @@ function CompactMultiSelectFilter({
       </button>
 
       {isOpen && (
-        <div className="absolute left-0 top-full z-30 mt-2 w-full min-w-56 rounded-xl border bg-white p-2 shadow-lg">
+        <div className="absolute left-0 top-full z-30 mt-2 w-full min-w-56 rounded-2xl border border-slate-200 bg-white p-2 shadow-2xl">
           <input
-            className="mb-2 w-full rounded-lg border p-2 text-sm"
+            className="mb-2 w-full rounded-xl border border-slate-200 p-2 text-sm outline-none focus:border-[#24BFBF]"
             placeholder={`Cerca ${label.toLowerCase()}`}
             value={search}
             onChange={(event) => setSearch(event.target.value)}
           />
 
-          <div className="max-h-44 overflow-y-auto">
+          <div className="mpm-scrollbar max-h-44 overflow-y-auto">
             {visibleOptions.map((option) => (
               <label
                 key={option}
-                className="flex cursor-pointer items-center gap-2 rounded-lg px-2 py-1.5 text-sm hover:bg-slate-50"
+                className="flex cursor-pointer items-center gap-2 rounded-xl px-2 py-1.5 text-sm hover:bg-slate-50"
               >
                 <input
                   type="checkbox"
@@ -322,7 +385,7 @@ function CompactMultiSelectFilter({
           {value.length > 0 && (
             <button
               type="button"
-              className="mt-2 w-full rounded-lg border px-2 py-1.5 text-sm text-slate-700 hover:bg-slate-50"
+              className="mt-2 w-full rounded-xl border border-slate-200 px-2 py-1.5 text-sm font-semibold text-slate-700 hover:bg-slate-50"
               onClick={() => onChange([])}
             >
               Pulisci
@@ -411,8 +474,8 @@ function getDisplayStatus(monitor: Monitor): LastStatus | 'never_checked' {
 
 function sitePriceClass(currentPrice: number | null, targetPrice: number | null) {
   return isSiteInTarget(currentPrice, targetPrice)
-    ? 'font-semibold text-green-700'
-    : 'font-semibold';
+    ? 'font-bold text-[#1FBF92]'
+    : 'font-semibold text-slate-800';
 }
 
 function conditionBadge(value: string | null) {
@@ -420,15 +483,15 @@ function conditionBadge(value: string | null) {
 
   const cls =
     value === 'EX'
-      ? 'bg-green-100 text-green-800'
+      ? 'bg-emerald-50 text-[#159b77] ring-emerald-100'
       : value === 'VG'
-        ? 'bg-blue-100 text-blue-800'
+        ? 'bg-cyan-50 text-[#168c95] ring-cyan-100'
         : value === 'G'
-          ? 'bg-amber-100 text-amber-800'
-          : 'bg-slate-100 text-slate-700';
+          ? 'bg-orange-50 text-[#d97825] ring-orange-100'
+          : 'bg-slate-100 text-slate-700 ring-slate-200';
 
   return (
-    <span className={`rounded-full px-2 py-1 text-xs font-semibold ${cls}`}>
+    <span className={`rounded-full px-2.5 py-1 text-xs font-bold ring-1 ${cls}`}>
       {value}
     </span>
   );
@@ -546,7 +609,7 @@ function LinkedPrice({
 
   return (
     <a
-      className={`${className} underline decoration-dotted underline-offset-4 hover:text-blue-700`}
+      className={`${className} underline decoration-dotted underline-offset-4 hover:text-[#24BFBF]`}
       href={url}
       target="_blank"
       rel="noreferrer"
@@ -557,15 +620,32 @@ function LinkedPrice({
   );
 }
 
+function AlbumCell({ value }: { value: string }) {
+  const shouldWrap = value.length > 40;
+
+  return (
+    <div
+      className={
+        shouldWrap
+          ? 'max-w-[360px] whitespace-normal break-words leading-snug text-slate-700'
+          : 'min-w-[300px] whitespace-nowrap text-slate-700'
+      }
+      title={value}
+    >
+      {value}
+    </div>
+  );
+}
+
 function DetailCell({ value }: { value: string | null }) {
   if (!value) return <span className="text-slate-400">-</span>;
 
   return (
     <details className="max-w-80">
-      <summary className="cursor-pointer whitespace-nowrap text-xs font-semibold text-red-700 underline decoration-dotted underline-offset-4">
+      <summary className="cursor-pointer whitespace-nowrap text-xs font-bold text-red-700 underline decoration-dotted underline-offset-4">
         Vedi errore
       </summary>
-      <div className="mt-2 max-h-40 overflow-y-auto rounded-lg border border-red-200 bg-red-50 p-2 text-xs leading-relaxed text-red-900">
+      <div className="mt-2 max-h-40 overflow-y-auto rounded-xl border border-red-200 bg-red-50 p-2 text-xs leading-relaxed text-red-900">
         {value}
       </div>
     </details>
@@ -576,7 +656,7 @@ function UrlStatusCell({ monitor }: { monitor: Monitor }) {
   if (hasAnyUrl(monitor)) {
     return (
       <span
-        className="inline-flex h-7 w-7 items-center justify-center rounded-full bg-green-100 text-base font-bold text-green-800"
+        className="inline-flex h-7 w-7 items-center justify-center rounded-full bg-emerald-50 text-base font-bold text-[#1FBF92] ring-1 ring-emerald-100"
         title="Almeno un URL tra Medimops e Momox è presente"
       >
         ✓
@@ -586,12 +666,78 @@ function UrlStatusCell({ monitor }: { monitor: Monitor }) {
 
   return (
     <span
-      className="inline-flex h-7 w-7 items-center justify-center rounded-full bg-red-100 text-base font-bold text-red-800"
+      className="inline-flex h-7 w-7 items-center justify-center rounded-full bg-red-50 text-base font-bold text-red-600 ring-1 ring-red-100"
       title="Nessun URL Medimops/Momox presente"
     >
       ✕
     </span>
   );
+}
+
+function StatusBadge({ monitor }: { monitor: Monitor }) {
+  const value = getDisplayStatus(monitor);
+
+  const cls =
+    value === 'error'
+      ? 'bg-red-50 text-red-700 ring-red-100'
+      : value === 'below_target'
+        ? 'bg-emerald-50 text-[#159b77] ring-emerald-100'
+        : value === 'ok'
+          ? 'bg-cyan-50 text-[#168c95] ring-cyan-100'
+          : 'bg-slate-100 text-slate-600 ring-slate-200';
+
+  return (
+    <span className={`rounded-full px-2.5 py-1 text-xs font-bold ring-1 ${cls}`}>
+      {statusLabels[value]}
+    </span>
+  );
+}
+
+function NavItem({
+  active,
+  icon,
+  label,
+  badge,
+  href,
+  onClick
+}: {
+  active?: boolean;
+  icon: React.ReactNode;
+  label: string;
+  badge?: number;
+  href?: string;
+  onClick?: () => void;
+}) {
+  const content = (
+    <div
+      className={`flex items-center justify-between rounded-2xl px-4 py-3 text-sm font-semibold ${
+        active
+          ? 'bg-[#24BFBF] text-white shadow-lg shadow-cyan-950/20'
+          : 'text-white/82 hover:bg-white/8'
+      }`}
+    >
+      <div className="flex items-center gap-3">
+        {icon}
+        <span>{label}</span>
+      </div>
+
+      {badge ? (
+        <span className="rounded-full bg-[#24BFBF] px-2 py-0.5 text-xs font-bold text-white ring-2 ring-white/15">
+          {badge}
+        </span>
+      ) : null}
+    </div>
+  );
+
+  if (href) {
+    return (
+      <Link href={href} onClick={onClick}>
+        {content}
+      </Link>
+    );
+  }
+
+  return <button type="button" className="w-full text-left" onClick={onClick}>{content}</button>;
 }
 
 export default function Dashboard() {
@@ -606,6 +752,7 @@ export default function Dashboard() {
   const [busy, setBusy] = useState(false);
   const [isFormOpen, setIsFormOpen] = useState(false);
   const [isImportOpen, setIsImportOpen] = useState(false);
+  const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const [dragActive, setDragActive] = useState(false);
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [cartIds, setCartIds] = useState<string[]>([]);
@@ -818,6 +965,24 @@ export default function Dashboard() {
         !multiFilters.momox_condition.includes(monitor.momox_condition || '')
       ) return false;
 
+      const globalText = [
+        monitor.genre,
+        monitor.type,
+        monitor.artist,
+        monitor.album,
+        monitor.ean_code,
+        monitor.edition,
+        monitor.release_year,
+        monitor.country,
+        statusLabel,
+        urlStatusLabel,
+        bestPrice === null ? '' : `${bestPrice} ${formatEuro(bestPrice)}`
+      ].join(' ');
+
+      if (filters.global && !lower(globalText).includes(filters.global.toLowerCase())) {
+        return false;
+      }
+
       const row: Record<string, unknown> = {
         ...monitor,
         status: statusLabel,
@@ -825,10 +990,12 @@ export default function Dashboard() {
         best_price: bestPrice === null ? '' : `${bestPrice} ${formatEuro(bestPrice)}`
       };
 
-      return Object.entries(filters).every(
-        ([key, filterValue]) =>
-          !filterValue || lower(row[key]).includes(filterValue.toLowerCase())
-      );
+      return Object.entries(filters)
+        .filter(([key]) => key !== 'global')
+        .every(
+          ([key, filterValue]) =>
+            !filterValue || lower(row[key]).includes(filterValue.toLowerCase())
+        );
     });
 
     if (!sortKey) return [...filteredRows].sort(compareDefaultOrder);
@@ -1085,25 +1252,6 @@ export default function Dashboard() {
     setOpenMultiFilter(null);
   }
 
-  function badge(monitor: Monitor) {
-    const value = getDisplayStatus(monitor);
-
-    const cls =
-      value === 'error'
-        ? 'bg-red-100 text-red-800'
-        : value === 'below_target'
-          ? 'bg-green-100 text-green-800'
-          : value === 'ok'
-            ? 'bg-blue-100 text-blue-800'
-            : 'bg-slate-100 text-slate-700';
-
-    return (
-      <span className={`rounded-full px-2 py-1 text-xs font-semibold ${cls}`}>
-        {statusLabels[value]}
-      </span>
-    );
-  }
-
   const amazonFrUrl = form.amazon_asin
     ? buildAmazonUrl(normalizeAsin(form.amazon_asin), 'FR')
     : '';
@@ -1115,143 +1263,168 @@ export default function Dashboard() {
     : '';
 
   return (
-    <main className="mx-auto max-w-7xl p-4 sm:p-6">
-      <div className="mb-4 rounded-2xl bg-white p-6 shadow-sm">
-        <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
-          <div>
-            <h1 className="text-3xl font-bold">Music Price Monitor</h1>
-            <p className="mt-2 text-slate-600">
-              Dashboard italiana per monitorare prezzi CD/LP su Momox e Medimops.
-            </p>
+    <div className="min-h-screen">
+      {isSidebarOpen && (
+        <button
+          type="button"
+          className="fixed inset-0 z-30 bg-[#2B403E]/50 backdrop-blur-sm"
+          onClick={() => setIsSidebarOpen(false)}
+          aria-label="Chiudi menu"
+        />
+      )}
+
+      <aside
+        className={`mpm-sidebar fixed inset-y-0 left-0 z-40 flex w-72 flex-col p-5 text-white shadow-2xl transition-transform duration-200 ${
+          isSidebarOpen ? 'translate-x-0' : '-translate-x-full'
+        }`}
+      >
+        <div className="mb-8 flex items-center justify-between gap-3">
+          <div className="flex items-center gap-3">
+            <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-[#24BFBF] shadow-lg shadow-cyan-950/30">
+              <WaveIcon />
+            </div>
+            <div>
+              <div className="text-2xl font-black tracking-tight">DiscWatch</div>
+              <div className="text-sm font-medium text-white/65">
+                Music Price Monitor
+              </div>
+            </div>
           </div>
 
-          <div className="flex flex-wrap gap-2">
-            <Link
-              href="/cart"
-              className="inline-flex items-center gap-2 rounded-lg border border-amber-600 px-4 py-2 font-semibold text-amber-700 shadow-sm hover:bg-amber-50"
-            >
-              <CartIcon />
-              Carrello ({cartCount})
-            </Link>
-
-            <button
-              className="rounded-lg border border-blue-700 px-4 py-2 font-semibold text-blue-700 shadow-sm hover:bg-blue-50 disabled:opacity-50"
-              disabled={busy}
-              onClick={() => setIsImportOpen(true)}
-            >
-              Importa CSV
-            </button>
-
-            <button
-              className="rounded-lg bg-blue-700 px-4 py-2 font-semibold text-white shadow-sm hover:bg-blue-800"
-              onClick={openNewMonitorModal}
-            >
-              Nuovo monitor
-            </button>
-          </div>
+          <button
+            type="button"
+            className="rounded-xl border border-white/10 p-2 text-white/80 hover:bg-white/10"
+            onClick={() => setIsSidebarOpen(false)}
+            aria-label="Chiudi menu"
+          >
+            <CloseIcon />
+          </button>
         </div>
 
-        <p className="mt-4 rounded-lg bg-slate-100 p-3 text-sm">Stato: {message}</p>
-      </div>
+        <nav className="space-y-2">
+          <NavItem active icon={<HomeIcon />} label="Dashboard" onClick={() => setIsSidebarOpen(false)} />
+          <NavItem icon={<ClockIcon />} label="Monitoraggi" onClick={() => setIsSidebarOpen(false)} />
+          <NavItem icon={<TargetIcon />} label="Quick Target" onClick={() => setIsSidebarOpen(false)} />
+          <NavItem icon={<ImportIcon />} label="Importazioni" onClick={() => setIsSidebarOpen(false)} />
+          <NavItem icon={<CartIcon />} label="Carrello" badge={cartCount || undefined} href="/cart" onClick={() => setIsSidebarOpen(false)} />
+          <NavItem icon={<WaveIcon />} label="Statistiche" onClick={() => setIsSidebarOpen(false)} />
+        </nav>
 
-      <section className="rounded-2xl bg-white p-4 shadow-sm">
-        <div className="mb-3 flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
-          <div>
-            <h2 className="text-xl font-semibold">Monitor</h2>
-            <p className="mt-1 text-sm text-slate-500">
-              Record visibili: {filtered.length}
-            </p>
-            <p className="mt-1 text-xs text-slate-400">
-              Ordinamento default: Artista ASC, Anno ASC, Titolo ASC, Country ASC.
-              Doppio click sulle intestazioni per ordinare.
-            </p>
+        <div className="mt-auto rounded-3xl border border-white/10 bg-white/5 p-4 shadow-xl">
+          <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-full bg-[#24BFBF] text-lg font-black shadow-lg">
+            MP
           </div>
-
-          <div className="flex flex-wrap gap-2">
-            <button
-              className="rounded-lg bg-amber-600 px-4 py-2 font-semibold text-white shadow-sm hover:bg-amber-700 disabled:opacity-50"
-              disabled={busy || selectedIds.length === 0}
-              onClick={applyQuickTarget}
-            >
-              Quicktarget ({selectedIds.length})
-            </button>
-
-            <button
-              className="inline-flex items-center gap-2 rounded-lg bg-green-700 px-4 py-2 font-semibold text-white shadow-sm hover:bg-green-800 disabled:opacity-50"
-              disabled={busy || filtered.length === 0}
-              onClick={checkVisibleRows}
-            >
-              <CheckIcon />
-              Controlla tutto il datagrid
-            </button>
-
-            <button
-              className="rounded-lg border px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50"
-              onClick={() => setFiltersOpen(!filtersOpen)}
-            >
-              {filtersOpen ? 'Nascondi filtri' : 'Mostra filtri'}
-              {activeFilterCount > 0 ? ` (${activeFilterCount})` : ''}
-            </button>
+          <div className="mt-3 text-center text-sm font-bold">Music Price Monitor</div>
+          <div className="mt-1 text-center text-xs text-white/55">
+            Controlli automatici attivi
           </div>
         </div>
+      </aside>
 
-        {filtersOpen && (
-          <div className="mb-4 rounded-xl border bg-slate-50 p-3">
-            <div className="mb-3 flex items-center justify-between gap-3">
-              <h3 className="text-sm font-semibold text-slate-700">Filtri</h3>
+      <main>
+        <div className="mx-auto max-w-[1920px] px-4 py-4 sm:px-6 lg:px-6">
+          <section className="mb-4">
+            <div className="flex flex-col gap-4 xl:flex-row xl:items-center xl:justify-between">
+              <div className="flex items-center gap-3">
+                <button
+                  type="button"
+                  className="inline-flex h-11 items-center gap-2 rounded-xl border border-slate-200 bg-white px-4 text-sm font-black text-[#2B403E] shadow-sm hover:bg-slate-50"
+                  onClick={() => setIsSidebarOpen(true)}
+                >
+                  <MenuIcon />
+                  Menu
+                </button>
 
-              <button
-                className="rounded-lg border bg-white px-3 py-1.5 text-sm text-slate-700 hover:bg-slate-100"
-                onClick={clearAllFilters}
-              >
-                Pulisci filtri
-              </button>
+                <div>
+                  <h1 className="text-4xl font-black tracking-tight text-[#12201f]">
+                    Dashboard
+                  </h1>
+                  <p className="mt-1 text-sm font-medium text-slate-500">
+                    Monitoraggio prezzi dischi • Medimops / Momox
+                  </p>
+                </div>
+              </div>
+
+              <div className="flex flex-wrap items-center gap-3">
+                <button
+                  className="mpm-btn-primary inline-flex h-11 items-center gap-2 rounded-xl px-4 text-sm font-bold disabled:opacity-50"
+                  onClick={openNewMonitorModal}
+                >
+                  <span className="text-lg leading-none">+</span>
+                  Nuovo record
+                </button>
+
+                <button
+                  className="inline-flex h-11 items-center gap-2 rounded-xl border border-slate-200 bg-white px-4 text-sm font-bold text-slate-700 shadow-sm hover:bg-slate-50 disabled:opacity-50"
+                  disabled={busy}
+                  onClick={() => setIsImportOpen(true)}
+                >
+                  <ImportIcon />
+                  Import CSV
+                </button>
+
+                <button
+                  className="mpm-btn-green inline-flex h-11 items-center gap-2 rounded-xl px-4 text-sm font-bold disabled:opacity-50"
+                  disabled={busy || selectedIds.length === 0}
+                  onClick={applyQuickTarget}
+                >
+                  <TargetIcon />
+                  Quick Target
+                  {selectedIds.length > 0 ? ` (${selectedIds.length})` : ''}
+                </button>
+
+                <button
+                  className="mpm-btn-orange inline-flex h-11 items-center gap-2 rounded-xl px-4 text-sm font-bold disabled:opacity-50"
+                  disabled={busy || filtered.length === 0}
+                  onClick={checkVisibleRows}
+                >
+                  <CheckIcon />
+                  Controlla tutto
+                </button>
+
+                <Link
+                  href="/cart"
+                  className="relative inline-flex h-11 w-12 items-center justify-center rounded-xl border border-slate-200 bg-white text-slate-700 shadow-sm hover:bg-slate-50"
+                  title="Carrello"
+                >
+                  <CartIcon />
+                  {cartCount > 0 ? (
+                    <span className="absolute -right-2 -top-2 rounded-full bg-[#24BFBF] px-2 py-0.5 text-xs font-black text-white">
+                      {cartCount}
+                    </span>
+                  ) : null}
+                </Link>
+              </div>
             </div>
 
-            <div className="grid gap-3 md:grid-cols-4 lg:grid-cols-7">
-              <CompactMultiSelectFilter
-                label="Genere"
-                value={multiFilters.genre}
-                options={multiFilterOptions.genre}
-                isOpen={openMultiFilter === 'genre'}
-                onToggle={() =>
-                  setOpenMultiFilter(openMultiFilter === 'genre' ? null : 'genre')
-                }
-                onChange={(value) => setMultiFilters({ ...multiFilters, genre: value })}
-              />
+            <p className="mt-3 rounded-2xl border border-slate-200 bg-white/70 px-4 py-2 text-sm font-medium text-slate-600 shadow-sm">
+              Stato: {message}
+            </p>
+          </section>
 
-              <CompactMultiSelectFilter
-                label="Cond. Medimops"
-                value={multiFilters.medimops_condition}
-                options={multiFilterOptions.medimops_condition}
-                isOpen={openMultiFilter === 'medimops_condition'}
-                onToggle={() =>
-                  setOpenMultiFilter(
-                    openMultiFilter === 'medimops_condition'
-                      ? null
-                      : 'medimops_condition'
-                  )
-                }
-                onChange={(value) =>
-                  setMultiFilters({ ...multiFilters, medimops_condition: value })
+          <section className="mb-4 grid gap-3 xl:grid-cols-[1fr_auto]">
+            <div className="relative">
+              <input
+                className="mpm-focus h-11 w-full rounded-2xl border border-slate-200 bg-white px-12 text-sm font-medium text-slate-700 shadow-sm placeholder:text-slate-400"
+                placeholder="Cerca per artista, album, EAN, label, country..."
+                value={filters.global || ''}
+                onChange={(event) =>
+                  setFilters({ ...filters, global: event.target.value })
                 }
               />
+              <div className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400">
+                <svg aria-hidden="true" className="h-5 w-5" viewBox="0 0 24 24" fill="none">
+                  <path
+                    d="m21 21-4.35-4.35M10.5 18a7.5 7.5 0 1 1 0-15 7.5 7.5 0 0 1 0 15Z"
+                    stroke="currentColor"
+                    strokeWidth="1.8"
+                    strokeLinecap="round"
+                  />
+                </svg>
+              </div>
+            </div>
 
-              <CompactMultiSelectFilter
-                label="Cond. Momox"
-                value={multiFilters.momox_condition}
-                options={multiFilterOptions.momox_condition}
-                isOpen={openMultiFilter === 'momox_condition'}
-                onToggle={() =>
-                  setOpenMultiFilter(
-                    openMultiFilter === 'momox_condition' ? null : 'momox_condition'
-                  )
-                }
-                onChange={(value) =>
-                  setMultiFilters({ ...multiFilters, momox_condition: value })
-                }
-              />
-
+            <div className="grid grid-cols-2 gap-3 md:grid-cols-5 xl:flex">
               <CompactMultiSelectFilter
                 label="Stato"
                 value={multiFilters.status}
@@ -1280,9 +1453,7 @@ export default function Dashboard() {
                 options={multiFilterOptions.is_active}
                 isOpen={openMultiFilter === 'is_active'}
                 onToggle={() =>
-                  setOpenMultiFilter(
-                    openMultiFilter === 'is_active' ? null : 'is_active'
-                  )
+                  setOpenMultiFilter(openMultiFilter === 'is_active' ? null : 'is_active')
                 }
                 onChange={(value) =>
                   setMultiFilters({ ...multiFilters, is_active: value })
@@ -1299,537 +1470,636 @@ export default function Dashboard() {
                 }
                 onChange={(value) => setMultiFilters({ ...multiFilters, has_url: value })}
               />
-            </div>
 
-            <div className="mt-3 grid gap-2 md:grid-cols-3 lg:grid-cols-6">
-              {[
-                ['genre', 'Filtro genere'],
-                ['artist', 'Filtro artista'],
-                ['album', 'Filtro album'],
-                ['best_price', 'Filtro Best€'],
-                ['medimops_condition', 'Filtro cond. Medimops'],
-                ['momox_condition', 'Filtro cond. Momox'],
-                ['ean_code', 'Filtro EAN'],
-                ['edition', 'Filtro label'],
-                ['release_year', 'Filtro anno'],
-                ['country', 'Filtro country'],
-                ['has_url', 'Filtro URL'],
-                ['medimops_current_price', 'Filtro Medimops €'],
-                ['momox_current_price', 'Filtro Momox €'],
-                ['last_checked_at', 'Filtro ultimo rilievo'],
-                ['last_error', 'Filtro dettaglio errore']
-              ].map(([key, placeholder]) => (
-                <input
-                  key={key}
-                  className="rounded-lg border bg-white p-2 text-sm"
-                  placeholder={placeholder}
-                  value={filters[key] || ''}
-                  onChange={(event) =>
-                    setFilters({ ...filters, [key]: event.target.value })
+              <button
+                className="inline-flex h-11 items-center justify-center gap-2 rounded-xl border border-slate-200 bg-white px-4 text-sm font-bold text-slate-700 shadow-sm hover:bg-slate-50"
+                onClick={() => setFiltersOpen(!filtersOpen)}
+              >
+                <FilterIcon />
+                Filtri
+                {activeFilterCount > 0 ? ` (${activeFilterCount})` : ''}
+              </button>
+            </div>
+          </section>
+
+          {filtersOpen && (
+            <section className="mpm-card mb-4 rounded-3xl p-4">
+              <div className="mb-3 flex items-center justify-between gap-3">
+                <h3 className="text-sm font-black uppercase tracking-wide text-[#2B403E]">
+                  Filtri avanzati
+                </h3>
+
+                <button
+                  className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm font-bold text-slate-700 hover:bg-slate-50"
+                  onClick={clearAllFilters}
+                >
+                  Pulisci filtri
+                </button>
+              </div>
+
+              <div className="grid gap-3 md:grid-cols-3 lg:grid-cols-6">
+                <CompactMultiSelectFilter
+                  label="Genere"
+                  value={multiFilters.genre}
+                  options={multiFilterOptions.genre}
+                  isOpen={openMultiFilter === 'genre'}
+                  onToggle={() =>
+                    setOpenMultiFilter(openMultiFilter === 'genre' ? null : 'genre')
+                  }
+                  onChange={(value) => setMultiFilters({ ...multiFilters, genre: value })}
+                />
+
+                <CompactMultiSelectFilter
+                  label="Cond. Medimops"
+                  value={multiFilters.medimops_condition}
+                  options={multiFilterOptions.medimops_condition}
+                  isOpen={openMultiFilter === 'medimops_condition'}
+                  onToggle={() =>
+                    setOpenMultiFilter(
+                      openMultiFilter === 'medimops_condition'
+                        ? null
+                        : 'medimops_condition'
+                    )
+                  }
+                  onChange={(value) =>
+                    setMultiFilters({ ...multiFilters, medimops_condition: value })
                   }
                 />
-              ))}
-            </div>
-          </div>
-        )}
 
-        <div className="overflow-x-auto">
-          <table className="min-w-full border-collapse text-sm">
-            <thead>
-              <tr className="bg-slate-100 text-left">
-                <th className="border-b p-2">
+                <CompactMultiSelectFilter
+                  label="Cond. Momox"
+                  value={multiFilters.momox_condition}
+                  options={multiFilterOptions.momox_condition}
+                  isOpen={openMultiFilter === 'momox_condition'}
+                  onToggle={() =>
+                    setOpenMultiFilter(
+                      openMultiFilter === 'momox_condition' ? null : 'momox_condition'
+                    )
+                  }
+                  onChange={(value) =>
+                    setMultiFilters({ ...multiFilters, momox_condition: value })
+                  }
+                />
+              </div>
+
+              <div className="mt-3 grid gap-2 md:grid-cols-3 lg:grid-cols-6">
+                {[
+                  ['artist', 'Filtro artista'],
+                  ['album', 'Filtro album'],
+                  ['best_price', 'Filtro Best€'],
+                  ['ean_code', 'Filtro EAN'],
+                  ['edition', 'Filtro label'],
+                  ['release_year', 'Filtro anno'],
+                  ['country', 'Filtro country'],
+                  ['medimops_current_price', 'Filtro Medimops €'],
+                  ['momox_current_price', 'Filtro Momox €'],
+                  ['last_checked_at', 'Filtro ultimo rilievo'],
+                  ['last_error', 'Filtro dettaglio errore']
+                ].map(([key, placeholder]) => (
                   <input
-                    type="checkbox"
-                    checked={allVisibleSelected}
-                    onChange={toggleAllVisible}
-                    title="Seleziona tutte le righe visibili"
+                    key={key}
+                    className="h-11 rounded-xl border border-slate-200 bg-white px-3 text-sm font-medium outline-none focus:border-[#24BFBF]"
+                    placeholder={placeholder}
+                    value={filters[key] || ''}
+                    onChange={(event) =>
+                      setFilters({ ...filters, [key]: event.target.value })
+                    }
                   />
-                </th>
-                <SortableHeader label="Azioni" activeSortKey={sortKey} sortAsc={sortAsc} onDoubleClick={handleHeaderDoubleClick} />
-                <SortableHeader label="Stato" sortKey="status" activeSortKey={sortKey} sortAsc={sortAsc} onDoubleClick={handleHeaderDoubleClick} />
-                <SortableHeader label="URL" sortKey="has_url" activeSortKey={sortKey} sortAsc={sortAsc} onDoubleClick={handleHeaderDoubleClick} />
-                <SortableHeader label="Dettaglio" activeSortKey={sortKey} sortAsc={sortAsc} onDoubleClick={handleHeaderDoubleClick} />
-                <SortableHeader label="Attivo" sortKey="is_active" activeSortKey={sortKey} sortAsc={sortAsc} onDoubleClick={handleHeaderDoubleClick} />
-                <SortableHeader label="Tipo" sortKey="type" activeSortKey={sortKey} sortAsc={sortAsc} onDoubleClick={handleHeaderDoubleClick} />
-                <SortableHeader label="Artista" sortKey="artist" activeSortKey={sortKey} sortAsc={sortAsc} onDoubleClick={handleHeaderDoubleClick} />
-                <SortableHeader label="Album" sortKey="album" activeSortKey={sortKey} sortAsc={sortAsc} onDoubleClick={handleHeaderDoubleClick} />
-                <SortableHeader label="Best€" sortKey="best_price" activeSortKey={sortKey} sortAsc={sortAsc} onDoubleClick={handleHeaderDoubleClick} />
-                <SortableHeader label="Medimops €" sortKey="medimops_current_price" activeSortKey={sortKey} sortAsc={sortAsc} onDoubleClick={handleHeaderDoubleClick} />
-                <SortableHeader label="Medimops Cond." sortKey="medimops_condition" activeSortKey={sortKey} sortAsc={sortAsc} onDoubleClick={handleHeaderDoubleClick} />
-                <SortableHeader label="Momox €" sortKey="momox_current_price" activeSortKey={sortKey} sortAsc={sortAsc} onDoubleClick={handleHeaderDoubleClick} />
-                <SortableHeader label="Momox Cond." sortKey="momox_condition" activeSortKey={sortKey} sortAsc={sortAsc} onDoubleClick={handleHeaderDoubleClick} />
-                <SortableHeader label="Ultimo Rilievo" sortKey="last_checked_at" activeSortKey={sortKey} sortAsc={sortAsc} onDoubleClick={handleHeaderDoubleClick} />
-                <SortableHeader label="EAN" sortKey="ean_code" activeSortKey={sortKey} sortAsc={sortAsc} onDoubleClick={handleHeaderDoubleClick} />
-                <SortableHeader label="Label" sortKey="edition" activeSortKey={sortKey} sortAsc={sortAsc} onDoubleClick={handleHeaderDoubleClick} />
-                <SortableHeader label="Anno" sortKey="release_year" activeSortKey={sortKey} sortAsc={sortAsc} onDoubleClick={handleHeaderDoubleClick} />
-                <SortableHeader label="Country" sortKey="country" activeSortKey={sortKey} sortAsc={sortAsc} onDoubleClick={handleHeaderDoubleClick} />
-                <SortableHeader label="Medimops T" sortKey="medimops_target_price" activeSortKey={sortKey} sortAsc={sortAsc} onDoubleClick={handleHeaderDoubleClick} />
-                <SortableHeader label="Momox T" sortKey="momox_target_price" activeSortKey={sortKey} sortAsc={sortAsc} onDoubleClick={handleHeaderDoubleClick} />
-                <SortableHeader label="Genere" sortKey="genre" activeSortKey={sortKey} sortAsc={sortAsc} onDoubleClick={handleHeaderDoubleClick} />
-              </tr>
-            </thead>
+                ))}
+              </div>
+            </section>
+          )}
 
-            <tbody>
-              {filtered.map((monitor) => {
-                const bestPrice = getBestPrice(monitor);
-                const alreadyInCart = cartIds.includes(monitor.id);
+          <section className="mpm-card overflow-hidden rounded-3xl">
+            <div className="flex flex-col gap-2 border-b border-slate-200 px-5 py-3 md:flex-row md:items-center md:justify-between">
+              <div>
+                <h2 className="text-xl font-black text-[#12201f]">Monitor</h2>
+                <p className="text-sm font-medium text-slate-500">
+                  Record visibili: {filtered.length} • Ordinamento default: Artista, Anno, Titolo, Country
+                </p>
+              </div>
+            </div>
 
-                return (
-                  <tr key={monitor.id} className="border-b align-top">
-                    <td className="p-2">
+            <div className="mpm-scrollbar overflow-x-auto">
+              <table className="min-w-[1850px] border-collapse text-sm">
+                <thead>
+                  <tr className="bg-white text-left">
+                    <th className="whitespace-nowrap border-b border-slate-200 px-3 py-3">
                       <input
                         type="checkbox"
-                        checked={selectedIds.includes(monitor.id)}
-                        onChange={() => toggleSelected(monitor.id)}
+                        checked={allVisibleSelected}
+                        onChange={toggleAllVisible}
+                        title="Seleziona tutte le righe visibili"
                       />
-                    </td>
-
-                    <td className="p-2">
-                      <div className="flex items-center justify-start gap-2">
-                        <button
-                          className="inline-flex h-9 w-9 items-center justify-center rounded-lg border text-amber-700 hover:bg-amber-50 disabled:cursor-not-allowed disabled:opacity-40"
-                          disabled={alreadyInCart}
-                          onClick={() => addMonitorToCart(monitor)}
-                          title={alreadyInCart ? 'Già nel carrello' : 'Aggiungi al carrello'}
-                          aria-label={alreadyInCart ? 'Già nel carrello' : 'Aggiungi al carrello'}
-                        >
-                          <CartIcon />
-                        </button>
-
-                        <button
-                          className="inline-flex h-9 w-9 items-center justify-center rounded-lg border text-slate-700 hover:bg-slate-50"
-                          onClick={() => editMonitor(monitor)}
-                          title="Modifica"
-                          aria-label="Modifica"
-                        >
-                          <EditIcon />
-                        </button>
-
-                        <button
-                          className="inline-flex h-9 w-9 items-center justify-center rounded-lg border border-red-300 text-red-700 hover:bg-red-50 disabled:opacity-50"
-                          disabled={busy}
-                          onClick={() => deleteMonitor(monitor.id)}
-                          title="Elimina"
-                          aria-label="Elimina"
-                        >
-                          <TrashIcon />
-                        </button>
-
-                        <button
-                          className="inline-flex h-9 w-9 items-center justify-center rounded-lg border text-blue-700 hover:bg-blue-50 disabled:opacity-50"
-                          disabled={busy}
-                          onClick={() => checkOne(monitor.id)}
-                          title="Controlla ora con GitHub Actions"
-                          aria-label="Controlla ora con GitHub Actions"
-                        >
-                          <CheckIcon />
-                        </button>
-                      </div>
-                    </td>
-
-                    <td className="p-2">{badge(monitor)}</td>
-                    <td className="p-2"><UrlStatusCell monitor={monitor} /></td>
-                    <td className="p-2"><DetailCell value={monitor.last_error} /></td>
-                    <td className="p-2">{monitor.is_active ? 'Sì' : 'No'}</td>
-                    <td className="p-2">{monitor.type}</td>
-                    <td className="p-2 font-medium">{monitor.artist}</td>
-                    <td className="p-2">{monitor.album}</td>
-                    <td className="p-2 font-bold text-slate-900">{formatEuro(bestPrice)}</td>
-
-                    <td className="p-2">
-                      <LinkedPrice
-                        value={monitor.medimops_current_price}
-                        url={monitor.medimops_url}
-                        className={sitePriceClass(
-                          monitor.medimops_current_price,
-                          monitor.medimops_target_price
-                        )}
-                      />
-                    </td>
-
-                    <td className="p-2">{conditionBadge(monitor.medimops_condition)}</td>
-
-                    <td className="p-2">
-                      <LinkedPrice
-                        value={monitor.momox_current_price}
-                        url={monitor.momox_url}
-                        className={sitePriceClass(
-                          monitor.momox_current_price,
-                          monitor.momox_target_price
-                        )}
-                      />
-                    </td>
-
-                    <td className="p-2">{conditionBadge(monitor.momox_condition)}</td>
-                    <td className="p-2">{formatDate(monitor.last_checked_at)}</td>
-                    <td className="p-2">{monitor.ean_code || '-'}</td>
-                    <td className="p-2">{monitor.edition || '-'}</td>
-                    <td className="p-2">{monitor.release_year || '-'}</td>
-                    <td className="p-2">{monitor.country || '-'}</td>
-                    <td className="p-2 text-slate-500">{formatEuro(monitor.medimops_target_price)}</td>
-                    <td className="p-2 text-slate-500">{formatEuro(monitor.momox_target_price)}</td>
-                    <td className="p-2">{monitor.genre}</td>
+                    </th>
+                    <SortableHeader label="Azioni" activeSortKey={sortKey} sortAsc={sortAsc} onDoubleClick={handleHeaderDoubleClick} />
+                    <SortableHeader label="Stato" sortKey="status" activeSortKey={sortKey} sortAsc={sortAsc} onDoubleClick={handleHeaderDoubleClick} />
+                    <SortableHeader label="URL" sortKey="has_url" activeSortKey={sortKey} sortAsc={sortAsc} onDoubleClick={handleHeaderDoubleClick} />
+                    <SortableHeader label="Dettaglio" activeSortKey={sortKey} sortAsc={sortAsc} onDoubleClick={handleHeaderDoubleClick} />
+                    <SortableHeader label="Attivo" sortKey="is_active" activeSortKey={sortKey} sortAsc={sortAsc} onDoubleClick={handleHeaderDoubleClick} />
+                    <SortableHeader label="Tipo" sortKey="type" activeSortKey={sortKey} sortAsc={sortAsc} onDoubleClick={handleHeaderDoubleClick} />
+                    <SortableHeader label="Artista" sortKey="artist" activeSortKey={sortKey} sortAsc={sortAsc} onDoubleClick={handleHeaderDoubleClick} />
+                    <SortableHeader label="Album" sortKey="album" activeSortKey={sortKey} sortAsc={sortAsc} onDoubleClick={handleHeaderDoubleClick} />
+                    <SortableHeader label="Best€" sortKey="best_price" activeSortKey={sortKey} sortAsc={sortAsc} onDoubleClick={handleHeaderDoubleClick} />
+                    <SortableHeader label="Medimops €" sortKey="medimops_current_price" activeSortKey={sortKey} sortAsc={sortAsc} onDoubleClick={handleHeaderDoubleClick} />
+                    <SortableHeader label="Medimops Cond." sortKey="medimops_condition" activeSortKey={sortKey} sortAsc={sortAsc} onDoubleClick={handleHeaderDoubleClick} />
+                    <SortableHeader label="Momox €" sortKey="momox_current_price" activeSortKey={sortKey} sortAsc={sortAsc} onDoubleClick={handleHeaderDoubleClick} />
+                    <SortableHeader label="Momox Cond." sortKey="momox_condition" activeSortKey={sortKey} sortAsc={sortAsc} onDoubleClick={handleHeaderDoubleClick} />
+                    <SortableHeader label="Ultimo Rilievo" sortKey="last_checked_at" activeSortKey={sortKey} sortAsc={sortAsc} onDoubleClick={handleHeaderDoubleClick} />
+                    <SortableHeader label="EAN" sortKey="ean_code" activeSortKey={sortKey} sortAsc={sortAsc} onDoubleClick={handleHeaderDoubleClick} />
+                    <SortableHeader label="Label" sortKey="edition" activeSortKey={sortKey} sortAsc={sortAsc} onDoubleClick={handleHeaderDoubleClick} />
+                    <SortableHeader label="Anno" sortKey="release_year" activeSortKey={sortKey} sortAsc={sortAsc} onDoubleClick={handleHeaderDoubleClick} />
+                    <SortableHeader label="Country" sortKey="country" activeSortKey={sortKey} sortAsc={sortAsc} onDoubleClick={handleHeaderDoubleClick} />
+                    <SortableHeader label="Medimops T" sortKey="medimops_target_price" activeSortKey={sortKey} sortAsc={sortAsc} onDoubleClick={handleHeaderDoubleClick} />
+                    <SortableHeader label="Momox T" sortKey="momox_target_price" activeSortKey={sortKey} sortAsc={sortAsc} onDoubleClick={handleHeaderDoubleClick} />
+                    <SortableHeader label="Genere" sortKey="genre" activeSortKey={sortKey} sortAsc={sortAsc} onDoubleClick={handleHeaderDoubleClick} />
                   </tr>
-                );
-              })}
+                </thead>
 
-              {filtered.length === 0 && (
-                <tr>
-                  <td className="p-4 text-center text-slate-500" colSpan={22}>
-                    Nessun monitor trovato.
-                  </td>
-                </tr>
-              )}
-            </tbody>
-          </table>
-        </div>
-      </section>
+                <tbody>
+                  {filtered.map((monitor) => {
+                    const bestPrice = getBestPrice(monitor);
+                    const alreadyInCart = cartIds.includes(monitor.id);
 
-      {isImportOpen && (
-        <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-slate-900/50 p-4 sm:items-center">
-          <div className="w-full max-w-xl rounded-2xl bg-white p-6 shadow-xl">
-            <div className="mb-5 flex items-start justify-between gap-4">
-              <div>
-                <h2 className="text-xl font-semibold">Importa CSV</h2>
-                <p className="mt-1 text-sm text-slate-500">
-                  Trascina qui il file CSV oppure selezionalo dal computer.
-                  Se anche una sola riga contiene errori, non verrà importato nulla.
-                </p>
-              </div>
+                    return (
+                      <tr key={monitor.id} className="border-b border-slate-100 bg-white align-top hover:bg-slate-50/70">
+                        <td className="px-3 py-3">
+                          <input
+                            type="checkbox"
+                            checked={selectedIds.includes(monitor.id)}
+                            onChange={() => toggleSelected(monitor.id)}
+                          />
+                        </td>
 
-              <button
-                className="rounded-lg border p-2 text-slate-600 hover:bg-slate-50"
-                onClick={() => setIsImportOpen(false)}
-                aria-label="Chiudi"
-              >
-                <CloseIcon />
-              </button>
+                        <td className="px-3 py-3">
+                          <div className="flex items-center justify-start gap-1.5">
+                            <button
+                              className="inline-flex h-8 w-8 items-center justify-center rounded-xl border border-slate-200 bg-white text-[#2B403E] hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-40"
+                              disabled={alreadyInCart}
+                              onClick={() => addMonitorToCart(monitor)}
+                              title={alreadyInCart ? 'Già nel carrello' : 'Aggiungi al carrello'}
+                              aria-label={alreadyInCart ? 'Già nel carrello' : 'Aggiungi al carrello'}
+                            >
+                              <CartIcon />
+                            </button>
+
+                            <button
+                              className="inline-flex h-8 w-8 items-center justify-center rounded-xl border border-slate-200 bg-white text-[#2B403E] hover:bg-slate-50"
+                              onClick={() => editMonitor(monitor)}
+                              title="Modifica"
+                              aria-label="Modifica"
+                            >
+                              <EditIcon />
+                            </button>
+
+                            <button
+                              className="inline-flex h-8 w-8 items-center justify-center rounded-xl border border-red-100 bg-white text-red-600 hover:bg-red-50 disabled:opacity-50"
+                              disabled={busy}
+                              onClick={() => deleteMonitor(monitor.id)}
+                              title="Elimina"
+                              aria-label="Elimina"
+                            >
+                              <TrashIcon />
+                            </button>
+
+                            <button
+                              className="inline-flex h-8 w-8 items-center justify-center rounded-xl border border-cyan-100 bg-white text-[#24BFBF] hover:bg-cyan-50 disabled:opacity-50"
+                              disabled={busy}
+                              onClick={() => checkOne(monitor.id)}
+                              title="Controlla ora con GitHub Actions"
+                              aria-label="Controlla ora con GitHub Actions"
+                            >
+                              <CheckIcon />
+                            </button>
+                          </div>
+                        </td>
+
+                        <td className="px-3 py-3"><StatusBadge monitor={monitor} /></td>
+                        <td className="px-3 py-3"><UrlStatusCell monitor={monitor} /></td>
+                        <td className="px-3 py-3"><DetailCell value={monitor.last_error} /></td>
+                        <td className="px-3 py-3">
+                          <span className={`inline-flex h-6 w-10 items-center rounded-full p-1 ${monitor.is_active ? 'bg-[#24BFBF]' : 'bg-slate-200'}`}>
+                            <span className={`h-4 w-4 rounded-full bg-white shadow ${monitor.is_active ? 'ml-4' : ''}`} />
+                          </span>
+                        </td>
+                        <td className="px-3 py-3">
+                          <span className={`rounded-full px-2.5 py-1 text-xs font-black ${monitor.type === 'CD' ? 'bg-cyan-50 text-[#168c95]' : 'bg-orange-50 text-[#d97825]'}`}>
+                            {monitor.type}
+                          </span>
+                        </td>
+                        <td className="px-3 py-3 font-bold text-[#12201f]">{monitor.artist}</td>
+                        <td className="px-3 py-3"><AlbumCell value={monitor.album} /></td>
+                        <td className="px-3 py-3 font-black text-[#12201f]">{formatEuro(bestPrice)}</td>
+
+                        <td className="px-3 py-3">
+                          <LinkedPrice
+                            value={monitor.medimops_current_price}
+                            url={monitor.medimops_url}
+                            className={sitePriceClass(
+                              monitor.medimops_current_price,
+                              monitor.medimops_target_price
+                            )}
+                          />
+                        </td>
+
+                        <td className="px-3 py-3">{conditionBadge(monitor.medimops_condition)}</td>
+
+                        <td className="px-3 py-3">
+                          <LinkedPrice
+                            value={monitor.momox_current_price}
+                            url={monitor.momox_url}
+                            className={sitePriceClass(
+                              monitor.momox_current_price,
+                              monitor.momox_target_price
+                            )}
+                          />
+                        </td>
+
+                        <td className="px-3 py-3">{conditionBadge(monitor.momox_condition)}</td>
+                        <td className="px-3 py-3 text-slate-600">{formatDate(monitor.last_checked_at)}</td>
+                        <td className="px-3 py-3 text-slate-600">{monitor.ean_code || '-'}</td>
+                        <td className="px-3 py-3 text-slate-600">{monitor.edition || '-'}</td>
+                        <td className="px-3 py-3 text-slate-600">{monitor.release_year || '-'}</td>
+                        <td className="px-3 py-3 text-slate-600">{monitor.country || '-'}</td>
+                        <td className="px-3 py-3 text-slate-500">{formatEuro(monitor.medimops_target_price)}</td>
+                        <td className="px-3 py-3 text-slate-500">{formatEuro(monitor.momox_target_price)}</td>
+                        <td className="px-3 py-3 text-slate-600">{monitor.genre}</td>
+                      </tr>
+                    );
+                  })}
+
+                  {filtered.length === 0 && (
+                    <tr>
+                      <td className="p-8 text-center text-slate-500" colSpan={22}>
+                        Nessun monitor trovato.
+                      </td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
             </div>
+          </section>
 
-            <input
-              ref={csvInputRef}
-              type="file"
-              accept=".csv,text/csv"
-              className="hidden"
-              onChange={handleCsvInputChange}
-            />
+          {isImportOpen && (
+            <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-[#2B403E]/60 p-4 backdrop-blur-sm sm:items-center">
+              <div className="w-full max-w-xl rounded-3xl bg-white p-6 shadow-2xl">
+                <div className="mb-5 flex items-start justify-between gap-4">
+                  <div>
+                    <h2 className="text-2xl font-black text-[#12201f]">Importa CSV</h2>
+                    <p className="mt-1 text-sm text-slate-500">
+                      Trascina qui il file CSV oppure selezionalo dal computer.
+                      Se anche una sola riga contiene errori, non verrà importato nulla.
+                    </p>
+                  </div>
 
-            <div
-              className={`rounded-2xl border-2 border-dashed p-8 text-center ${
-                dragActive ? 'border-blue-600 bg-blue-50' : 'border-slate-300 bg-slate-50'
-              }`}
-              onDragEnter={(event) => {
-                event.preventDefault();
-                event.stopPropagation();
-                setDragActive(true);
-              }}
-              onDragOver={(event) => {
-                event.preventDefault();
-                event.stopPropagation();
-                setDragActive(true);
-              }}
-              onDragLeave={(event) => {
-                event.preventDefault();
-                event.stopPropagation();
-                setDragActive(false);
-              }}
-              onDrop={handleImportDrop}
-            >
-              <div className="text-lg font-semibold text-slate-800">
-                Trascina qui il CSV
-              </div>
-              <div className="mt-2 text-sm text-slate-500">oppure</div>
-
-              <button
-                type="button"
-                disabled={busy}
-                className="mt-4 rounded-lg bg-blue-700 px-4 py-2 font-semibold text-white hover:bg-blue-800 disabled:opacity-50"
-                onClick={() => csvInputRef.current?.click()}
-              >
-                Scegli file CSV
-              </button>
-            </div>
-
-            <div className="mt-4 rounded-lg bg-amber-50 p-3 text-sm text-amber-900">
-              Campi obbligatori: Genere, Tipo, Artista, Album, EAN, Target,
-              URL Medimops. URL Momox viene generato automaticamente da URL Medimops.
-            </div>
-          </div>
-        </div>
-      )}
-
-      {isFormOpen && (
-        <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-slate-900/50 p-4 sm:items-center">
-          <div className="w-full max-w-6xl rounded-2xl bg-white p-6 shadow-xl">
-            <div className="mb-5 flex items-start justify-between gap-4">
-              <div>
-                <h2 className="text-xl font-semibold">
-                  {form.id ? 'Modifica monitor' : 'Nuovo monitor'}
-                </h2>
-                <p className="mt-1 text-sm text-slate-500">
-                  Inserisci i dati del disco. Il genere è obbligatorio.
-                  Inserendo URL Medimops, URL Momox viene generato automaticamente.
-                </p>
-              </div>
-
-              <button
-                className="rounded-lg border p-2 text-slate-600 hover:bg-slate-50"
-                onClick={closeMonitorModal}
-                aria-label="Chiudi"
-              >
-                <CloseIcon />
-              </button>
-            </div>
-
-            <form onSubmit={saveMonitor} className="space-y-5">
-              <div className="grid gap-3 md:grid-cols-2 lg:grid-cols-4">
-                <label className="text-sm font-medium">
-                  Genere
-                  <select
-                    required
-                    className="mt-1 w-full rounded-lg border p-2"
-                    value={form.genre}
-                    onChange={(event) =>
-                      setForm({ ...form, genre: event.target.value as MonitorGenre })
-                    }
+                  <button
+                    className="rounded-xl border border-slate-200 p-2 text-slate-600 hover:bg-slate-50"
+                    onClick={() => setIsImportOpen(false)}
+                    aria-label="Chiudi"
                   >
-                    {MONITOR_GENRES.map((genre) => (
-                      <option key={genre} value={genre}>{genre}</option>
-                    ))}
-                  </select>
-                </label>
+                    <CloseIcon />
+                  </button>
+                </div>
 
-                <label className="text-sm font-medium">
-                  Tipo
-                  <select
-                    className="mt-1 w-full rounded-lg border p-2"
-                    value={form.type}
-                    onChange={(event) =>
-                      setForm({ ...form, type: event.target.value as MonitorType })
-                    }
+                <input
+                  ref={csvInputRef}
+                  type="file"
+                  accept=".csv,text/csv"
+                  className="hidden"
+                  onChange={handleCsvInputChange}
+                />
+
+                <div
+                  className={`rounded-3xl border-2 border-dashed p-8 text-center ${
+                    dragActive ? 'border-[#24BFBF] bg-cyan-50' : 'border-slate-300 bg-slate-50'
+                  }`}
+                  onDragEnter={(event) => {
+                    event.preventDefault();
+                    event.stopPropagation();
+                    setDragActive(true);
+                  }}
+                  onDragOver={(event) => {
+                    event.preventDefault();
+                    event.stopPropagation();
+                    setDragActive(true);
+                  }}
+                  onDragLeave={(event) => {
+                    event.preventDefault();
+                    event.stopPropagation();
+                    setDragActive(false);
+                  }}
+                  onDrop={handleImportDrop}
+                >
+                  <div className="text-lg font-black text-slate-800">
+                    Trascina qui il CSV
+                  </div>
+                  <div className="mt-2 text-sm text-slate-500">oppure</div>
+
+                  <button
+                    type="button"
+                    disabled={busy}
+                    className="mpm-btn-primary mt-4 rounded-xl px-4 py-2 font-bold disabled:opacity-50"
+                    onClick={() => csvInputRef.current?.click()}
                   >
-                    <option>CD</option>
-                    <option>LP</option>
-                  </select>
-                </label>
+                    Scegli file CSV
+                  </button>
+                </div>
 
-                <label className="text-sm font-medium">
-                  Artista
-                  <input
-                    required
-                    className="mt-1 w-full rounded-lg border p-2"
-                    value={form.artist}
-                    onChange={(event) => setForm({ ...form, artist: event.target.value })}
-                  />
-                </label>
-
-                <label className="text-sm font-medium">
-                  Album
-                  <input
-                    required
-                    className="mt-1 w-full rounded-lg border p-2"
-                    value={form.album}
-                    onChange={(event) => setForm({ ...form, album: event.target.value })}
-                  />
-                </label>
-
-                <label className="text-sm font-medium">
-                  Label
-                  <input
-                    className="mt-1 w-full rounded-lg border p-2"
-                    value={form.edition}
-                    onChange={(event) => setForm({ ...form, edition: event.target.value })}
-                  />
-                </label>
-
-                <label className="text-sm font-medium">
-                  EAN
-                  <input
-                    inputMode="numeric"
-                    maxLength={32}
-                    className="mt-1 w-full rounded-lg border p-2"
-                    value={form.ean_code}
-                    onChange={(event) =>
-                      setForm({ ...form, ean_code: normalizeEan(event.target.value) })
-                    }
-                  />
-                </label>
-
-                <label className="text-sm font-medium">
-                  Anno
-                  <input
-                    type="number"
-                    inputMode="numeric"
-                    min="1900"
-                    max="2100"
-                    className="mt-1 w-full rounded-lg border p-2"
-                    value={form.release_year}
-                    onChange={(event) =>
-                      setForm({ ...form, release_year: event.target.value })
-                    }
-                  />
-                </label>
-
-                <label className="text-sm font-medium">
-                  Country
-                  <input
-                    maxLength={3}
-                    className="mt-1 w-full rounded-lg border p-2 uppercase"
-                    value={form.country}
-                    onChange={(event) =>
-                      setForm({
-                        ...form,
-                        country: event.target.value.toUpperCase().slice(0, 3)
-                      })
-                    }
-                  />
-                </label>
-              </div>
-
-              <div className="rounded-xl border bg-slate-50 p-4">
-                <h3 className="mb-3 text-sm font-semibold text-slate-700">Medimops</h3>
-
-                <div className="grid gap-3 lg:grid-cols-[1fr_220px]">
-                  <label className="text-sm font-medium">
-                    URL Medimops
-                    <input
-                      type="url"
-                      className="mt-1 w-full rounded-lg border bg-white p-2"
-                      value={form.medimops_url}
-                      onChange={(event) => updateMedimopsUrl(event.target.value)}
-                    />
-                  </label>
-
-                  <label className="text-sm font-medium">
-                    Prezzo Target Medimops
-                    <input
-                      className="mt-1 w-full rounded-lg border bg-white p-2"
-                      placeholder="es. 10,00"
-                      value={form.medimops_target_price}
-                      onChange={(event) => updateMedimopsTargetPrice(event.target.value)}
-                    />
-                  </label>
+                <div className="mt-4 rounded-2xl bg-orange-50 p-3 text-sm font-semibold text-orange-900">
+                  Campi obbligatori: Genere, Tipo, Artista, Album, EAN, Target,
+                  URL Medimops. URL Momox viene generato automaticamente da URL Medimops.
                 </div>
               </div>
+            </div>
+          )}
 
-              <div className="rounded-xl border bg-slate-50 p-4">
-                <h3 className="mb-3 text-sm font-semibold text-slate-700">Momox</h3>
+          {isFormOpen && (
+            <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-[#2B403E]/60 p-4 backdrop-blur-sm">
+              <div className="my-4 w-full max-w-5xl rounded-3xl bg-white p-5 shadow-2xl">
+                <div className="mb-4 flex items-start justify-between gap-4">
+                  <div>
+                    <h2 className="text-2xl font-black text-[#12201f]">
+                      {form.id ? 'Modifica monitor' : 'Nuovo monitor'}
+                    </h2>
+                    <p className="mt-1 text-sm text-slate-500">
+                      Inserisci i dati del disco. URL Momox viene generato automaticamente da URL Medimops.
+                    </p>
+                  </div>
 
-                <div className="grid gap-3 lg:grid-cols-[1fr_220px]">
-                  <label className="text-sm font-medium">
-                    URL Momox
-                    <input
-                      type="url"
-                      className="mt-1 w-full rounded-lg border bg-white p-2"
-                      value={form.momox_url}
-                      onChange={(event) =>
-                        setForm({ ...form, momox_url: event.target.value })
-                      }
-                    />
-                  </label>
-
-                  <label className="text-sm font-medium">
-                    Prezzo Target Momox
-                    <input
-                      className="mt-1 w-full rounded-lg border bg-white p-2"
-                      placeholder="es. 10,00"
-                      value={form.momox_target_price}
-                      onChange={(event) =>
-                        setForm({ ...form, momox_target_price: event.target.value })
-                      }
-                    />
-                  </label>
+                  <button
+                    className="rounded-xl border border-slate-200 p-2 text-slate-600 hover:bg-slate-50"
+                    onClick={closeMonitorModal}
+                    aria-label="Chiudi"
+                  >
+                    <CloseIcon />
+                  </button>
                 </div>
-              </div>
 
-              <div className="rounded-xl border bg-amber-50 p-4">
-                <h3 className="mb-3 text-sm font-semibold text-slate-700">Amazon</h3>
+                <form onSubmit={saveMonitor} className="space-y-4">
+                  <div className="rounded-3xl border border-slate-200 bg-slate-50 p-4">
+                    <h3 className="mb-3 text-sm font-black uppercase tracking-wide text-[#2B403E]">
+                      Disco
+                    </h3>
 
-                <div className="grid gap-3 lg:grid-cols-[260px_220px_1fr]">
-                  <label className="text-sm font-medium">
-                    ASIN Amazon
-                    <input
-                      maxLength={10}
-                      className="mt-1 w-full rounded-lg border bg-white p-2 uppercase"
-                      placeholder="es. B0DVH4P8DB"
-                      value={form.amazon_asin}
-                      onChange={(event) =>
-                        setForm({ ...form, amazon_asin: normalizeAsin(event.target.value) })
-                      }
-                    />
-                  </label>
+                    <div className="grid gap-3 md:grid-cols-2 lg:grid-cols-4">
+                      <label className="text-sm font-bold text-slate-700">
+                        Genere
+                        <select
+                          required
+                          className="mt-1 w-full rounded-xl border border-slate-200 p-2 outline-none focus:border-[#24BFBF]"
+                          value={form.genre}
+                          onChange={(event) =>
+                            setForm({ ...form, genre: event.target.value as MonitorGenre })
+                          }
+                        >
+                          {MONITOR_GENRES.map((genre) => (
+                            <option key={genre} value={genre}>{genre}</option>
+                          ))}
+                        </select>
+                      </label>
 
-                  <label className="text-sm font-medium">
-                    Prezzo Target Amazon
-                    <input
-                      className="mt-1 w-full rounded-lg border bg-white p-2"
-                      placeholder="es. 10,00"
-                      value={form.amazon_target_price}
-                      onChange={(event) =>
-                        setForm({ ...form, amazon_target_price: event.target.value })
-                      }
-                    />
-                  </label>
+                      <label className="text-sm font-bold text-slate-700">
+                        Tipo
+                        <select
+                          className="mt-1 w-full rounded-xl border border-slate-200 p-2 outline-none focus:border-[#24BFBF]"
+                          value={form.type}
+                          onChange={(event) =>
+                            setForm({ ...form, type: event.target.value as MonitorType })
+                          }
+                        >
+                          <option>CD</option>
+                          <option>LP</option>
+                        </select>
+                      </label>
 
-                  <div className="text-sm text-slate-600">
-                    <div className="font-medium text-slate-700">
-                      URL generati automaticamente
-                    </div>
-                    <div className="mt-1 space-y-1 break-all text-xs">
-                      <div>FR: {amazonFrUrl || '-'}</div>
-                      <div>DE: {amazonDeUrl || '-'}</div>
-                      <div>IT: {amazonItUrl || '-'}</div>
+                      <label className="text-sm font-bold text-slate-700">
+                        Artista
+                        <input
+                          required
+                          className="mt-1 w-full rounded-xl border border-slate-200 p-2 outline-none focus:border-[#24BFBF]"
+                          value={form.artist}
+                          onChange={(event) => setForm({ ...form, artist: event.target.value })}
+                        />
+                      </label>
+
+                      <label className="text-sm font-bold text-slate-700">
+                        Album
+                        <input
+                          required
+                          className="mt-1 w-full rounded-xl border border-slate-200 p-2 outline-none focus:border-[#24BFBF]"
+                          value={form.album}
+                          onChange={(event) => setForm({ ...form, album: event.target.value })}
+                        />
+                      </label>
+
+                      <label className="text-sm font-bold text-slate-700">
+                        Label
+                        <input
+                          className="mt-1 w-full rounded-xl border border-slate-200 p-2 outline-none focus:border-[#24BFBF]"
+                          value={form.edition}
+                          onChange={(event) => setForm({ ...form, edition: event.target.value })}
+                        />
+                      </label>
+
+                      <label className="text-sm font-bold text-slate-700">
+                        EAN
+                        <input
+                          inputMode="numeric"
+                          maxLength={32}
+                          className="mt-1 w-full rounded-xl border border-slate-200 p-2 outline-none focus:border-[#24BFBF]"
+                          value={form.ean_code}
+                          onChange={(event) =>
+                            setForm({ ...form, ean_code: normalizeEan(event.target.value) })
+                          }
+                        />
+                      </label>
+
+                      <label className="text-sm font-bold text-slate-700">
+                        Anno
+                        <input
+                          type="number"
+                          inputMode="numeric"
+                          min="1900"
+                          max="2100"
+                          className="mt-1 w-full rounded-xl border border-slate-200 p-2 outline-none focus:border-[#24BFBF]"
+                          value={form.release_year}
+                          onChange={(event) =>
+                            setForm({ ...form, release_year: event.target.value })
+                          }
+                        />
+                      </label>
+
+                      <label className="text-sm font-bold text-slate-700">
+                        Country
+                        <input
+                          maxLength={3}
+                          className="mt-1 w-full rounded-xl border border-slate-200 p-2 uppercase outline-none focus:border-[#24BFBF]"
+                          value={form.country}
+                          onChange={(event) =>
+                            setForm({
+                              ...form,
+                              country: event.target.value.toUpperCase().slice(0, 3)
+                            })
+                          }
+                        />
+                      </label>
                     </div>
                   </div>
-                </div>
+
+                  <div className="grid gap-4 xl:grid-cols-2">
+                    <div className="rounded-3xl border border-slate-200 bg-slate-50 p-4">
+                      <h3 className="mb-3 text-sm font-black uppercase tracking-wide text-[#2B403E]">
+                        Medimops
+                      </h3>
+
+                      <div className="grid gap-3 lg:grid-cols-[1fr_180px]">
+                        <label className="text-sm font-bold text-slate-700">
+                          URL Medimops
+                          <input
+                            type="url"
+                            className="mt-1 w-full rounded-xl border border-slate-200 bg-white p-2 outline-none focus:border-[#24BFBF]"
+                            value={form.medimops_url}
+                            onChange={(event) => updateMedimopsUrl(event.target.value)}
+                          />
+                        </label>
+
+                        <label className="text-sm font-bold text-slate-700">
+                          Target
+                          <input
+                            className="mt-1 w-full rounded-xl border border-slate-200 bg-white p-2 outline-none focus:border-[#24BFBF]"
+                            placeholder="10,00"
+                            value={form.medimops_target_price}
+                            onChange={(event) => updateMedimopsTargetPrice(event.target.value)}
+                          />
+                        </label>
+                      </div>
+                    </div>
+
+                    <div className="rounded-3xl border border-slate-200 bg-slate-50 p-4">
+                      <h3 className="mb-3 text-sm font-black uppercase tracking-wide text-[#2B403E]">
+                        Momox
+                      </h3>
+
+                      <div className="grid gap-3 lg:grid-cols-[1fr_180px]">
+                        <label className="text-sm font-bold text-slate-700">
+                          URL Momox
+                          <input
+                            type="url"
+                            className="mt-1 w-full rounded-xl border border-slate-200 bg-white p-2 outline-none focus:border-[#24BFBF]"
+                            value={form.momox_url}
+                            onChange={(event) =>
+                              setForm({ ...form, momox_url: event.target.value })
+                            }
+                          />
+                        </label>
+
+                        <label className="text-sm font-bold text-slate-700">
+                          Target
+                          <input
+                            className="mt-1 w-full rounded-xl border border-slate-200 bg-white p-2 outline-none focus:border-[#24BFBF]"
+                            placeholder="10,00"
+                            value={form.momox_target_price}
+                            onChange={(event) =>
+                              setForm({ ...form, momox_target_price: event.target.value })
+                            }
+                          />
+                        </label>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="rounded-3xl border border-orange-100 bg-orange-50 p-4">
+                    <h3 className="mb-3 text-sm font-black uppercase tracking-wide text-[#2B403E]">
+                      Amazon futuro
+                    </h3>
+
+                    <div className="grid gap-3 lg:grid-cols-[220px_180px_1fr]">
+                      <label className="text-sm font-bold text-slate-700">
+                        ASIN
+                        <input
+                          maxLength={10}
+                          className="mt-1 w-full rounded-xl border border-orange-100 bg-white p-2 uppercase outline-none focus:border-[#F2A25C]"
+                          placeholder="B0DVH4P8DB"
+                          value={form.amazon_asin}
+                          onChange={(event) =>
+                            setForm({ ...form, amazon_asin: normalizeAsin(event.target.value) })
+                          }
+                        />
+                      </label>
+
+                      <label className="text-sm font-bold text-slate-700">
+                        Target
+                        <input
+                          className="mt-1 w-full rounded-xl border border-orange-100 bg-white p-2 outline-none focus:border-[#F2A25C]"
+                          placeholder="10,00"
+                          value={form.amazon_target_price}
+                          onChange={(event) =>
+                            setForm({ ...form, amazon_target_price: event.target.value })
+                          }
+                        />
+                      </label>
+
+                      <div className="text-sm text-slate-600">
+                        <div className="font-bold text-slate-700">
+                          URL generati automaticamente
+                        </div>
+                        <div className="mt-1 space-y-1 break-all text-xs">
+                          <div>FR: {amazonFrUrl || '-'}</div>
+                          <div>DE: {amazonDeUrl || '-'}</div>
+                          <div>IT: {amazonItUrl || '-'}</div>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="grid gap-3 md:grid-cols-[1fr_160px]">
+                    <label className="text-sm font-bold text-slate-700">
+                      Email specifica, opzionale
+                      <input
+                        type="email"
+                        className="mt-1 w-full rounded-xl border border-slate-200 p-2 outline-none focus:border-[#24BFBF]"
+                        placeholder="Lascia vuoto per usare l’email predefinita"
+                        value={form.alert_email}
+                        onChange={(event) =>
+                          setForm({ ...form, alert_email: event.target.value })
+                        }
+                      />
+                    </label>
+
+                    <label className="flex items-center gap-2 rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm font-bold text-slate-700">
+                      <input
+                        type="checkbox"
+                        checked={form.is_active}
+                        onChange={(event) =>
+                          setForm({ ...form, is_active: event.target.checked })
+                        }
+                      />
+                      Attivo
+                    </label>
+                  </div>
+
+                  <div className="flex gap-3 border-t border-slate-100 pt-4">
+                    <button
+                      disabled={busy}
+                      className="mpm-btn-primary rounded-xl px-5 py-2 font-bold disabled:opacity-50"
+                    >
+                      Salva
+                    </button>
+
+                    <button
+                      type="button"
+                      className="rounded-xl border border-slate-200 px-5 py-2 font-bold text-slate-700 hover:bg-slate-50"
+                      onClick={closeMonitorModal}
+                    >
+                      Annulla
+                    </button>
+                  </div>
+                </form>
               </div>
-
-              <div className="grid gap-3 md:grid-cols-2 lg:grid-cols-3">
-                <label className="text-sm font-medium">
-                  Email specifica, opzionale
-                  <input
-                    type="email"
-                    className="mt-1 w-full rounded-lg border p-2"
-                    placeholder="Lascia vuoto per usare l’email predefinita"
-                    value={form.alert_email}
-                    onChange={(event) =>
-                      setForm({ ...form, alert_email: event.target.value })
-                    }
-                  />
-                </label>
-
-                <label className="flex items-center gap-2 text-sm font-medium">
-                  <input
-                    type="checkbox"
-                    checked={form.is_active}
-                    onChange={(event) =>
-                      setForm({ ...form, is_active: event.target.checked })
-                    }
-                  />
-                  Attivo
-                </label>
-              </div>
-
-              <div className="flex gap-3">
-                <button
-                  disabled={busy}
-                  className="rounded-lg bg-blue-700 px-5 py-2 font-semibold text-white hover:bg-blue-800 disabled:opacity-50"
-                >
-                  Salva
-                </button>
-
-                <button
-                  type="button"
-                  className="rounded-lg border px-5 py-2 font-semibold text-slate-700 hover:bg-slate-50"
-                  onClick={closeMonitorModal}
-                >
-                  Annulla
-                </button>
-              </div>
-            </form>
-          </div>
+            </div>
+          )}
         </div>
-      )}
-    </main>
+      </main>
+    </div>
   );
 }

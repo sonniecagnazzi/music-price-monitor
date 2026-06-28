@@ -2,5 +2,119 @@
 @tailwind components;
 @tailwind utilities;
 
-body { background: #f8fafc; color: #0f172a; }
-input, select, textarea { color: #0f172a; }
+:root {
+  --mpm-teal: #24bfbf;
+  --mpm-dark: #2b403e;
+  --mpm-green: #1fbf92;
+  --mpm-orange: #f2a25c;
+  --mpm-bg: #f2f2f2;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html {
+  min-height: 100%;
+  background: var(--mpm-bg);
+}
+
+body {
+  min-height: 100%;
+  margin: 0;
+  background:
+    radial-gradient(circle at top left, rgba(36, 191, 191, 0.08), transparent 34rem),
+    linear-gradient(135deg, #f7fbfb 0%, var(--mpm-bg) 46%, #ffffff 100%);
+  color: #12201f;
+}
+
+button,
+input,
+select,
+textarea {
+  font: inherit;
+}
+
+button {
+  transition:
+    transform 120ms ease,
+    box-shadow 120ms ease,
+    background-color 120ms ease,
+    border-color 120ms ease,
+    color 120ms ease;
+}
+
+button:not(:disabled):active {
+  transform: translateY(1px);
+}
+
+a {
+  color: inherit;
+}
+
+.mpm-scrollbar {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(43, 64, 62, 0.25) transparent;
+}
+
+.mpm-scrollbar::-webkit-scrollbar {
+  height: 8px;
+  width: 8px;
+}
+
+.mpm-scrollbar::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.mpm-scrollbar::-webkit-scrollbar-thumb {
+  background: rgba(43, 64, 62, 0.25);
+  border-radius: 999px;
+}
+
+.mpm-glass {
+  background: rgba(255, 255, 255, 0.86);
+  border: 1px solid rgba(43, 64, 62, 0.08);
+  box-shadow:
+    0 20px 45px rgba(43, 64, 62, 0.08),
+    0 1px 0 rgba(255, 255, 255, 0.9) inset;
+  backdrop-filter: blur(16px);
+}
+
+.mpm-card {
+  background: rgba(255, 255, 255, 0.9);
+  border: 1px solid rgba(43, 64, 62, 0.08);
+  box-shadow: 0 16px 40px rgba(43, 64, 62, 0.07);
+}
+
+.mpm-sidebar {
+  background:
+    radial-gradient(circle at top left, rgba(36, 191, 191, 0.22), transparent 18rem),
+    linear-gradient(180deg, #16312f 0%, #102826 100%);
+}
+
+.mpm-btn-primary {
+  background: linear-gradient(135deg, #24bfbf 0%, #18a9a9 100%);
+  color: #ffffff;
+  box-shadow: 0 12px 24px rgba(36, 191, 191, 0.25);
+}
+
+.mpm-btn-primary:hover {
+  box-shadow: 0 14px 28px rgba(36, 191, 191, 0.34);
+}
+
+.mpm-btn-green {
+  background: linear-gradient(135deg, #1fbf92 0%, #159b77 100%);
+  color: #ffffff;
+  box-shadow: 0 12px 24px rgba(31, 191, 146, 0.22);
+}
+
+.mpm-btn-orange {
+  background: linear-gradient(135deg, #f2a25c 0%, #ef8b33 100%);
+  color: #ffffff;
+  box-shadow: 0 12px 24px rgba(242, 162, 92, 0.28);
+}
+
+.mpm-focus:focus {
+  outline: 3px solid rgba(36, 191, 191, 0.25);
+  outline-offset: 2px;
+}
