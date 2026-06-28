@@ -115,6 +115,14 @@ const statusLabels: Record<LastStatus | 'never_checked', string> = {
   error: 'errore'
 };
 
+function MenuIcon() {
+  return (
+    <svg aria-hidden="true" className="h-5 w-5" viewBox="0 0 24 24" fill="none">
+      <path d="M4 7h16M4 12h16M4 17h16" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+    </svg>
+  );
+}
+
 function WaveIcon() {
   return (
     <svg aria-hidden="true" className="h-5 w-5" viewBox="0 0 24 24" fill="none">
@@ -150,13 +158,7 @@ function ClockIcon() {
         stroke="currentColor"
         strokeWidth="1.8"
       />
-      <path
-        d="M12 7v5l3 2"
-        stroke="currentColor"
-        strokeWidth="1.8"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-      />
+      <path d="M12 7v5l3 2" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
     </svg>
   );
 }
@@ -164,31 +166,10 @@ function ClockIcon() {
 function TargetIcon() {
   return (
     <svg aria-hidden="true" className="h-5 w-5" viewBox="0 0 24 24" fill="none">
-      <path
-        d="M12 21a9 9 0 1 0-9-9"
-        stroke="currentColor"
-        strokeWidth="1.8"
-        strokeLinecap="round"
-      />
-      <path
-        d="M12 17a5 5 0 1 0-5-5"
-        stroke="currentColor"
-        strokeWidth="1.8"
-        strokeLinecap="round"
-      />
-      <path
-        d="M12 13a1 1 0 1 0-1-1"
-        stroke="currentColor"
-        strokeWidth="1.8"
-        strokeLinecap="round"
-      />
-      <path
-        d="m16 8 4-4M17 4h3v3"
-        stroke="currentColor"
-        strokeWidth="1.8"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-      />
+      <path d="M12 21a9 9 0 1 0-9-9" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
+      <path d="M12 17a5 5 0 1 0-5-5" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
+      <path d="M12 13a1 1 0 1 0-1-1" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
+      <path d="m16 8 4-4M17 4h3v3" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
     </svg>
   );
 }
@@ -197,19 +178,8 @@ function ImportIcon() {
   return (
     <svg aria-hidden="true" className="h-4 w-4" viewBox="0 0 24 24" fill="none">
       <path d="M12 3v12" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
-      <path
-        d="m8 7 4-4 4 4"
-        stroke="currentColor"
-        strokeWidth="1.8"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-      />
-      <path
-        d="M4 15v4a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-4"
-        stroke="currentColor"
-        strokeWidth="1.8"
-        strokeLinecap="round"
-      />
+      <path d="m8 7 4-4 4 4" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
+      <path d="M4 15v4a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-4" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
     </svg>
   );
 }
@@ -217,12 +187,7 @@ function ImportIcon() {
 function FilterIcon() {
   return (
     <svg aria-hidden="true" className="h-4 w-4" viewBox="0 0 24 24" fill="none">
-      <path
-        d="M4 5h16l-6 7v5l-4 2v-7L4 5Z"
-        stroke="currentColor"
-        strokeWidth="1.8"
-        strokeLinejoin="round"
-      />
+      <path d="M4 5h16l-6 7v5l-4 2v-7L4 5Z" stroke="currentColor" strokeWidth="1.8" strokeLinejoin="round" />
     </svg>
   );
 }
@@ -263,19 +228,8 @@ function CartIcon() {
 function CheckIcon() {
   return (
     <svg aria-hidden="true" className="h-4 w-4" viewBox="0 0 24 24" fill="none">
-      <path
-        d="M21 12a9 9 0 1 1-2.64-6.36"
-        stroke="currentColor"
-        strokeWidth="1.8"
-        strokeLinecap="round"
-      />
-      <path
-        d="M8.5 12.5 11 15l7-7"
-        stroke="currentColor"
-        strokeWidth="1.8"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-      />
+      <path d="M21 12a9 9 0 1 1-2.64-6.36" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
+      <path d="M8.5 12.5 11 15l7-7" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
     </svg>
   );
 }
@@ -743,14 +697,18 @@ function NavItem({
   active,
   icon,
   label,
-  badge
+  badge,
+  href,
+  onClick
 }: {
   active?: boolean;
   icon: React.ReactNode;
   label: string;
   badge?: number;
+  href?: string;
+  onClick?: () => void;
 }) {
-  return (
+  const content = (
     <div
       className={`flex items-center justify-between rounded-2xl px-4 py-3 text-sm font-semibold ${
         active
@@ -770,6 +728,16 @@ function NavItem({
       ) : null}
     </div>
   );
+
+  if (href) {
+    return (
+      <Link href={href} onClick={onClick}>
+        {content}
+      </Link>
+    );
+  }
+
+  return <button type="button" className="w-full text-left" onClick={onClick}>{content}</button>;
 }
 
 export default function Dashboard() {
@@ -784,6 +752,7 @@ export default function Dashboard() {
   const [busy, setBusy] = useState(false);
   const [isFormOpen, setIsFormOpen] = useState(false);
   const [isImportOpen, setIsImportOpen] = useState(false);
+  const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const [dragActive, setDragActive] = useState(false);
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [cartIds, setCartIds] = useState<string[]>([]);
@@ -1295,26 +1264,50 @@ export default function Dashboard() {
 
   return (
     <div className="min-h-screen">
-      <aside className="mpm-sidebar fixed inset-y-0 left-0 z-20 hidden w-72 flex-col p-5 text-white shadow-2xl lg:flex">
-        <div className="mb-8 flex items-center gap-3">
-          <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-[#24BFBF] shadow-lg shadow-cyan-950/30">
-            <WaveIcon />
-          </div>
-          <div>
-            <div className="text-2xl font-black tracking-tight">DiscWatch</div>
-            <div className="text-sm font-medium text-white/65">
-              Music Price Monitor
+      {isSidebarOpen && (
+        <button
+          type="button"
+          className="fixed inset-0 z-30 bg-[#2B403E]/50 backdrop-blur-sm"
+          onClick={() => setIsSidebarOpen(false)}
+          aria-label="Chiudi menu"
+        />
+      )}
+
+      <aside
+        className={`mpm-sidebar fixed inset-y-0 left-0 z-40 flex w-72 flex-col p-5 text-white shadow-2xl transition-transform duration-200 ${
+          isSidebarOpen ? 'translate-x-0' : '-translate-x-full'
+        }`}
+      >
+        <div className="mb-8 flex items-center justify-between gap-3">
+          <div className="flex items-center gap-3">
+            <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-[#24BFBF] shadow-lg shadow-cyan-950/30">
+              <WaveIcon />
+            </div>
+            <div>
+              <div className="text-2xl font-black tracking-tight">DiscWatch</div>
+              <div className="text-sm font-medium text-white/65">
+                Music Price Monitor
+              </div>
             </div>
           </div>
+
+          <button
+            type="button"
+            className="rounded-xl border border-white/10 p-2 text-white/80 hover:bg-white/10"
+            onClick={() => setIsSidebarOpen(false)}
+            aria-label="Chiudi menu"
+          >
+            <CloseIcon />
+          </button>
         </div>
 
         <nav className="space-y-2">
-          <NavItem active icon={<HomeIcon />} label="Dashboard" />
-          <NavItem icon={<ClockIcon />} label="Monitoraggi" />
-          <NavItem icon={<TargetIcon />} label="Quick Target" />
-          <NavItem icon={<ImportIcon />} label="Importazioni" />
-          <NavItem icon={<CartIcon />} label="Carrello" badge={cartCount || undefined} />
-          <NavItem icon={<WaveIcon />} label="Statistiche" />
+          <NavItem active icon={<HomeIcon />} label="Dashboard" onClick={() => setIsSidebarOpen(false)} />
+          <NavItem icon={<ClockIcon />} label="Monitoraggi" onClick={() => setIsSidebarOpen(false)} />
+          <NavItem icon={<TargetIcon />} label="Quick Target" onClick={() => setIsSidebarOpen(false)} />
+          <NavItem icon={<ImportIcon />} label="Importazioni" onClick={() => setIsSidebarOpen(false)} />
+          <NavItem icon={<CartIcon />} label="Carrello" badge={cartCount || undefined} href="/cart" onClick={() => setIsSidebarOpen(false)} />
+          <NavItem icon={<WaveIcon />} label="Statistiche" onClick={() => setIsSidebarOpen(false)} />
         </nav>
 
         <div className="mt-auto rounded-3xl border border-white/10 bg-white/5 p-4 shadow-xl">
@@ -1328,17 +1321,28 @@ export default function Dashboard() {
         </div>
       </aside>
 
-      <main className="lg:pl-72">
-        <div className="mx-auto max-w-[1760px] px-4 py-4 sm:px-6 lg:px-6">
+      <main>
+        <div className="mx-auto max-w-[1920px] px-4 py-4 sm:px-6 lg:px-6">
           <section className="mb-4">
             <div className="flex flex-col gap-4 xl:flex-row xl:items-center xl:justify-between">
-              <div>
-                <h1 className="text-4xl font-black tracking-tight text-[#12201f]">
-                  Dashboard
-                </h1>
-                <p className="mt-1 text-sm font-medium text-slate-500">
-                  Monitoraggio prezzi dischi • Medimops / Momox
-                </p>
+              <div className="flex items-center gap-3">
+                <button
+                  type="button"
+                  className="inline-flex h-11 items-center gap-2 rounded-xl border border-slate-200 bg-white px-4 text-sm font-black text-[#2B403E] shadow-sm hover:bg-slate-50"
+                  onClick={() => setIsSidebarOpen(true)}
+                >
+                  <MenuIcon />
+                  Menu
+                </button>
+
+                <div>
+                  <h1 className="text-4xl font-black tracking-tight text-[#12201f]">
+                    Dashboard
+                  </h1>
+                  <p className="mt-1 text-sm font-medium text-slate-500">
+                    Monitoraggio prezzi dischi • Medimops / Momox
+                  </p>
+                </div>
               </div>
 
               <div className="flex flex-wrap items-center gap-3">
@@ -1810,15 +1814,15 @@ export default function Dashboard() {
           )}
 
           {isFormOpen && (
-            <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-[#2B403E]/60 p-4 backdrop-blur-sm sm:items-center">
-              <div className="w-full max-w-6xl rounded-3xl bg-white p-6 shadow-2xl">
-                <div className="mb-5 flex items-start justify-between gap-4">
+            <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-[#2B403E]/60 p-4 backdrop-blur-sm">
+              <div className="my-4 w-full max-w-5xl rounded-3xl bg-white p-5 shadow-2xl">
+                <div className="mb-4 flex items-start justify-between gap-4">
                   <div>
                     <h2 className="text-2xl font-black text-[#12201f]">
                       {form.id ? 'Modifica monitor' : 'Nuovo monitor'}
                     </h2>
                     <p className="mt-1 text-sm text-slate-500">
-                      Inserisci i dati del disco. Inserendo URL Medimops, URL Momox viene generato automaticamente.
+                      Inserisci i dati del disco. URL Momox viene generato automaticamente da URL Medimops.
                     </p>
                   </div>
 
@@ -1831,177 +1835,191 @@ export default function Dashboard() {
                   </button>
                 </div>
 
-                <form onSubmit={saveMonitor} className="space-y-5">
-                  <div className="grid gap-3 md:grid-cols-2 lg:grid-cols-4">
-                    <label className="text-sm font-bold text-slate-700">
-                      Genere
-                      <select
-                        required
-                        className="mt-1 w-full rounded-xl border border-slate-200 p-2 outline-none focus:border-[#24BFBF]"
-                        value={form.genre}
-                        onChange={(event) =>
-                          setForm({ ...form, genre: event.target.value as MonitorGenre })
-                        }
-                      >
-                        {MONITOR_GENRES.map((genre) => (
-                          <option key={genre} value={genre}>{genre}</option>
-                        ))}
-                      </select>
-                    </label>
-
-                    <label className="text-sm font-bold text-slate-700">
-                      Tipo
-                      <select
-                        className="mt-1 w-full rounded-xl border border-slate-200 p-2 outline-none focus:border-[#24BFBF]"
-                        value={form.type}
-                        onChange={(event) =>
-                          setForm({ ...form, type: event.target.value as MonitorType })
-                        }
-                      >
-                        <option>CD</option>
-                        <option>LP</option>
-                      </select>
-                    </label>
-
-                    <label className="text-sm font-bold text-slate-700">
-                      Artista
-                      <input
-                        required
-                        className="mt-1 w-full rounded-xl border border-slate-200 p-2 outline-none focus:border-[#24BFBF]"
-                        value={form.artist}
-                        onChange={(event) => setForm({ ...form, artist: event.target.value })}
-                      />
-                    </label>
-
-                    <label className="text-sm font-bold text-slate-700">
-                      Album
-                      <input
-                        required
-                        className="mt-1 w-full rounded-xl border border-slate-200 p-2 outline-none focus:border-[#24BFBF]"
-                        value={form.album}
-                        onChange={(event) => setForm({ ...form, album: event.target.value })}
-                      />
-                    </label>
-
-                    <label className="text-sm font-bold text-slate-700">
-                      Label
-                      <input
-                        className="mt-1 w-full rounded-xl border border-slate-200 p-2 outline-none focus:border-[#24BFBF]"
-                        value={form.edition}
-                        onChange={(event) => setForm({ ...form, edition: event.target.value })}
-                      />
-                    </label>
-
-                    <label className="text-sm font-bold text-slate-700">
-                      EAN
-                      <input
-                        inputMode="numeric"
-                        maxLength={32}
-                        className="mt-1 w-full rounded-xl border border-slate-200 p-2 outline-none focus:border-[#24BFBF]"
-                        value={form.ean_code}
-                        onChange={(event) =>
-                          setForm({ ...form, ean_code: normalizeEan(event.target.value) })
-                        }
-                      />
-                    </label>
-
-                    <label className="text-sm font-bold text-slate-700">
-                      Anno
-                      <input
-                        type="number"
-                        inputMode="numeric"
-                        min="1900"
-                        max="2100"
-                        className="mt-1 w-full rounded-xl border border-slate-200 p-2 outline-none focus:border-[#24BFBF]"
-                        value={form.release_year}
-                        onChange={(event) =>
-                          setForm({ ...form, release_year: event.target.value })
-                        }
-                      />
-                    </label>
-
-                    <label className="text-sm font-bold text-slate-700">
-                      Country
-                      <input
-                        maxLength={3}
-                        className="mt-1 w-full rounded-xl border border-slate-200 p-2 uppercase outline-none focus:border-[#24BFBF]"
-                        value={form.country}
-                        onChange={(event) =>
-                          setForm({
-                            ...form,
-                            country: event.target.value.toUpperCase().slice(0, 3)
-                          })
-                        }
-                      />
-                    </label>
-                  </div>
-
+                <form onSubmit={saveMonitor} className="space-y-4">
                   <div className="rounded-3xl border border-slate-200 bg-slate-50 p-4">
-                    <h3 className="mb-3 text-sm font-black uppercase tracking-wide text-[#2B403E]">Medimops</h3>
+                    <h3 className="mb-3 text-sm font-black uppercase tracking-wide text-[#2B403E]">
+                      Disco
+                    </h3>
 
-                    <div className="grid gap-3 lg:grid-cols-[1fr_220px]">
+                    <div className="grid gap-3 md:grid-cols-2 lg:grid-cols-4">
                       <label className="text-sm font-bold text-slate-700">
-                        URL Medimops
+                        Genere
+                        <select
+                          required
+                          className="mt-1 w-full rounded-xl border border-slate-200 p-2 outline-none focus:border-[#24BFBF]"
+                          value={form.genre}
+                          onChange={(event) =>
+                            setForm({ ...form, genre: event.target.value as MonitorGenre })
+                          }
+                        >
+                          {MONITOR_GENRES.map((genre) => (
+                            <option key={genre} value={genre}>{genre}</option>
+                          ))}
+                        </select>
+                      </label>
+
+                      <label className="text-sm font-bold text-slate-700">
+                        Tipo
+                        <select
+                          className="mt-1 w-full rounded-xl border border-slate-200 p-2 outline-none focus:border-[#24BFBF]"
+                          value={form.type}
+                          onChange={(event) =>
+                            setForm({ ...form, type: event.target.value as MonitorType })
+                          }
+                        >
+                          <option>CD</option>
+                          <option>LP</option>
+                        </select>
+                      </label>
+
+                      <label className="text-sm font-bold text-slate-700">
+                        Artista
                         <input
-                          type="url"
-                          className="mt-1 w-full rounded-xl border border-slate-200 bg-white p-2 outline-none focus:border-[#24BFBF]"
-                          value={form.medimops_url}
-                          onChange={(event) => updateMedimopsUrl(event.target.value)}
+                          required
+                          className="mt-1 w-full rounded-xl border border-slate-200 p-2 outline-none focus:border-[#24BFBF]"
+                          value={form.artist}
+                          onChange={(event) => setForm({ ...form, artist: event.target.value })}
                         />
                       </label>
 
                       <label className="text-sm font-bold text-slate-700">
-                        Prezzo Target Medimops
+                        Album
                         <input
-                          className="mt-1 w-full rounded-xl border border-slate-200 bg-white p-2 outline-none focus:border-[#24BFBF]"
-                          placeholder="es. 10,00"
-                          value={form.medimops_target_price}
-                          onChange={(event) => updateMedimopsTargetPrice(event.target.value)}
+                          required
+                          className="mt-1 w-full rounded-xl border border-slate-200 p-2 outline-none focus:border-[#24BFBF]"
+                          value={form.album}
+                          onChange={(event) => setForm({ ...form, album: event.target.value })}
+                        />
+                      </label>
+
+                      <label className="text-sm font-bold text-slate-700">
+                        Label
+                        <input
+                          className="mt-1 w-full rounded-xl border border-slate-200 p-2 outline-none focus:border-[#24BFBF]"
+                          value={form.edition}
+                          onChange={(event) => setForm({ ...form, edition: event.target.value })}
+                        />
+                      </label>
+
+                      <label className="text-sm font-bold text-slate-700">
+                        EAN
+                        <input
+                          inputMode="numeric"
+                          maxLength={32}
+                          className="mt-1 w-full rounded-xl border border-slate-200 p-2 outline-none focus:border-[#24BFBF]"
+                          value={form.ean_code}
+                          onChange={(event) =>
+                            setForm({ ...form, ean_code: normalizeEan(event.target.value) })
+                          }
+                        />
+                      </label>
+
+                      <label className="text-sm font-bold text-slate-700">
+                        Anno
+                        <input
+                          type="number"
+                          inputMode="numeric"
+                          min="1900"
+                          max="2100"
+                          className="mt-1 w-full rounded-xl border border-slate-200 p-2 outline-none focus:border-[#24BFBF]"
+                          value={form.release_year}
+                          onChange={(event) =>
+                            setForm({ ...form, release_year: event.target.value })
+                          }
+                        />
+                      </label>
+
+                      <label className="text-sm font-bold text-slate-700">
+                        Country
+                        <input
+                          maxLength={3}
+                          className="mt-1 w-full rounded-xl border border-slate-200 p-2 uppercase outline-none focus:border-[#24BFBF]"
+                          value={form.country}
+                          onChange={(event) =>
+                            setForm({
+                              ...form,
+                              country: event.target.value.toUpperCase().slice(0, 3)
+                            })
+                          }
                         />
                       </label>
                     </div>
                   </div>
 
-                  <div className="rounded-3xl border border-slate-200 bg-slate-50 p-4">
-                    <h3 className="mb-3 text-sm font-black uppercase tracking-wide text-[#2B403E]">Momox</h3>
+                  <div className="grid gap-4 xl:grid-cols-2">
+                    <div className="rounded-3xl border border-slate-200 bg-slate-50 p-4">
+                      <h3 className="mb-3 text-sm font-black uppercase tracking-wide text-[#2B403E]">
+                        Medimops
+                      </h3>
 
-                    <div className="grid gap-3 lg:grid-cols-[1fr_220px]">
-                      <label className="text-sm font-bold text-slate-700">
-                        URL Momox
-                        <input
-                          type="url"
-                          className="mt-1 w-full rounded-xl border border-slate-200 bg-white p-2 outline-none focus:border-[#24BFBF]"
-                          value={form.momox_url}
-                          onChange={(event) =>
-                            setForm({ ...form, momox_url: event.target.value })
-                          }
-                        />
-                      </label>
+                      <div className="grid gap-3 lg:grid-cols-[1fr_180px]">
+                        <label className="text-sm font-bold text-slate-700">
+                          URL Medimops
+                          <input
+                            type="url"
+                            className="mt-1 w-full rounded-xl border border-slate-200 bg-white p-2 outline-none focus:border-[#24BFBF]"
+                            value={form.medimops_url}
+                            onChange={(event) => updateMedimopsUrl(event.target.value)}
+                          />
+                        </label>
 
-                      <label className="text-sm font-bold text-slate-700">
-                        Prezzo Target Momox
-                        <input
-                          className="mt-1 w-full rounded-xl border border-slate-200 bg-white p-2 outline-none focus:border-[#24BFBF]"
-                          placeholder="es. 10,00"
-                          value={form.momox_target_price}
-                          onChange={(event) =>
-                            setForm({ ...form, momox_target_price: event.target.value })
-                          }
-                        />
-                      </label>
+                        <label className="text-sm font-bold text-slate-700">
+                          Target
+                          <input
+                            className="mt-1 w-full rounded-xl border border-slate-200 bg-white p-2 outline-none focus:border-[#24BFBF]"
+                            placeholder="10,00"
+                            value={form.medimops_target_price}
+                            onChange={(event) => updateMedimopsTargetPrice(event.target.value)}
+                          />
+                        </label>
+                      </div>
+                    </div>
+
+                    <div className="rounded-3xl border border-slate-200 bg-slate-50 p-4">
+                      <h3 className="mb-3 text-sm font-black uppercase tracking-wide text-[#2B403E]">
+                        Momox
+                      </h3>
+
+                      <div className="grid gap-3 lg:grid-cols-[1fr_180px]">
+                        <label className="text-sm font-bold text-slate-700">
+                          URL Momox
+                          <input
+                            type="url"
+                            className="mt-1 w-full rounded-xl border border-slate-200 bg-white p-2 outline-none focus:border-[#24BFBF]"
+                            value={form.momox_url}
+                            onChange={(event) =>
+                              setForm({ ...form, momox_url: event.target.value })
+                            }
+                          />
+                        </label>
+
+                        <label className="text-sm font-bold text-slate-700">
+                          Target
+                          <input
+                            className="mt-1 w-full rounded-xl border border-slate-200 bg-white p-2 outline-none focus:border-[#24BFBF]"
+                            placeholder="10,00"
+                            value={form.momox_target_price}
+                            onChange={(event) =>
+                              setForm({ ...form, momox_target_price: event.target.value })
+                            }
+                          />
+                        </label>
+                      </div>
                     </div>
                   </div>
 
                   <div className="rounded-3xl border border-orange-100 bg-orange-50 p-4">
-                    <h3 className="mb-3 text-sm font-black uppercase tracking-wide text-[#2B403E]">Amazon</h3>
+                    <h3 className="mb-3 text-sm font-black uppercase tracking-wide text-[#2B403E]">
+                      Amazon futuro
+                    </h3>
 
-                    <div className="grid gap-3 lg:grid-cols-[260px_220px_1fr]">
+                    <div className="grid gap-3 lg:grid-cols-[220px_180px_1fr]">
                       <label className="text-sm font-bold text-slate-700">
-                        ASIN Amazon
+                        ASIN
                         <input
                           maxLength={10}
                           className="mt-1 w-full rounded-xl border border-orange-100 bg-white p-2 uppercase outline-none focus:border-[#F2A25C]"
-                          placeholder="es. B0DVH4P8DB"
+                          placeholder="B0DVH4P8DB"
                           value={form.amazon_asin}
                           onChange={(event) =>
                             setForm({ ...form, amazon_asin: normalizeAsin(event.target.value) })
@@ -2010,10 +2028,10 @@ export default function Dashboard() {
                       </label>
 
                       <label className="text-sm font-bold text-slate-700">
-                        Prezzo Target Amazon
+                        Target
                         <input
                           className="mt-1 w-full rounded-xl border border-orange-100 bg-white p-2 outline-none focus:border-[#F2A25C]"
-                          placeholder="es. 10,00"
+                          placeholder="10,00"
                           value={form.amazon_target_price}
                           onChange={(event) =>
                             setForm({ ...form, amazon_target_price: event.target.value })
@@ -2034,7 +2052,7 @@ export default function Dashboard() {
                     </div>
                   </div>
 
-                  <div className="grid gap-3 md:grid-cols-2 lg:grid-cols-3">
+                  <div className="grid gap-3 md:grid-cols-[1fr_160px]">
                     <label className="text-sm font-bold text-slate-700">
                       Email specifica, opzionale
                       <input
@@ -2048,7 +2066,7 @@ export default function Dashboard() {
                       />
                     </label>
 
-                    <label className="flex items-center gap-2 text-sm font-bold text-slate-700">
+                    <label className="flex items-center gap-2 rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm font-bold text-slate-700">
                       <input
                         type="checkbox"
                         checked={form.is_active}
@@ -2060,7 +2078,7 @@ export default function Dashboard() {
                     </label>
                   </div>
 
-                  <div className="flex gap-3">
+                  <div className="flex gap-3 border-t border-slate-100 pt-4">
                     <button
                       disabled={busy}
                       className="mpm-btn-primary rounded-xl px-5 py-2 font-bold disabled:opacity-50"
