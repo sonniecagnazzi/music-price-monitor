@@ -2,11 +2,21 @@ import { z } from 'zod';
 
 export type MonitorType = 'CD' | 'LP';
 
+export type MonitorGenre = 'Alt' | 'Jazz' | 'H&M' | 'Rock Pop';
+
 export type LastStatus = 'ok' | 'below_target' | 'error';
+
+export const MONITOR_GENRES: MonitorGenre[] = [
+  'Alt',
+  'Jazz',
+  'H&M',
+  'Rock Pop'
+];
 
 export type Monitor = {
   id: string;
 
+  genre: MonitorGenre;
   type: MonitorType;
   artist: string;
   album: string;
@@ -195,6 +205,12 @@ const optionalAsinSchema = z
 
 export const monitorInputSchema = z
   .object({
+    genre: z.enum(['Alt', 'Jazz', 'H&M', 'Rock Pop'], {
+      errorMap: () => ({
+        message: 'Genere obbligatorio: Alt, Jazz, H&M oppure Rock Pop.'
+      })
+    }),
+
     type: z.enum(['CD', 'LP'], {
       errorMap: () => ({ message: 'Tipo obbligatorio: CD o LP.' })
     }),
@@ -231,13 +247,6 @@ export const monitorInputSchema = z
     const hasMedimopsTarget = data.medimops_target_price !== null;
     const hasMomoxTarget = data.momox_target_price !== null;
 
-    /*
-      Regola attuale:
-      - URL Medimops opzionale
-      - URL Momox opzionale
-      - Amazon ignorato
-      - serve almeno un target tra Medimops o Momox
-    */
     if (!hasMedimopsTarget && !hasMomoxTarget) {
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
