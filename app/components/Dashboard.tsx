@@ -1,9 +1,11 @@
 'use client';
 
+import Link from 'next/link';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import type { LastStatus, Monitor, MonitorInput, MonitorType } from '@/lib/types';
 import { formatDate, formatEuro, toNumberFromItalianInput } from '@/lib/format';
 import { buildAmazonUrl } from '@/lib/amazon-scraper';
+import { addCartItem, getCartItems, type CartItem } from '@/lib/cart';
 
 type SortKey =
   | 'status'
@@ -99,6 +101,25 @@ function EditIcon() {
         stroke="currentColor"
         strokeWidth="1.8"
         strokeLinecap="round"
+      />
+    </svg>
+  );
+}
+
+function CartIcon() {
+  return (
+    <svg aria-hidden="true" className="h-4 w-4" viewBox="0 0 24 24" fill="none">
+      <path
+        d="M4 5h2l2.4 10.5a2 2 0 0 0 2 1.5h6.8a2 2 0 0 0 1.9-1.4L21 9H7"
+        stroke="currentColor"
+        strokeWidth="1.8"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+      <path
+        d="M10 21a1 1 0 1 0 0-2 1 1 0 0 0 0 2ZM18 21a1 1 0 1 0 0-2 1 1 0 0 0 0 2Z"
+        stroke="currentColor"
+        strokeWidth="1.8"
       />
     </svg>
   );
@@ -504,6 +525,19 @@ function countActiveFilters(
   return textCount + multiCount;
 }
 
+function monitorToCartItem(monitor: Monitor): CartItem {
+  return {
+    id: monitor.id,
+    type: monitor.type,
+    artist: monitor.artist,
+    album: monitor.album,
+    edition: monitor.edition,
+    ean_code: monitor.ean_code,
+    medimops_url: monitor.medimops_url,
+    medimops_current_price: monitor.medimops_current_price
+  };
+}
+
 function LinkedPrice({
   value,
   url,
@@ -583,11 +617,20 @@ export default function Dashboard() {
   const [isImportOpen, setIsImportOpen] = useState(false);
   const [dragActive, setDragActive] = useState(false);
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
+  const [cartIds, setCartIds] = useState<string[]>([]);
+  const [cartCount, setCartCount] = useState(0);
   const [filtersOpen, setFiltersOpen] = useState(false);
   const [openMultiFilter, setOpenMultiFilter] =
     useState<MultiFilterKey | null>(null);
 
   const csvInputRef = useRef<HTMLInputElement | null>(null);
+
+  function refreshCartState() {
+    const items = getCartItems();
+
+    setCartIds(items.map((item) => item.id));
+    setCartCount(items.length);
+  }
 
   async function loadData() {
     const monitorsResponse = await fetch('/api/monitors');
@@ -610,6 +653,21 @@ export default function Dashboard() {
     );
   }, []);
 
+  useEffect(() => {
+    refreshCartState();
+
+    window.addEventListener('music-price-monitor-cart-updated', refreshCartState);
+    window.addEventListener('storage', refreshCartState);
+
+    return () => {
+      window.removeEventListener(
+        'music-price-monitor-cart-updated',
+        refreshCartState
+      );
+      window.removeEventListener('storage', refreshCartState);
+    };
+  }, []);
+
   const activeFilterCount = countActiveFilters(filters, multiFilters);
 
   function handleHeaderDoubleClick(key: SortKey) {
@@ -626,6 +684,12 @@ export default function Dashboard() {
 
     setSortKey(null);
     setSortAsc(true);
+  }
+
+  function addMonitorToCart(monitor: Monitor) {
+    addCartItem(monitorToCartItem(monitor));
+    refreshCartState();
+    setMessage(`Aggiunto al carrello: ${monitor.artist} - ${monitor.album}`);
   }
 
   async function importCsvFile(file: File) {
@@ -971,6 +1035,7 @@ export default function Dashboard() {
 
       await loadData();
       setSelectedIds(selectedIds.filter((selectedId) => selectedId !== id));
+      refreshCartState();
       setMessage('Monitor eliminato.');
     } catch (error) {
       setMessage(
@@ -1114,6 +1179,14 @@ export default function Dashboard() {
           </div>
 
           <div className="flex flex-wrap gap-2">
+            <Link
+              href="/cart"
+              className="inline-flex items-center gap-2 rounded-lg border border-amber-600 px-4 py-2 font-semibold text-amber-700 shadow-sm hover:bg-amber-50"
+            >
+              <CartIcon />
+              Carrello ({cartCount})
+            </Link>
+
             <button
               className="rounded-lg border border-blue-700 px-4 py-2 font-semibold text-blue-700 shadow-sm hover:bg-blue-50 disabled:opacity-50"
               disabled={busy}
@@ -1421,6 +1494,7 @@ export default function Dashboard() {
             <tbody>
               {filtered.map((monitor) => {
                 const bestPrice = getBestPrice(monitor);
+                const alreadyInCart = cartIds.includes(monitor.id);
 
                 return (
                   <tr key={monitor.id} className="border-b align-top">
@@ -1434,6 +1508,24 @@ export default function Dashboard() {
 
                     <td className="p-2">
                       <div className="flex items-center justify-start gap-2">
+                        <button
+                          className="inline-flex h-9 w-9 items-center justify-center rounded-lg border text-amber-700 hover:bg-amber-50 disabled:cursor-not-allowed disabled:opacity-40"
+                          disabled={alreadyInCart}
+                          onClick={() => addMonitorToCart(monitor)}
+                          title={
+                            alreadyInCart
+                              ? 'Già nel carrello'
+                              : 'Aggiungi al carrello'
+                          }
+                          aria-label={
+                            alreadyInCart
+                              ? 'Già nel carrello'
+                              : 'Aggiungi al carrello'
+                          }
+                        >
+                          <CartIcon />
+                        </button>
+
                         <button
                           className="inline-flex h-9 w-9 items-center justify-center rounded-lg border text-slate-700 hover:bg-slate-50"
                           onClick={() => editMonitor(monitor)}
@@ -1620,8 +1712,8 @@ export default function Dashboard() {
                   {form.id ? 'Modifica monitor' : 'Nuovo monitor'}
                 </h2>
                 <p className="mt-1 text-sm text-slate-500">
-                  Inserisci i dati del disco e almeno un controllo tra
-                  Medimops, Momox o Amazon.
+                  Inserisci i dati del disco. Medimops e Momox sono usati per
+                  il monitoraggio; Amazon resta solo come campo futuro.
                 </p>
               </div>
 
