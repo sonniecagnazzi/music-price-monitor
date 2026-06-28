@@ -187,19 +187,19 @@ function mergeSources(checks: SiteCheck[]) {
     .join(' | ');
 }
 
-function getNextMedimopsCondition(
-  monitor: Monitor,
-  medimopsCheck: SiteCheck
+function getNextCondition(
+  previousCondition: string | null,
+  check: SiteCheck
 ): string | null {
-  if (medimopsCheck.skipped) {
-    return monitor.medimops_condition || null;
+  if (check.skipped) {
+    return previousCondition || null;
   }
 
-  if (medimopsCheck.price === null) {
-    return monitor.medimops_condition || null;
+  if (check.price === null) {
+    return previousCondition || null;
   }
 
-  return medimopsCheck.condition || null;
+  return check.condition || null;
 }
 
 export async function runMonitor(
@@ -309,9 +309,14 @@ export async function runMonitor(
       let nextAlertSent = monitor.alert_sent;
       let alertSentNow = false;
 
-      const nextMedimopsCondition = getNextMedimopsCondition(
-        monitor,
+      const nextMedimopsCondition = getNextCondition(
+        monitor.medimops_condition,
         medimopsCheck
+      );
+
+      const nextMomoxCondition = getNextCondition(
+        monitor.momox_condition,
+        momoxCheck
       );
 
       const monitorForEmail: Monitor = {
@@ -319,6 +324,7 @@ export async function runMonitor(
         medimops_current_price: medimopsCheck.price,
         medimops_condition: nextMedimopsCondition,
         momox_current_price: momoxCheck.price,
+        momox_condition: nextMomoxCondition,
         current_price: lowestPrice
       };
 
@@ -356,6 +362,7 @@ export async function runMonitor(
           medimops_current_price: medimopsCheck.price,
           medimops_condition: nextMedimopsCondition,
           momox_current_price: momoxCheck.price,
+          momox_condition: nextMomoxCondition,
           current_price: lowestPrice,
           last_checked_at: checkedAt,
           last_status: nextStatus,
