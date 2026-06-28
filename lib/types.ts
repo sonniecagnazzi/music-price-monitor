@@ -33,6 +33,7 @@ export type Monitor = {
   medimops_url: string | null;
   medimops_target_price: number | null;
   medimops_current_price: number | null;
+  medimops_condition: string | null;
 
   momox_url: string | null;
   momox_target_price: number | null;
