@@ -4,6 +4,7 @@ export interface ScrapeResult {
   price: number | null;
   source: string;
   error: string | null;
+  condition?: string | null;
 }
 
 const PRICE_SELECTORS = [
@@ -28,7 +29,7 @@ const BROWSER_HEADERS: HeadersInit = {
   accept:
     'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8',
   'accept-language':
-    'fr-FR,fr;q=0.9,de-DE,de;q=0.8,it-IT,it;q=0.7,en-US;q=0.6,en;q=0.5',
+    'de-DE,de;q=0.9,fr-FR,fr;q=0.8,it-IT,it;q=0.7,en-US;q=0.6,en;q=0.5',
   'cache-control': 'no-cache',
   pragma: 'no-cache',
   'upgrade-insecure-requests': '1'
@@ -46,6 +47,7 @@ interface PriceCandidate {
   context: string;
   index: number;
   score: number;
+  condition: string | null;
 }
 
 export function normalizePrice(raw: string): number | null {
@@ -94,6 +96,59 @@ function makeSource(source: string, context?: string): string {
   return `${source} | contesto: ${cleanContext(context)}`;
 }
 
+function normalizeCondition(value: string): string | null {
+  const lower = value.toLowerCase();
+
+  if (
+    lower.includes('sehr gut') ||
+    lower.includes('sehr guter zustand') ||
+    lower.includes('très bon état') ||
+    lower.includes('tres bon etat') ||
+    lower.includes('very good') ||
+    lower.includes('ottime condizioni') ||
+    lower.includes('ottimo stato')
+  ) {
+    return 'Sehr gut';
+  }
+
+  if (
+    lower.includes('wie neu') ||
+    lower.includes('comme neuf') ||
+    lower.includes('like new') ||
+    lower.includes('come nuovo')
+  ) {
+    return 'Wie neu';
+  }
+
+  if (
+    lower.includes('akzeptabel') ||
+    lower.includes('acceptable') ||
+    lower.includes('accettabile')
+  ) {
+    return 'Akzeptabel';
+  }
+
+  if (
+    lower.includes('gut') ||
+    lower.includes('guter zustand') ||
+    lower.includes('bon état') ||
+    lower.includes('bon etat') ||
+    lower.includes('good condition') ||
+    lower.includes('buono stato') ||
+    lower.includes('buone condizioni')
+  ) {
+    return 'Gut';
+  }
+
+  return null;
+}
+
+function extractConditionFromContext(context: string): string | null {
+  const cleaned = cleanContext(context);
+
+  return normalizeCondition(cleaned);
+}
+
 function extractFromJsonLd($: cheerio.CheerioAPI): ScrapeResult | null {
   const scripts = $('script[type="application/ld+json"]').toArray();
 
@@ -119,24 +174,22 @@ function extractFromJsonLd($: cheerio.CheerioAPI): ScrapeResult | null {
 
 function findOfferPrice(value: unknown, context = ''): ScrapeResult {
   if (!value || typeof value !== 'object') {
-    return { price: null, source: 'json-ld-none', error: null };
+    return { price: null, source: 'json-ld-none', error: null, condition: null };
   }
 
   const record = value as Record<string, unknown>;
-
-  /*
-    IMPORTANTE:
-    Non usiamo lowPrice/highPrice perché su Momox/Medimops spesso indicano
-    il prezzo minimo tra più condizioni, non il prezzo principale selezionato.
-    Esempio: Bon état 7,59 € vs Très bon état 8,99 €.
-  */
 
   if (typeof record.price === 'string' || typeof record.price === 'number') {
     const price = normalizePrice(String(record.price));
 
     if (price !== null) {
+      const condition =
+        extractConditionFromContext(context || JSON.stringify(record)) ||
+        extractConditionFromJsonLdRecord(record);
+
       return {
         price,
+        condition,
         source: makeSource('json-ld-price', context || JSON.stringify(record)),
         error: null
       };
@@ -165,7 +218,29 @@ function findOfferPrice(value: unknown, context = ''): ScrapeResult {
     }
   }
 
-  return { price: null, source: 'json-ld-none', error: null };
+  return { price: null, source: 'json-ld-none', error: null, condition: null };
+}
+
+function extractConditionFromJsonLdRecord(
+  record: Record<string, unknown>
+): string | null {
+  const possibleValues = [
+    record.itemCondition,
+    record.condition,
+    record.availability,
+    record.description,
+    record.name
+  ];
+
+  for (const value of possibleValues) {
+    if (typeof value === 'string') {
+      const condition = normalizeCondition(value);
+
+      if (condition) return condition;
+    }
+  }
+
+  return null;
 }
 
 function isLikelyShippingOrNoise(context: string): boolean {
@@ -247,6 +322,7 @@ function hasVeryGoodConditionSignal(context: string): boolean {
   const signals = [
     'très bon état',
     'tres bon etat',
+    'sehr gut',
     'sehr guter zustand',
     'very good',
     'ottime condizioni',
@@ -331,16 +407,7 @@ function findBestPriceAfterMarker(
 
   if (markerIndex < 0) return null;
 
-  /*
-    Regola forte per Momox/Medimops:
-    quando troviamo “En stock” / “TVA incluse” / “hors frais de livraison”,
-    preferiamo il primo prezzo ragionevole DOPO quel marker, non quelli prima.
-    Nel caso visto:
-    Bon état 7,59 € sta prima del blocco principale,
-    En stock 8,99 € sta nel blocco principale.
-  */
-
-  const afterText = normalizedText.slice(markerIndex, markerIndex + 700);
+  const afterText = normalizedText.slice(markerIndex, markerIndex + 900);
   const priceRegex = /(?:€\s*)?(\d{1,4}(?:[.,]\d{2}))\s*€/g;
 
   let match = priceRegex.exec(afterText);
@@ -350,12 +417,14 @@ function findBestPriceAfterMarker(
 
     if (price !== null && price < 300) {
       const globalIndex = markerIndex + match.index;
-      const contextStart = Math.max(0, globalIndex - 300);
-      const contextEnd = Math.min(normalizedText.length, globalIndex + 300);
+      const contextStart = Math.max(0, globalIndex - 500);
+      const contextEnd = Math.min(normalizedText.length, globalIndex + 500);
       const context = normalizedText.slice(contextStart, contextEnd);
+      const condition = extractConditionFromContext(context);
 
       return {
         price,
+        condition,
         source: makeSource(`regex-after-marker:${marker}`, context),
         error: null
       };
@@ -369,11 +438,13 @@ function findBestPriceAfterMarker(
 
 function findBestPriceNearPrimaryBlock(text: string): ScrapeResult | null {
   const markers = [
+    'sehr gut',
+    'auf lager',
+    'inkl. mwst',
+    'inklusive mwst',
     'en stock',
     'tva incluse',
     'hors frais de livraison',
-    'auf lager',
-    'inkl. mwst',
     'in stock',
     'disponibile',
     'iva inclusa'
@@ -407,16 +478,18 @@ function extractSmartPriceFromText(text: string): ScrapeResult | null {
 
     if (price !== null) {
       const index = match.index;
-      const start = Math.max(0, index - 300);
-      const end = Math.min(normalizedText.length, index + 300);
+      const start = Math.max(0, index - 500);
+      const end = Math.min(normalizedText.length, index + 500);
       const context = normalizedText.slice(start, end);
       const score = scoreCandidate(price, context, index);
+      const condition = extractConditionFromContext(context);
 
       candidates.push({
         price,
         context,
         index,
-        score
+        score,
+        condition
       });
     }
 
@@ -433,17 +506,13 @@ function extractSmartPriceFromText(text: string): ScrapeResult | null {
 
   return {
     price: best.price,
+    condition: best.condition,
     source: makeSource(`regex-smart score=${best.score}`, best.context),
     error: null
   };
 }
 
 function extractWithRegex(text: string): ScrapeResult | null {
-  /*
-    Prima smart extraction, poi fallback strutturati.
-    Non vogliamo che lowPrice o valori simili vincano sul prezzo principale.
-  */
-
   const smart = extractSmartPriceFromText(text);
 
   if (smart !== null) return smart;
@@ -469,12 +538,14 @@ function extractWithRegex(text: string): ScrapeResult | null {
       if (price !== null && price < 300) {
         const index = match.index || 0;
         const context = text.slice(
-          Math.max(0, index - 250),
-          Math.min(text.length, index + 250)
+          Math.max(0, index - 500),
+          Math.min(text.length, index + 500)
         );
+        const condition = extractConditionFromContext(context);
 
         return {
           price,
+          condition,
           source: makeSource(item.name, context),
           error: null
         };
@@ -509,12 +580,14 @@ function extractWithSelectors($: cheerio.CheerioAPI): ScrapeResult | null {
           content;
 
         const context = parentContext || content;
+        const condition = extractConditionFromContext(context);
 
         candidates.push({
           price,
           context,
           index: 0,
-          score: scoreCandidate(price, context, 0)
+          score: scoreCandidate(price, context, 0),
+          condition
         });
       }
     }
@@ -530,6 +603,7 @@ function extractWithSelectors($: cheerio.CheerioAPI): ScrapeResult | null {
 
   return {
     price: best.price,
+    condition: best.condition,
     source: makeSource(`css-smart score=${best.score}`, best.context),
     error: null
   };
@@ -648,13 +722,6 @@ async function fetchViaJinaSearch(url: string): Promise<{
 }
 
 function extractPriceFromHtml(html: string): ScrapeResult {
-  /*
-    Ordine importante:
-    1. Regex smart sul testo completo.
-    2. CSS selectors.
-    3. JSON-LD solo come ultima risorsa.
-  */
-
   const regex = extractWithRegex(html);
 
   if (regex !== null) return { ...regex, source: `html:${regex.source}` };
@@ -669,6 +736,7 @@ function extractPriceFromHtml(html: string): ScrapeResult {
 
   return {
     price: null,
+    condition: null,
     source: 'html-none',
     error: 'Prezzo non trovato nell’HTML della pagina.'
   };
@@ -680,6 +748,7 @@ function extractPriceFromText(text: string, source: string): ScrapeResult {
   if (result !== null) {
     return {
       price: result.price,
+      condition: result.condition ?? null,
       source: `${source}:${result.source}`,
       error: null
     };
@@ -687,6 +756,7 @@ function extractPriceFromText(text: string, source: string): ScrapeResult {
 
   return {
     price: null,
+    condition: null,
     source: `${source}-none`,
     error: `Prezzo non trovato nel fallback ${source}.`
   };
@@ -727,6 +797,7 @@ export async function scrapePrice(url: string): Promise<ScrapeResult> {
     if (direct.status === 403) {
       return {
         price: null,
+        condition: null,
         source: 'http-403-all-fallbacks-failed',
         error:
           'HTTP 403 Forbidden dal sito originale. Ho provato anche Jina Reader e Jina Search, ma non ho trovato un prezzo leggibile.'
@@ -735,6 +806,7 @@ export async function scrapePrice(url: string): Promise<ScrapeResult> {
 
     return {
       price: null,
+      condition: null,
       source: 'all-fallbacks-failed',
       error: `Prezzo non trovato. HTTP diretto: ${direct.status} ${direct.statusText}. Reader e Search non hanno trovato prezzi validi.`
     };
@@ -746,6 +818,7 @@ export async function scrapePrice(url: string): Promise<ScrapeResult> {
 
     return {
       price: null,
+      condition: null,
       source: 'exception',
       error: message
     };
