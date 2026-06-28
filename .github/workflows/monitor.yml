@@ -4,6 +4,24 @@ on:
   schedule:
     - cron: '23 */4 * * *'
   workflow_dispatch:
+    inputs:
+      mode:
+        description: 'Modalità controllo: all oppure single'
+        required: false
+        default: 'all'
+        type: choice
+        options:
+          - all
+          - single
+      monitor_id:
+        description: 'ID monitor singolo, richiesto se mode=single'
+        required: false
+        default: ''
+        type: string
+
+concurrency:
+  group: music-price-monitor
+  cancel-in-progress: false
 
 jobs:
   monitor:
@@ -16,6 +34,8 @@ jobs:
           echo "Ref: ${{ github.ref }}"
           echo "SHA: ${{ github.sha }}"
           echo "UTC now: $(date -u)"
+          echo "Mode: ${{ github.event.inputs.mode }}"
+          echo "Monitor ID: ${{ github.event.inputs.monitor_id }}"
 
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -36,6 +56,8 @@ jobs:
       - name: Run monitor
         run: yarn monitor
         env:
+          MONITOR_MODE: ${{ github.event.inputs.mode || 'all' }}
+          MONITOR_ID: ${{ github.event.inputs.monitor_id }}
           NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
           NEXT_PUBLIC_SUPABASE_ANON_KEY: ${{ secrets.NEXT_PUBLIC_SUPABASE_ANON_KEY }}
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
