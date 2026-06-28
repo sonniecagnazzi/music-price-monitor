@@ -13,6 +13,7 @@ import { MONITOR_GENRES } from '@/lib/types';
 import { formatDate, formatEuro, toNumberFromItalianInput } from '@/lib/format';
 import { buildAmazonUrl } from '@/lib/amazon-scraper';
 import { addCartItem, getCartItems, type CartItem } from '@/lib/cart';
+import { buildMomoxUrlFromMedimopsUrl } from '@/lib/store-urls';
 
 type SortKey =
   | 'status'
@@ -175,30 +176,10 @@ function CheckIcon() {
 function TrashIcon() {
   return (
     <svg aria-hidden="true" className="h-4 w-4" viewBox="0 0 24 24" fill="none">
-      <path
-        d="M4 7h16"
-        stroke="currentColor"
-        strokeWidth="1.8"
-        strokeLinecap="round"
-      />
-      <path
-        d="M10 11v6M14 11v6"
-        stroke="currentColor"
-        strokeWidth="1.8"
-        strokeLinecap="round"
-      />
-      <path
-        d="M6.5 7 7.5 21h9L17.5 7"
-        stroke="currentColor"
-        strokeWidth="1.8"
-        strokeLinejoin="round"
-      />
-      <path
-        d="M9 7V4h6v3"
-        stroke="currentColor"
-        strokeWidth="1.8"
-        strokeLinejoin="round"
-      />
+      <path d="M4 7h16" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
+      <path d="M10 11v6M14 11v6" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
+      <path d="M6.5 7 7.5 21h9L17.5 7" stroke="currentColor" strokeWidth="1.8" strokeLinejoin="round" />
+      <path d="M9 7V4h6v3" stroke="currentColor" strokeWidth="1.8" strokeLinejoin="round" />
     </svg>
   );
 }
@@ -206,12 +187,7 @@ function TrashIcon() {
 function CloseIcon() {
   return (
     <svg aria-hidden="true" className="h-5 w-5" viewBox="0 0 24 24" fill="none">
-      <path
-        d="M6 6l12 12M18 6 6 18"
-        stroke="currentColor"
-        strokeWidth="2"
-        strokeLinecap="round"
-      />
+      <path d="M6 6l12 12M18 6 6 18" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
     </svg>
   );
 }
@@ -219,27 +195,13 @@ function CloseIcon() {
 function ChevronDownIcon() {
   return (
     <svg aria-hidden="true" className="h-4 w-4" viewBox="0 0 24 24" fill="none">
-      <path
-        d="m6 9 6 6 6-6"
-        stroke="currentColor"
-        strokeWidth="1.8"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-      />
+      <path d="m6 9 6 6 6-6" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
     </svg>
   );
 }
 
-function SortIndicator({
-  active,
-  ascending
-}: {
-  active: boolean;
-  ascending: boolean;
-}) {
-  if (!active) {
-    return <span className="text-slate-300">↕</span>;
-  }
+function SortIndicator({ active, ascending }: { active: boolean; ascending: boolean }) {
+  if (!active) return <span className="text-slate-300">↕</span>;
 
   return <span className="text-blue-700">{ascending ? '↑' : '↓'}</span>;
 }
@@ -257,9 +219,7 @@ function SortableHeader({
   sortAsc: boolean;
   onDoubleClick: (key: SortKey) => void;
 }) {
-  if (!sortKey) {
-    return <th className="border-b p-2">{label}</th>;
-  }
+  if (!sortKey) return <th className="border-b p-2">{label}</th>;
 
   const active = activeSortKey === sortKey;
 
@@ -408,15 +368,8 @@ function numberToItalianInput(value: number | null | undefined): string {
   return String(value).replace('.', ',');
 }
 
-function isSiteInTarget(
-  currentPrice: number | null,
-  targetPrice: number | null
-): boolean {
-  return (
-    currentPrice !== null &&
-    targetPrice !== null &&
-    currentPrice <= targetPrice
-  );
+function isSiteInTarget(currentPrice: number | null, targetPrice: number | null): boolean {
+  return currentPrice !== null && targetPrice !== null && currentPrice <= targetPrice;
 }
 
 function hasAnyUrl(monitor: Monitor): boolean {
@@ -431,10 +384,9 @@ function getUrlStatusLabel(monitor: Monitor): 'Con URL' | 'Senza URL' {
 }
 
 function getBestPrice(monitor: Monitor): number | null {
-  const prices = [
-    monitor.medimops_current_price,
-    monitor.momox_current_price
-  ].filter((price): price is number => price !== null);
+  const prices = [monitor.medimops_current_price, monitor.momox_current_price].filter(
+    (price): price is number => price !== null
+  );
 
   if (prices.length === 0) return null;
 
@@ -452,26 +404,19 @@ function getDisplayStatus(monitor: Monitor): LastStatus | 'never_checked' {
     monitor.momox_target_price
   );
 
-  if (medimopsInTarget || momoxInTarget) {
-    return 'below_target';
-  }
+  if (medimopsInTarget || momoxInTarget) return 'below_target';
 
   return monitor.last_status || 'never_checked';
 }
 
-function sitePriceClass(
-  currentPrice: number | null,
-  targetPrice: number | null
-) {
+function sitePriceClass(currentPrice: number | null, targetPrice: number | null) {
   return isSiteInTarget(currentPrice, targetPrice)
     ? 'font-semibold text-green-700'
     : 'font-semibold';
 }
 
 function conditionBadge(value: string | null) {
-  if (!value) {
-    return <span className="text-slate-400">-</span>;
-  }
+  if (!value) return <span className="text-slate-400">-</span>;
 
   const cls =
     value === 'EX'
@@ -489,10 +434,7 @@ function conditionBadge(value: string | null) {
   );
 }
 
-function compareNullableNumbers(
-  left: number | null,
-  right: number | null
-): number {
+function compareNullableNumbers(left: number | null, right: number | null): number {
   if (left === null && right === null) return 0;
   if (left === null) return 1;
   if (right === null) return -1;
@@ -515,10 +457,24 @@ function compareDates(left: string | null, right: string | null): number {
   return leftTime - rightTime;
 }
 
+function compareDefaultOrder(a: Monitor, b: Monitor): number {
+  const artistCompare = String(a.artist || '').localeCompare(String(b.artist || ''), 'it');
+
+  if (artistCompare !== 0) return artistCompare;
+
+  const yearCompare = compareNullableNumbers(a.release_year, b.release_year);
+
+  if (yearCompare !== 0) return yearCompare;
+
+  const albumCompare = String(a.album || '').localeCompare(String(b.album || ''), 'it');
+
+  if (albumCompare !== 0) return albumCompare;
+
+  return String(a.country || '').localeCompare(String(b.country || ''), 'it');
+}
+
 function compareValues(a: Monitor, b: Monitor, key: SortKey): number {
-  if (key === 'best_price') {
-    return compareNullableNumbers(getBestPrice(a), getBestPrice(b));
-  }
+  if (key === 'best_price') return compareNullableNumbers(getBestPrice(a), getBestPrice(b));
 
   if (key === 'status') {
     return statusLabels[getDisplayStatus(a)].localeCompare(
@@ -527,17 +483,11 @@ function compareValues(a: Monitor, b: Monitor, key: SortKey): number {
     );
   }
 
-  if (key === 'is_active') {
-    return Number(a.is_active) - Number(b.is_active);
-  }
+  if (key === 'is_active') return Number(a.is_active) - Number(b.is_active);
 
-  if (key === 'has_url') {
-    return Number(hasAnyUrl(a)) - Number(hasAnyUrl(b));
-  }
+  if (key === 'has_url') return Number(hasAnyUrl(a)) - Number(hasAnyUrl(b));
 
-  if (key === 'last_checked_at') {
-    return compareDates(a.last_checked_at, b.last_checked_at);
-  }
+  if (key === 'last_checked_at') return compareDates(a.last_checked_at, b.last_checked_at);
 
   const left = a[key];
   const right = b[key];
@@ -557,10 +507,7 @@ function compareValues(a: Monitor, b: Monitor, key: SortKey): number {
   return String(left ?? '').localeCompare(String(right ?? ''), 'it');
 }
 
-function countActiveFilters(
-  filters: Record<string, string>,
-  multiFilters: MultiFilters
-) {
+function countActiveFilters(filters: Record<string, string>, multiFilters: MultiFilters) {
   const textCount = Object.values(filters).filter(
     (value) => value.trim().length > 0
   ).length;
@@ -595,9 +542,7 @@ function LinkedPrice({
   url: string | null;
   className: string;
 }) {
-  if (!url || value === null) {
-    return <span className={className}>{formatEuro(value)}</span>;
-  }
+  if (!url || value === null) return <span className={className}>{formatEuro(value)}</span>;
 
   return (
     <a
@@ -613,9 +558,7 @@ function LinkedPrice({
 }
 
 function DetailCell({ value }: { value: string | null }) {
-  if (!value) {
-    return <span className="text-slate-400">-</span>;
-  }
+  if (!value) return <span className="text-slate-400">-</span>;
 
   return (
     <details className="max-w-80">
@@ -708,10 +651,7 @@ export default function Dashboard() {
     window.addEventListener('storage', refreshCartState);
 
     return () => {
-      window.removeEventListener(
-        'music-price-monitor-cart-updated',
-        refreshCartState
-      );
+      window.removeEventListener('music-price-monitor-cart-updated', refreshCartState);
       window.removeEventListener('storage', refreshCartState);
     };
   }, []);
@@ -740,6 +680,14 @@ export default function Dashboard() {
     setMessage(`Aggiunto al carrello: ${monitor.artist} - ${monitor.album}`);
   }
 
+  function updateMedimopsUrl(value: string) {
+    setForm((previous) => ({
+      ...previous,
+      medimops_url: value,
+      momox_url: buildMomoxUrlFromMedimopsUrl(value)
+    }));
+  }
+
   async function importCsvFile(file: File) {
     setBusy(true);
     setMessage(`Import CSV in corso: ${file.name}`);
@@ -760,17 +708,14 @@ export default function Dashboard() {
         error?: string;
       };
 
-      if (!response.ok) {
-        throw new Error(json.error || 'Errore durante import CSV.');
-      }
+      if (!response.ok) throw new Error(json.error || 'Errore durante import CSV.');
 
       await loadData();
       setSelectedIds([]);
       setIsImportOpen(false);
 
       setMessage(
-        json.message ||
-          `Import CSV completato: ${json.imported || 0} righe caricate.`
+        json.message || `Import CSV completato: ${json.imported || 0} righe caricate.`
       );
     } catch (error) {
       setMessage(
@@ -782,9 +727,7 @@ export default function Dashboard() {
       setBusy(false);
       setDragActive(false);
 
-      if (csvInputRef.current) {
-        csvInputRef.current.value = '';
-      }
+      if (csvInputRef.current) csvInputRef.current.value = '';
     }
   }
 
@@ -839,17 +782,13 @@ export default function Dashboard() {
         error?: string;
       };
 
-      if (!response.ok) {
-        throw new Error(json.error || 'Errore Quicktarget.');
-      }
+      if (!response.ok) throw new Error(json.error || 'Errore Quicktarget.');
 
       await loadData();
 
       setMessage(json.message || 'Quicktarget completato.');
     } catch (error) {
-      setMessage(
-        error instanceof Error ? error.message : 'Errore Quicktarget.'
-      );
+      setMessage(error instanceof Error ? error.message : 'Errore Quicktarget.');
     } finally {
       setBusy(false);
     }
@@ -865,88 +804,41 @@ export default function Dashboard() {
       const urlStatusLabel = getUrlStatusLabel(monitor);
       const bestPrice = getBestPrice(monitor);
 
-      if (
-        multiFilters.status.length > 0 &&
-        !multiFilters.status.includes(statusLabel)
-      ) {
-        return false;
-      }
-
-      if (
-        multiFilters.type.length > 0 &&
-        !multiFilters.type.includes(monitor.type)
-      ) {
-        return false;
-      }
-
-      if (
-        multiFilters.is_active.length > 0 &&
-        !multiFilters.is_active.includes(activeLabel)
-      ) {
-        return false;
-      }
-
-      if (
-        multiFilters.has_url.length > 0 &&
-        !multiFilters.has_url.includes(urlStatusLabel)
-      ) {
-        return false;
-      }
-
-      if (
-        multiFilters.genre.length > 0 &&
-        !multiFilters.genre.includes(monitor.genre)
-      ) {
-        return false;
-      }
-
+      if (multiFilters.status.length > 0 && !multiFilters.status.includes(statusLabel)) return false;
+      if (multiFilters.type.length > 0 && !multiFilters.type.includes(monitor.type)) return false;
+      if (multiFilters.is_active.length > 0 && !multiFilters.is_active.includes(activeLabel)) return false;
+      if (multiFilters.has_url.length > 0 && !multiFilters.has_url.includes(urlStatusLabel)) return false;
+      if (multiFilters.genre.length > 0 && !multiFilters.genre.includes(monitor.genre)) return false;
       if (
         multiFilters.medimops_condition.length > 0 &&
-        !multiFilters.medimops_condition.includes(
-          monitor.medimops_condition || ''
-        )
-      ) {
-        return false;
-      }
-
+        !multiFilters.medimops_condition.includes(monitor.medimops_condition || '')
+      ) return false;
       if (
         multiFilters.momox_condition.length > 0 &&
         !multiFilters.momox_condition.includes(monitor.momox_condition || '')
-      ) {
-        return false;
-      }
+      ) return false;
 
       const row: Record<string, unknown> = {
         ...monitor,
         status: statusLabel,
         has_url: urlStatusLabel,
-        best_price:
-          bestPrice === null ? '' : `${bestPrice} ${formatEuro(bestPrice)}`
+        best_price: bestPrice === null ? '' : `${bestPrice} ${formatEuro(bestPrice)}`
       };
 
       return Object.entries(filters).every(
         ([key, filterValue]) =>
-          !filterValue ||
-          lower(row[key]).includes(filterValue.toLowerCase())
+          !filterValue || lower(row[key]).includes(filterValue.toLowerCase())
       );
     });
 
-    if (!sortKey) {
-      return filteredRows;
-    }
+    if (!sortKey) return [...filteredRows].sort(compareDefaultOrder);
 
     return [...filteredRows].sort((a, b) => {
       const primary = compareValues(a, b, sortKey);
 
-      if (primary !== 0) {
-        return sortAsc ? primary : -primary;
-      }
+      if (primary !== 0) return sortAsc ? primary : -primary;
 
-      const byArtist = compareValues(a, b, 'artist');
-
-      if (byArtist !== 0) return byArtist;
-
-      return compareValues(a, b, 'release_year');
+      return compareDefaultOrder(a, b);
     });
   }, [monitors, filters, multiFilters, sortKey, sortAsc]);
 
@@ -1000,10 +892,10 @@ export default function Dashboard() {
           : String(monitor.release_year),
       country: monitor.country || '',
       medimops_url: monitor.medimops_url || '',
-      medimops_target_price: numberToItalianInput(
-        monitor.medimops_target_price
-      ),
-      momox_url: monitor.momox_url || '',
+      medimops_target_price: numberToItalianInput(monitor.medimops_target_price),
+      momox_url:
+        monitor.momox_url ||
+        buildMomoxUrlFromMedimopsUrl(monitor.medimops_url || ''),
       momox_target_price: numberToItalianInput(monitor.momox_target_price),
       amazon_asin: monitor.amazon_asin || '',
       amazon_target_price: numberToItalianInput(monitor.amazon_target_price),
@@ -1023,9 +915,7 @@ export default function Dashboard() {
       return {
         ...previous,
         medimops_target_price: value,
-        momox_target_price: shouldSyncMomox
-          ? value
-          : previous.momox_target_price
+        momox_target_price: shouldSyncMomox ? value : previous.momox_target_price
       };
     });
   }
@@ -1051,12 +941,13 @@ export default function Dashboard() {
       medimops_url: form.medimops_url.trim() || null,
       medimops_target_price: targetInputToNumber(form.medimops_target_price),
 
-      momox_url: form.momox_url.trim() || null,
+      momox_url:
+        form.momox_url.trim() ||
+        buildMomoxUrlFromMedimopsUrl(form.medimops_url.trim()) ||
+        null,
       momox_target_price: targetInputToNumber(form.momox_target_price),
 
-      amazon_asin: form.amazon_asin.trim()
-        ? normalizeAsin(form.amazon_asin)
-        : null,
+      amazon_asin: form.amazon_asin.trim() ? normalizeAsin(form.amazon_asin) : null,
       amazon_target_price: targetInputToNumber(form.amazon_target_price),
 
       alert_email: form.alert_email || null,
@@ -1075,9 +966,7 @@ export default function Dashboard() {
 
       const json = (await response.json()) as { error?: string };
 
-      if (!response.ok) {
-        throw new Error(json.error || 'Errore salvataggio');
-      }
+      if (!response.ok) throw new Error(json.error || 'Errore salvataggio');
 
       setForm(emptyForm);
       setIsFormOpen(false);
@@ -1102,18 +991,14 @@ export default function Dashboard() {
 
       const json = (await response.json()) as { error?: string };
 
-      if (!response.ok) {
-        throw new Error(json.error || 'Errore eliminazione');
-      }
+      if (!response.ok) throw new Error(json.error || 'Errore eliminazione');
 
       await loadData();
       setSelectedIds(selectedIds.filter((selectedId) => selectedId !== id));
       refreshCartState();
       setMessage('Monitor eliminato.');
     } catch (error) {
-      setMessage(
-        error instanceof Error ? error.message : 'Errore eliminazione'
-      );
+      setMessage(error instanceof Error ? error.message : 'Errore eliminazione');
     } finally {
       setBusy(false);
     }
@@ -1134,9 +1019,7 @@ export default function Dashboard() {
         error?: string;
       };
 
-      if (!response.ok) {
-        throw new Error(json.error || 'Errore avvio controllo singolo.');
-      }
+      if (!response.ok) throw new Error(json.error || 'Errore avvio controllo singolo.');
 
       setMessage(
         json.message ||
@@ -1179,9 +1062,7 @@ export default function Dashboard() {
         error?: string;
       };
 
-      if (!response.ok) {
-        throw new Error(json.error || 'Errore avvio controllo completo.');
-      }
+      if (!response.ok) throw new Error(json.error || 'Errore avvio controllo completo.');
 
       setMessage(
         json.message ||
@@ -1240,8 +1121,7 @@ export default function Dashboard() {
           <div>
             <h1 className="text-3xl font-bold">Music Price Monitor</h1>
             <p className="mt-2 text-slate-600">
-              Dashboard italiana per monitorare prezzi CD/LP su Momox e
-              Medimops.
+              Dashboard italiana per monitorare prezzi CD/LP su Momox e Medimops.
             </p>
           </div>
 
@@ -1271,9 +1151,7 @@ export default function Dashboard() {
           </div>
         </div>
 
-        <p className="mt-4 rounded-lg bg-slate-100 p-3 text-sm">
-          Stato: {message}
-        </p>
+        <p className="mt-4 rounded-lg bg-slate-100 p-3 text-sm">Stato: {message}</p>
       </div>
 
       <section className="rounded-2xl bg-white p-4 shadow-sm">
@@ -1284,8 +1162,8 @@ export default function Dashboard() {
               Record visibili: {filtered.length}
             </p>
             <p className="mt-1 text-xs text-slate-400">
-              Doppio click sulle intestazioni per ordinare: crescente,
-              decrescente, non ordinato.
+              Ordinamento default: Artista ASC, Anno ASC, Titolo ASC, Country ASC.
+              Doppio click sulle intestazioni per ordinare.
             </p>
           </div>
 
@@ -1337,13 +1215,9 @@ export default function Dashboard() {
                 options={multiFilterOptions.genre}
                 isOpen={openMultiFilter === 'genre'}
                 onToggle={() =>
-                  setOpenMultiFilter(
-                    openMultiFilter === 'genre' ? null : 'genre'
-                  )
+                  setOpenMultiFilter(openMultiFilter === 'genre' ? null : 'genre')
                 }
-                onChange={(value) =>
-                  setMultiFilters({ ...multiFilters, genre: value })
-                }
+                onChange={(value) => setMultiFilters({ ...multiFilters, genre: value })}
               />
 
               <CompactMultiSelectFilter
@@ -1359,10 +1233,7 @@ export default function Dashboard() {
                   )
                 }
                 onChange={(value) =>
-                  setMultiFilters({
-                    ...multiFilters,
-                    medimops_condition: value
-                  })
+                  setMultiFilters({ ...multiFilters, medimops_condition: value })
                 }
               />
 
@@ -1373,16 +1244,11 @@ export default function Dashboard() {
                 isOpen={openMultiFilter === 'momox_condition'}
                 onToggle={() =>
                   setOpenMultiFilter(
-                    openMultiFilter === 'momox_condition'
-                      ? null
-                      : 'momox_condition'
+                    openMultiFilter === 'momox_condition' ? null : 'momox_condition'
                   )
                 }
                 onChange={(value) =>
-                  setMultiFilters({
-                    ...multiFilters,
-                    momox_condition: value
-                  })
+                  setMultiFilters({ ...multiFilters, momox_condition: value })
                 }
               />
 
@@ -1392,13 +1258,9 @@ export default function Dashboard() {
                 options={multiFilterOptions.status}
                 isOpen={openMultiFilter === 'status'}
                 onToggle={() =>
-                  setOpenMultiFilter(
-                    openMultiFilter === 'status' ? null : 'status'
-                  )
+                  setOpenMultiFilter(openMultiFilter === 'status' ? null : 'status')
                 }
-                onChange={(value) =>
-                  setMultiFilters({ ...multiFilters, status: value })
-                }
+                onChange={(value) => setMultiFilters({ ...multiFilters, status: value })}
               />
 
               <CompactMultiSelectFilter
@@ -1409,9 +1271,7 @@ export default function Dashboard() {
                 onToggle={() =>
                   setOpenMultiFilter(openMultiFilter === 'type' ? null : 'type')
                 }
-                onChange={(value) =>
-                  setMultiFilters({ ...multiFilters, type: value })
-                }
+                onChange={(value) => setMultiFilters({ ...multiFilters, type: value })}
               />
 
               <CompactMultiSelectFilter
@@ -1435,13 +1295,9 @@ export default function Dashboard() {
                 options={multiFilterOptions.has_url}
                 isOpen={openMultiFilter === 'has_url'}
                 onToggle={() =>
-                  setOpenMultiFilter(
-                    openMultiFilter === 'has_url' ? null : 'has_url'
-                  )
+                  setOpenMultiFilter(openMultiFilter === 'has_url' ? null : 'has_url')
                 }
-                onChange={(value) =>
-                  setMultiFilters({ ...multiFilters, has_url: value })
-                }
+                onChange={(value) => setMultiFilters({ ...multiFilters, has_url: value })}
               />
             </div>
 
@@ -1489,151 +1345,27 @@ export default function Dashboard() {
                     title="Seleziona tutte le righe visibili"
                   />
                 </th>
-                <SortableHeader
-                  label="Azioni"
-                  activeSortKey={sortKey}
-                  sortAsc={sortAsc}
-                  onDoubleClick={handleHeaderDoubleClick}
-                />
-                <SortableHeader
-                  label="Stato"
-                  sortKey="status"
-                  activeSortKey={sortKey}
-                  sortAsc={sortAsc}
-                  onDoubleClick={handleHeaderDoubleClick}
-                />
-                <SortableHeader
-                  label="URL"
-                  sortKey="has_url"
-                  activeSortKey={sortKey}
-                  sortAsc={sortAsc}
-                  onDoubleClick={handleHeaderDoubleClick}
-                />
-                <SortableHeader
-                  label="Dettaglio"
-                  activeSortKey={sortKey}
-                  sortAsc={sortAsc}
-                  onDoubleClick={handleHeaderDoubleClick}
-                />
-                <SortableHeader
-                  label="Attivo"
-                  sortKey="is_active"
-                  activeSortKey={sortKey}
-                  sortAsc={sortAsc}
-                  onDoubleClick={handleHeaderDoubleClick}
-                />
-                <SortableHeader
-                  label="Tipo"
-                  sortKey="type"
-                  activeSortKey={sortKey}
-                  sortAsc={sortAsc}
-                  onDoubleClick={handleHeaderDoubleClick}
-                />
-                <SortableHeader
-                  label="Artista"
-                  sortKey="artist"
-                  activeSortKey={sortKey}
-                  sortAsc={sortAsc}
-                  onDoubleClick={handleHeaderDoubleClick}
-                />
-                <SortableHeader
-                  label="Album"
-                  sortKey="album"
-                  activeSortKey={sortKey}
-                  sortAsc={sortAsc}
-                  onDoubleClick={handleHeaderDoubleClick}
-                />
-                <SortableHeader
-                  label="Best€"
-                  sortKey="best_price"
-                  activeSortKey={sortKey}
-                  sortAsc={sortAsc}
-                  onDoubleClick={handleHeaderDoubleClick}
-                />
-                <SortableHeader
-                  label="Medimops €"
-                  sortKey="medimops_current_price"
-                  activeSortKey={sortKey}
-                  sortAsc={sortAsc}
-                  onDoubleClick={handleHeaderDoubleClick}
-                />
-                <SortableHeader
-                  label="Medimops Cond."
-                  sortKey="medimops_condition"
-                  activeSortKey={sortKey}
-                  sortAsc={sortAsc}
-                  onDoubleClick={handleHeaderDoubleClick}
-                />
-                <SortableHeader
-                  label="Momox €"
-                  sortKey="momox_current_price"
-                  activeSortKey={sortKey}
-                  sortAsc={sortAsc}
-                  onDoubleClick={handleHeaderDoubleClick}
-                />
-                <SortableHeader
-                  label="Momox Cond."
-                  sortKey="momox_condition"
-                  activeSortKey={sortKey}
-                  sortAsc={sortAsc}
-                  onDoubleClick={handleHeaderDoubleClick}
-                />
-                <SortableHeader
-                  label="Ultimo Rilievo"
-                  sortKey="last_checked_at"
-                  activeSortKey={sortKey}
-                  sortAsc={sortAsc}
-                  onDoubleClick={handleHeaderDoubleClick}
-                />
-                <SortableHeader
-                  label="EAN"
-                  sortKey="ean_code"
-                  activeSortKey={sortKey}
-                  sortAsc={sortAsc}
-                  onDoubleClick={handleHeaderDoubleClick}
-                />
-                <SortableHeader
-                  label="Label"
-                  sortKey="edition"
-                  activeSortKey={sortKey}
-                  sortAsc={sortAsc}
-                  onDoubleClick={handleHeaderDoubleClick}
-                />
-                <SortableHeader
-                  label="Anno"
-                  sortKey="release_year"
-                  activeSortKey={sortKey}
-                  sortAsc={sortAsc}
-                  onDoubleClick={handleHeaderDoubleClick}
-                />
-                <SortableHeader
-                  label="Country"
-                  sortKey="country"
-                  activeSortKey={sortKey}
-                  sortAsc={sortAsc}
-                  onDoubleClick={handleHeaderDoubleClick}
-                />
-                <SortableHeader
-                  label="Medimops T"
-                  sortKey="medimops_target_price"
-                  activeSortKey={sortKey}
-                  sortAsc={sortAsc}
-                  onDoubleClick={handleHeaderDoubleClick}
-                />
-                <SortableHeader
-                  label="Momox T"
-                  sortKey="momox_target_price"
-                  activeSortKey={sortKey}
-                  sortAsc={sortAsc}
-                  onDoubleClick={handleHeaderDoubleClick}
-                />
-                <SortableHeader
-                  label="Genere"
-                  sortKey="genre"
-                  activeSortKey={sortKey}
-                  sortAsc={sortAsc}
-                  onDoubleClick={handleHeaderDoubleClick}
-                />
+                <SortableHeader label="Azioni" activeSortKey={sortKey} sortAsc={sortAsc} onDoubleClick={handleHeaderDoubleClick} />
+                <SortableHeader label="Stato" sortKey="status" activeSortKey={sortKey} sortAsc={sortAsc} onDoubleClick={handleHeaderDoubleClick} />
+                <SortableHeader label="URL" sortKey="has_url" activeSortKey={sortKey} sortAsc={sortAsc} onDoubleClick={handleHeaderDoubleClick} />
+                <SortableHeader label="Dettaglio" activeSortKey={sortKey} sortAsc={sortAsc} onDoubleClick={handleHeaderDoubleClick} />
+                <SortableHeader label="Attivo" sortKey="is_active" activeSortKey={sortKey} sortAsc={sortAsc} onDoubleClick={handleHeaderDoubleClick} />
+                <SortableHeader label="Tipo" sortKey="type" activeSortKey={sortKey} sortAsc={sortAsc} onDoubleClick={handleHeaderDoubleClick} />
+                <SortableHeader label="Artista" sortKey="artist" activeSortKey={sortKey} sortAsc={sortAsc} onDoubleClick={handleHeaderDoubleClick} />
+                <SortableHeader label="Album" sortKey="album" activeSortKey={sortKey} sortAsc={sortAsc} onDoubleClick={handleHeaderDoubleClick} />
+                <SortableHeader label="Best€" sortKey="best_price" activeSortKey={sortKey} sortAsc={sortAsc} onDoubleClick={handleHeaderDoubleClick} />
+                <SortableHeader label="Medimops €" sortKey="medimops_current_price" activeSortKey={sortKey} sortAsc={sortAsc} onDoubleClick={handleHeaderDoubleClick} />
+                <SortableHeader label="Medimops Cond." sortKey="medimops_condition" activeSortKey={sortKey} sortAsc={sortAsc} onDoubleClick={handleHeaderDoubleClick} />
+                <SortableHeader label="Momox €" sortKey="momox_current_price" activeSortKey={sortKey} sortAsc={sortAsc} onDoubleClick={handleHeaderDoubleClick} />
+                <SortableHeader label="Momox Cond." sortKey="momox_condition" activeSortKey={sortKey} sortAsc={sortAsc} onDoubleClick={handleHeaderDoubleClick} />
+                <SortableHeader label="Ultimo Rilievo" sortKey="last_checked_at" activeSortKey={sortKey} sortAsc={sortAsc} onDoubleClick={handleHeaderDoubleClick} />
+                <SortableHeader label="EAN" sortKey="ean_code" activeSortKey={sortKey} sortAsc={sortAsc} onDoubleClick={handleHeaderDoubleClick} />
+                <SortableHeader label="Label" sortKey="edition" activeSortKey={sortKey} sortAsc={sortAsc} onDoubleClick={handleHeaderDoubleClick} />
+                <SortableHeader label="Anno" sortKey="release_year" activeSortKey={sortKey} sortAsc={sortAsc} onDoubleClick={handleHeaderDoubleClick} />
+                <SortableHeader label="Country" sortKey="country" activeSortKey={sortKey} sortAsc={sortAsc} onDoubleClick={handleHeaderDoubleClick} />
+                <SortableHeader label="Medimops T" sortKey="medimops_target_price" activeSortKey={sortKey} sortAsc={sortAsc} onDoubleClick={handleHeaderDoubleClick} />
+                <SortableHeader label="Momox T" sortKey="momox_target_price" activeSortKey={sortKey} sortAsc={sortAsc} onDoubleClick={handleHeaderDoubleClick} />
+                <SortableHeader label="Genere" sortKey="genre" activeSortKey={sortKey} sortAsc={sortAsc} onDoubleClick={handleHeaderDoubleClick} />
               </tr>
             </thead>
 
@@ -1658,16 +1390,8 @@ export default function Dashboard() {
                           className="inline-flex h-9 w-9 items-center justify-center rounded-lg border text-amber-700 hover:bg-amber-50 disabled:cursor-not-allowed disabled:opacity-40"
                           disabled={alreadyInCart}
                           onClick={() => addMonitorToCart(monitor)}
-                          title={
-                            alreadyInCart
-                              ? 'Già nel carrello'
-                              : 'Aggiungi al carrello'
-                          }
-                          aria-label={
-                            alreadyInCart
-                              ? 'Già nel carrello'
-                              : 'Aggiungi al carrello'
-                          }
+                          title={alreadyInCart ? 'Già nel carrello' : 'Aggiungi al carrello'}
+                          aria-label={alreadyInCart ? 'Già nel carrello' : 'Aggiungi al carrello'}
                         >
                           <CartIcon />
                         </button>
@@ -1704,20 +1428,13 @@ export default function Dashboard() {
                     </td>
 
                     <td className="p-2">{badge(monitor)}</td>
-                    <td className="p-2">
-                      <UrlStatusCell monitor={monitor} />
-                    </td>
-                    <td className="p-2">
-                      <DetailCell value={monitor.last_error} />
-                    </td>
+                    <td className="p-2"><UrlStatusCell monitor={monitor} /></td>
+                    <td className="p-2"><DetailCell value={monitor.last_error} /></td>
                     <td className="p-2">{monitor.is_active ? 'Sì' : 'No'}</td>
                     <td className="p-2">{monitor.type}</td>
                     <td className="p-2 font-medium">{monitor.artist}</td>
                     <td className="p-2">{monitor.album}</td>
-
-                    <td className="p-2 font-bold text-slate-900">
-                      {formatEuro(bestPrice)}
-                    </td>
+                    <td className="p-2 font-bold text-slate-900">{formatEuro(bestPrice)}</td>
 
                     <td className="p-2">
                       <LinkedPrice
@@ -1730,9 +1447,7 @@ export default function Dashboard() {
                       />
                     </td>
 
-                    <td className="p-2">
-                      {conditionBadge(monitor.medimops_condition)}
-                    </td>
+                    <td className="p-2">{conditionBadge(monitor.medimops_condition)}</td>
 
                     <td className="p-2">
                       <LinkedPrice
@@ -1745,24 +1460,14 @@ export default function Dashboard() {
                       />
                     </td>
 
-                    <td className="p-2">
-                      {conditionBadge(monitor.momox_condition)}
-                    </td>
-
-                    <td className="p-2">
-                      {formatDate(monitor.last_checked_at)}
-                    </td>
+                    <td className="p-2">{conditionBadge(monitor.momox_condition)}</td>
+                    <td className="p-2">{formatDate(monitor.last_checked_at)}</td>
                     <td className="p-2">{monitor.ean_code || '-'}</td>
                     <td className="p-2">{monitor.edition || '-'}</td>
                     <td className="p-2">{monitor.release_year || '-'}</td>
                     <td className="p-2">{monitor.country || '-'}</td>
-
-                    <td className="p-2 text-slate-500">
-                      {formatEuro(monitor.medimops_target_price)}
-                    </td>
-                    <td className="p-2 text-slate-500">
-                      {formatEuro(monitor.momox_target_price)}
-                    </td>
+                    <td className="p-2 text-slate-500">{formatEuro(monitor.medimops_target_price)}</td>
+                    <td className="p-2 text-slate-500">{formatEuro(monitor.momox_target_price)}</td>
                     <td className="p-2">{monitor.genre}</td>
                   </tr>
                 );
@@ -1788,8 +1493,7 @@ export default function Dashboard() {
                 <h2 className="text-xl font-semibold">Importa CSV</h2>
                 <p className="mt-1 text-sm text-slate-500">
                   Trascina qui il file CSV oppure selezionalo dal computer.
-                  Se anche una sola riga contiene errori, non verrà importato
-                  nulla.
+                  Se anche una sola riga contiene errori, non verrà importato nulla.
                 </p>
               </div>
 
@@ -1812,9 +1516,7 @@ export default function Dashboard() {
 
             <div
               className={`rounded-2xl border-2 border-dashed p-8 text-center ${
-                dragActive
-                  ? 'border-blue-600 bg-blue-50'
-                  : 'border-slate-300 bg-slate-50'
+                dragActive ? 'border-blue-600 bg-blue-50' : 'border-slate-300 bg-slate-50'
               }`}
               onDragEnter={(event) => {
                 event.preventDefault();
@@ -1849,8 +1551,8 @@ export default function Dashboard() {
             </div>
 
             <div className="mt-4 rounded-lg bg-amber-50 p-3 text-sm text-amber-900">
-              Campi obbligatori: Genere, Tipo, Artista, Album, EAN, Target.
-              Il CSV deve iniziare con la colonna Genere.
+              Campi obbligatori: Genere, Tipo, Artista, Album, EAN, Target,
+              URL Medimops. URL Momox viene generato automaticamente da URL Medimops.
             </div>
           </div>
         </div>
@@ -1866,8 +1568,7 @@ export default function Dashboard() {
                 </h2>
                 <p className="mt-1 text-sm text-slate-500">
                   Inserisci i dati del disco. Il genere è obbligatorio.
-                  Medimops e Momox sono usati per il monitoraggio; Amazon resta
-                  solo come campo futuro.
+                  Inserendo URL Medimops, URL Momox viene generato automaticamente.
                 </p>
               </div>
 
@@ -1889,16 +1590,11 @@ export default function Dashboard() {
                     className="mt-1 w-full rounded-lg border p-2"
                     value={form.genre}
                     onChange={(event) =>
-                      setForm({
-                        ...form,
-                        genre: event.target.value as MonitorGenre
-                      })
+                      setForm({ ...form, genre: event.target.value as MonitorGenre })
                     }
                   >
                     {MONITOR_GENRES.map((genre) => (
-                      <option key={genre} value={genre}>
-                        {genre}
-                      </option>
+                      <option key={genre} value={genre}>{genre}</option>
                     ))}
                   </select>
                 </label>
@@ -1909,10 +1605,7 @@ export default function Dashboard() {
                     className="mt-1 w-full rounded-lg border p-2"
                     value={form.type}
                     onChange={(event) =>
-                      setForm({
-                        ...form,
-                        type: event.target.value as MonitorType
-                      })
+                      setForm({ ...form, type: event.target.value as MonitorType })
                     }
                   >
                     <option>CD</option>
@@ -1926,9 +1619,7 @@ export default function Dashboard() {
                     required
                     className="mt-1 w-full rounded-lg border p-2"
                     value={form.artist}
-                    onChange={(event) =>
-                      setForm({ ...form, artist: event.target.value })
-                    }
+                    onChange={(event) => setForm({ ...form, artist: event.target.value })}
                   />
                 </label>
 
@@ -1938,9 +1629,7 @@ export default function Dashboard() {
                     required
                     className="mt-1 w-full rounded-lg border p-2"
                     value={form.album}
-                    onChange={(event) =>
-                      setForm({ ...form, album: event.target.value })
-                    }
+                    onChange={(event) => setForm({ ...form, album: event.target.value })}
                   />
                 </label>
 
@@ -1949,9 +1638,7 @@ export default function Dashboard() {
                   <input
                     className="mt-1 w-full rounded-lg border p-2"
                     value={form.edition}
-                    onChange={(event) =>
-                      setForm({ ...form, edition: event.target.value })
-                    }
+                    onChange={(event) => setForm({ ...form, edition: event.target.value })}
                   />
                 </label>
 
@@ -1963,10 +1650,7 @@ export default function Dashboard() {
                     className="mt-1 w-full rounded-lg border p-2"
                     value={form.ean_code}
                     onChange={(event) =>
-                      setForm({
-                        ...form,
-                        ean_code: normalizeEan(event.target.value)
-                      })
+                      setForm({ ...form, ean_code: normalizeEan(event.target.value) })
                     }
                   />
                 </label>
@@ -2003,9 +1687,7 @@ export default function Dashboard() {
               </div>
 
               <div className="rounded-xl border bg-slate-50 p-4">
-                <h3 className="mb-3 text-sm font-semibold text-slate-700">
-                  Medimops
-                </h3>
+                <h3 className="mb-3 text-sm font-semibold text-slate-700">Medimops</h3>
 
                 <div className="grid gap-3 lg:grid-cols-[1fr_220px]">
                   <label className="text-sm font-medium">
@@ -2014,12 +1696,7 @@ export default function Dashboard() {
                       type="url"
                       className="mt-1 w-full rounded-lg border bg-white p-2"
                       value={form.medimops_url}
-                      onChange={(event) =>
-                        setForm({
-                          ...form,
-                          medimops_url: event.target.value
-                        })
-                      }
+                      onChange={(event) => updateMedimopsUrl(event.target.value)}
                     />
                   </label>
 
@@ -2029,18 +1706,14 @@ export default function Dashboard() {
                       className="mt-1 w-full rounded-lg border bg-white p-2"
                       placeholder="es. 10,00"
                       value={form.medimops_target_price}
-                      onChange={(event) =>
-                        updateMedimopsTargetPrice(event.target.value)
-                      }
+                      onChange={(event) => updateMedimopsTargetPrice(event.target.value)}
                     />
                   </label>
                 </div>
               </div>
 
               <div className="rounded-xl border bg-slate-50 p-4">
-                <h3 className="mb-3 text-sm font-semibold text-slate-700">
-                  Momox
-                </h3>
+                <h3 className="mb-3 text-sm font-semibold text-slate-700">Momox</h3>
 
                 <div className="grid gap-3 lg:grid-cols-[1fr_220px]">
                   <label className="text-sm font-medium">
@@ -2050,10 +1723,7 @@ export default function Dashboard() {
                       className="mt-1 w-full rounded-lg border bg-white p-2"
                       value={form.momox_url}
                       onChange={(event) =>
-                        setForm({
-                          ...form,
-                          momox_url: event.target.value
-                        })
+                        setForm({ ...form, momox_url: event.target.value })
                       }
                     />
                   </label>
@@ -2065,10 +1735,7 @@ export default function Dashboard() {
                       placeholder="es. 10,00"
                       value={form.momox_target_price}
                       onChange={(event) =>
-                        setForm({
-                          ...form,
-                          momox_target_price: event.target.value
-                        })
+                        setForm({ ...form, momox_target_price: event.target.value })
                       }
                     />
                   </label>
@@ -2076,9 +1743,7 @@ export default function Dashboard() {
               </div>
 
               <div className="rounded-xl border bg-amber-50 p-4">
-                <h3 className="mb-3 text-sm font-semibold text-slate-700">
-                  Amazon
-                </h3>
+                <h3 className="mb-3 text-sm font-semibold text-slate-700">Amazon</h3>
 
                 <div className="grid gap-3 lg:grid-cols-[260px_220px_1fr]">
                   <label className="text-sm font-medium">
@@ -2089,10 +1754,7 @@ export default function Dashboard() {
                       placeholder="es. B0DVH4P8DB"
                       value={form.amazon_asin}
                       onChange={(event) =>
-                        setForm({
-                          ...form,
-                          amazon_asin: normalizeAsin(event.target.value)
-                        })
+                        setForm({ ...form, amazon_asin: normalizeAsin(event.target.value) })
                       }
                     />
                   </label>
@@ -2104,10 +1766,7 @@ export default function Dashboard() {
                       placeholder="es. 10,00"
                       value={form.amazon_target_price}
                       onChange={(event) =>
-                        setForm({
-                          ...form,
-                          amazon_target_price: event.target.value
-                        })
+                        setForm({ ...form, amazon_target_price: event.target.value })
                       }
                     />
                   </label>

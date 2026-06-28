@@ -2,6 +2,7 @@
 
 import Link from 'next/link';
 import { useEffect, useMemo, useState } from 'react';
+import type { Monitor } from '@/lib/types';
 import {
   clearCartItems,
   getCartItems,
@@ -10,84 +11,35 @@ import {
   type CartItem
 } from '@/lib/cart';
 import { formatEuro } from '@/lib/format';
-import type { Monitor } from '@/lib/types';
 
-type DiscountMode = 'percent' | 'euro';
 type StoreKey = 'medimops' | 'momox';
 
 type StoreConfig = {
   key: StoreKey;
   label: string;
-};
-
-type CalculatedRow = {
-  item: CartItem;
-  store: StoreKey;
-  storeLabel: string;
-  artist: string;
-  album: string;
-  eanCode: string | null;
-  edition: string | null;
-  basePrice: number | null;
-  discountAmount: number;
-  discountedPrice: number | null;
-  shippingShare: number;
-  finalPrice: number | null;
-  isIgnored: boolean;
-};
-
-type CartSummary = {
-  store: StoreKey;
-  storeLabel: string;
-  rows: CalculatedRow[];
-  activeRows: CalculatedRow[];
-  activeItemCount: number;
-  activePriceItemCount: number;
-  shippingCost: number;
-  shippingShare: number;
-  euroDiscountShare: number;
-  totalBase: number;
-  totalDiscount: number;
-  totalDiscounted: number;
-  totalFinal: number;
-  ignoredCount: number;
-  missingPriceCount: number;
+  priceField: 'medimops_current_price' | 'momox_current_price';
+  conditionField: 'medimops_condition' | 'momox_condition';
+  urlField: 'medimops_url' | 'momox_url';
 };
 
 const STORES: StoreConfig[] = [
   {
     key: 'medimops',
-    label: 'Medimops'
+    label: 'Medimops',
+    priceField: 'medimops_current_price',
+    conditionField: 'medimops_condition',
+    urlField: 'medimops_url'
   },
   {
     key: 'momox',
-    label: 'Momox'
+    label: 'Momox',
+    priceField: 'momox_current_price',
+    conditionField: 'momox_condition',
+    urlField: 'momox_url'
   }
 ];
 
-function roundMoney(value: number): number {
-  return Math.round(value * 100) / 100;
-}
-
-function parseItalianNumber(value: string): number {
-  const cleaned = value
-    .trim()
-    .replace(/\s/g, '')
-    .replace('€', '')
-    .replace(/\./g, '')
-    .replace(',', '.');
-
-  if (!cleaned) return 0;
-
-  const parsed = Number(cleaned);
-
-  if (!Number.isFinite(parsed)) return 0;
-  if (parsed < 0) return 0;
-
-  return parsed;
-}
-
-function getShippingCost(activeItemCount: number): number {
+function getShipping(activeItemCount: number): number {
   if (activeItemCount <= 0) return 0;
   if (activeItemCount === 1) return 2.49;
   if (activeItemCount === 2) return 4.98;
@@ -96,567 +48,266 @@ function getShippingCost(activeItemCount: number): number {
   return 7.99;
 }
 
-function calculatePercentDiscount(
-  price: number,
-  discountPercent: number
-): {
-  discountAmount: number;
-  discountedPrice: number;
-} {
-  if (discountPercent <= 0) {
-    return {
-      discountAmount: 0,
-      discountedPrice: price
-    };
-  }
-
-  const discountAmount = roundMoney(price * (discountPercent / 100));
-  const discountedPrice = Math.max(0, roundMoney(price - discountAmount));
-
-  return {
-    discountAmount,
-    discountedPrice
-  };
+function getTodayForFilename() {
+  return new Date().toISOString().slice(0, 10);
 }
 
-function formatCsvMoney(value: number | null): string {
-  if (value === null) return '';
+function normalizeNumber(value: string): number {
+  const cleaned = value
+    .trim()
+    .replace(/\s/g, '')
+    .replace('€', '')
+    .replace(/\./g, '')
+    .replace(',', '.');
 
-  return value.toFixed(2).replace('.', ',');
+  const parsed = Number(cleaned);
+
+  if (!Number.isFinite(parsed) || parsed < 0) return 0;
+
+  return parsed;
 }
 
-function escapeCsvValue(value: string | number | null | undefined): string {
+function conditionBadge(value: string | null) {
+  if (!value) return <span className="text-slate-400">-</span>;
+
+  const cls =
+    value === 'EX'
+      ? 'bg-green-100 text-green-800'
+      : value === 'VG'
+        ? 'bg-blue-100 text-blue-800'
+        : value === 'G'
+          ? 'bg-amber-100 text-amber-800'
+          : 'bg-slate-100 text-slate-700';
+
+  return (
+    <span className={`rounded-full px-2 py-1 text-xs font-semibold ${cls}`}>
+      {value}
+    </span>
+  );
+}
+
+function csvEscape(value: string | number | null | undefined): string {
   const text = String(value ?? '');
-  const escaped = text.replace(/"/g, '""');
 
-  return `"${escaped}"`;
-}
-
-function buildCsv(rows: CalculatedRow[], storeLabel: string): string {
-  const headers = [
-    'Carrello',
-    'Stato',
-    'Artista',
-    'Titolo',
-    'EAN',
-    'Label',
-    `Prezzo ${storeLabel}`,
-    'Sconto riga',
-    'Prezzo scontato',
-    'Quota spedizione',
-    'Prezzo finale articolo'
-  ];
-
-  const csvRows = rows.map((row) => {
-    return [
-      storeLabel,
-      row.isIgnored ? 'Ignorato' : 'Attivo',
-      row.artist,
-      row.album,
-      row.eanCode || '',
-      row.edition || '',
-      formatCsvMoney(row.basePrice),
-      row.isIgnored ? '' : formatCsvMoney(row.discountAmount),
-      row.discountedPrice === null ? '' : formatCsvMoney(row.discountedPrice),
-      row.isIgnored ? '' : formatCsvMoney(row.shippingShare),
-      row.isIgnored || row.finalPrice === null
-        ? ''
-        : formatCsvMoney(row.finalPrice)
-    ];
-  });
-
-  return [headers, ...csvRows]
-    .map((row) => row.map(escapeCsvValue).join(';'))
-    .join('\n');
-}
-
-function exportCsvForExcel(rows: CalculatedRow[], storeLabel: string) {
-  const csv = buildCsv(rows, storeLabel);
-
-  const blob = new Blob([`\uFEFF${csv}`], {
-    type: 'text/csv;charset=utf-8;'
-  });
-
-  const url = URL.createObjectURL(blob);
-  const link = document.createElement('a');
-
-  const today = new Date().toISOString().slice(0, 10);
-  const storeSlug = storeLabel.toLowerCase();
-
-  link.href = url;
-  link.download = `carrello-${storeSlug}-${today}.csv`;
-  document.body.appendChild(link);
-  link.click();
-  document.body.removeChild(link);
-
-  URL.revokeObjectURL(url);
-}
-
-function getMonitorFromMap(
-  item: CartItem,
-  monitorsById: Map<string, Monitor>
-): Monitor | null {
-  return monitorsById.get(item.id) || null;
-}
-
-function getArtist(item: CartItem, monitor: Monitor | null): string {
-  return monitor?.artist || item.artist;
-}
-
-function getAlbum(item: CartItem, monitor: Monitor | null): string {
-  return monitor?.album || item.album;
-}
-
-function getEanCode(item: CartItem, monitor: Monitor | null): string | null {
-  return monitor?.ean_code || item.ean_code || null;
-}
-
-function getEdition(item: CartItem, monitor: Monitor | null): string | null {
-  return monitor?.edition || item.edition || null;
-}
-
-function getStorePrice(
-  item: CartItem,
-  monitor: Monitor | null,
-  store: StoreKey
-): number | null {
-  if (store === 'medimops') {
-    return monitor?.medimops_current_price ?? item.medimops_current_price ?? null;
+  if (/[",\n;]/.test(text)) {
+    return `"${text.replace(/"/g, '""')}"`;
   }
 
-  return monitor?.momox_current_price ?? null;
-}
-
-function calculateCartSummary({
-  items,
-  monitorsById,
-  store,
-  storeLabel,
-  discountMode,
-  discountNumber
-}: {
-  items: CartItem[];
-  monitorsById: Map<string, Monitor>;
-  store: StoreKey;
-  storeLabel: string;
-  discountMode: DiscountMode;
-  discountNumber: number;
-}): CartSummary {
-  const activeItems = items.filter((item) => !item.is_ignored);
-
-  const activeItemsWithPrice = activeItems.filter((item) => {
-    const monitor = getMonitorFromMap(item, monitorsById);
-    return getStorePrice(item, monitor, store) !== null;
-  });
-
-  const activeItemCount = activeItems.length;
-  const activePriceItemCount = activeItemsWithPrice.length;
-
-  const shippingCost = getShippingCost(activeItemCount);
-  const shippingShare =
-    activeItemCount === 0 ? 0 : roundMoney(shippingCost / activeItemCount);
-
-  const euroDiscountShare =
-    discountMode === 'euro' && activePriceItemCount > 0
-      ? roundMoney(discountNumber / activePriceItemCount)
-      : 0;
-
-  const rows = items.map((item) => {
-    const monitor = getMonitorFromMap(item, monitorsById);
-    const isIgnored = Boolean(item.is_ignored);
-    const basePrice = getStorePrice(item, monitor, store);
-
-    const baseRow = {
-      item,
-      store,
-      storeLabel,
-      artist: getArtist(item, monitor),
-      album: getAlbum(item, monitor),
-      eanCode: getEanCode(item, monitor),
-      edition: getEdition(item, monitor),
-      basePrice,
-      isIgnored
-    };
-
-    if (isIgnored) {
-      return {
-        ...baseRow,
-        discountAmount: 0,
-        discountedPrice: basePrice,
-        shippingShare: 0,
-        finalPrice: basePrice
-      };
-    }
-
-    if (basePrice === null) {
-      return {
-        ...baseRow,
-        discountAmount: 0,
-        discountedPrice: null,
-        shippingShare,
-        finalPrice: null
-      };
-    }
-
-    if (discountMode === 'percent') {
-      const discount = calculatePercentDiscount(basePrice, discountNumber);
-
-      return {
-        ...baseRow,
-        discountAmount: discount.discountAmount,
-        discountedPrice: discount.discountedPrice,
-        shippingShare,
-        finalPrice: roundMoney(discount.discountedPrice + shippingShare)
-      };
-    }
-
-    const discountAmount = Math.min(basePrice, euroDiscountShare);
-    const discountedPrice = Math.max(0, roundMoney(basePrice - discountAmount));
-
-    return {
-      ...baseRow,
-      discountAmount,
-      discountedPrice,
-      shippingShare,
-      finalPrice: roundMoney(discountedPrice + shippingShare)
-    };
-  });
-
-  const activeRows = rows.filter((row) => !row.isIgnored);
-
-  const totalBase = activeRows.reduce(
-    (total, row) => total + (row.basePrice ?? 0),
-    0
-  );
-
-  const totalDiscounted = activeRows.reduce(
-    (total, row) => total + (row.discountedPrice ?? 0),
-    0
-  );
-
-  const totalFinal = activeRows.reduce(
-    (total, row) => total + (row.finalPrice ?? 0),
-    0
-  );
-
-  const totalDiscount = activeRows.reduce(
-    (total, row) => total + row.discountAmount,
-    0
-  );
-
-  const ignoredCount = rows.filter((row) => row.isIgnored).length;
-
-  const missingPriceCount = activeRows.filter(
-    (row) => row.basePrice === null
-  ).length;
-
-  return {
-    store,
-    storeLabel,
-    rows,
-    activeRows,
-    activeItemCount,
-    activePriceItemCount,
-    shippingCost,
-    shippingShare,
-    euroDiscountShare,
-    totalBase,
-    totalDiscount,
-    totalDiscounted,
-    totalFinal,
-    ignoredCount,
-    missingPriceCount
-  };
-}
-
-function SummaryCards({
-  summary,
-  discountMode
-}: {
-  summary: CartSummary;
-  discountMode: DiscountMode;
-}) {
-  return (
-    <div className="mt-4 grid gap-3 md:grid-cols-5">
-      <div className="rounded-xl border p-3">
-        <div className="text-xs font-semibold uppercase text-slate-500">
-          Totale prezzi iniziali
-        </div>
-        <div className="mt-1 text-lg font-bold">
-          {formatEuro(summary.totalBase)}
-        </div>
-      </div>
-
-      <div className="rounded-xl border p-3">
-        <div className="text-xs font-semibold uppercase text-slate-500">
-          Sconto totale applicato
-        </div>
-        <div className="mt-1 text-lg font-bold">
-          {formatEuro(summary.totalDiscount)}
-        </div>
-        {discountMode === 'euro' && summary.activePriceItemCount > 0 && (
-          <div className="mt-1 text-xs text-slate-500">
-            {formatEuro(summary.euroDiscountShare)} per articolo con prezzo
-          </div>
-        )}
-      </div>
-
-      <div className="rounded-xl border p-3">
-        <div className="text-xs font-semibold uppercase text-slate-500">
-          Totale scontato
-        </div>
-        <div className="mt-1 text-lg font-bold">
-          {formatEuro(summary.totalDiscounted)}
-        </div>
-      </div>
-
-      <div className="rounded-xl border p-3">
-        <div className="text-xs font-semibold uppercase text-slate-500">
-          Articoli attivi
-        </div>
-        <div className="mt-1 text-lg font-bold">{summary.activeItemCount}</div>
-      </div>
-
-      <div className="rounded-xl border p-3">
-        <div className="text-xs font-semibold uppercase text-slate-500">
-          Articoli ignorati
-        </div>
-        <div className="mt-1 text-lg font-bold">{summary.ignoredCount}</div>
-      </div>
-    </div>
-  );
-}
-
-function CartTable({
-  summary,
-  onToggleIgnored,
-  onRemove
-}: {
-  summary: CartSummary;
-  onToggleIgnored: (id: string) => void;
-  onRemove: (id: string) => void;
-}) {
-  return (
-    <section className="rounded-2xl bg-white p-4 shadow-sm">
-      <div className="mb-3 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-        <h2 className="text-xl font-semibold">Articoli {summary.storeLabel}</h2>
-
-        <div className="text-sm text-slate-500">
-          Totale {summary.storeLabel}: {' '}
-          <span className="font-bold text-green-800">
-            {formatEuro(summary.totalFinal)}
-          </span>
-        </div>
-      </div>
-
-      <div className="overflow-x-auto">
-        <table className="min-w-full border-collapse text-sm">
-          <thead>
-            <tr className="bg-slate-100 text-left">
-              <th className="border-b p-2">Azioni</th>
-              <th className="border-b p-2">Stato</th>
-              <th className="border-b p-2">Artista</th>
-              <th className="border-b p-2">Titolo</th>
-              <th className="border-b p-2">EAN</th>
-              <th className="border-b p-2">Label</th>
-              <th className="border-b p-2">Prezzo {summary.storeLabel}</th>
-              <th className="border-b p-2">Sconto riga</th>
-              <th className="border-b p-2">Prezzo scontato</th>
-              <th className="border-b p-2">Quota spedizione</th>
-              <th className="border-b p-2">Prezzo finale articolo</th>
-            </tr>
-          </thead>
-
-          <tbody>
-            {summary.rows.map((row) => (
-              <tr
-                key={`${row.store}-${row.item.id}`}
-                className={`border-b align-top ${
-                  row.isIgnored ? 'bg-slate-100 text-slate-400' : ''
-                }`}
-              >
-                <td className="p-2">
-                  <div className="flex flex-wrap gap-2">
-                    <button
-                      className={`rounded-lg border px-3 py-1.5 text-sm font-semibold ${
-                        row.isIgnored
-                          ? 'border-green-300 text-green-700 hover:bg-green-50'
-                          : 'border-slate-300 text-slate-700 hover:bg-slate-50'
-                      }`}
-                      onClick={() => onToggleIgnored(row.item.id)}
-                    >
-                      {row.isIgnored ? 'Riattiva' : 'Ignora'}
-                    </button>
-
-                    <button
-                      className="rounded-lg border border-red-300 px-3 py-1.5 text-sm font-semibold text-red-700 hover:bg-red-50"
-                      onClick={() => onRemove(row.item.id)}
-                    >
-                      Elimina
-                    </button>
-                  </div>
-                </td>
-
-                <td className="p-2">
-                  {row.isIgnored ? (
-                    <span className="rounded-full bg-slate-200 px-2 py-1 text-xs font-semibold text-slate-600">
-                      Ignorato
-                    </span>
-                  ) : (
-                    <span className="rounded-full bg-green-100 px-2 py-1 text-xs font-semibold text-green-800">
-                      Attivo
-                    </span>
-                  )}
-                </td>
-
-                <td className="p-2 font-medium">{row.artist}</td>
-                <td className="p-2">{row.album}</td>
-                <td className="p-2">{row.eanCode || '-'}</td>
-                <td className="p-2">{row.edition || '-'}</td>
-
-                <td className="p-2 font-semibold">
-                  {formatEuro(row.basePrice)}
-                </td>
-
-                <td className="p-2">
-                  {row.isIgnored ? '-' : formatEuro(row.discountAmount)}
-                </td>
-
-                <td className="p-2 font-semibold text-blue-800">
-                  {row.discountedPrice === null
-                    ? '-'
-                    : formatEuro(row.discountedPrice)}
-                </td>
-
-                <td className="p-2 text-slate-600">
-                  {row.isIgnored ? '-' : formatEuro(row.shippingShare)}
-                </td>
-
-                <td className="p-2 font-bold text-green-800">
-                  {row.finalPrice === null
-                    ? '-'
-                    : row.isIgnored
-                      ? '-'
-                      : formatEuro(row.finalPrice)}
-                </td>
-              </tr>
-            ))}
-
-            {summary.rows.length === 0 && (
-              <tr>
-                <td className="p-4 text-center text-slate-500" colSpan={11}>
-                  Il carrello è vuoto. Torna alla dashboard e aggiungi qualche
-                  disco.
-                </td>
-              </tr>
-            )}
-          </tbody>
-        </table>
-      </div>
-    </section>
-  );
+  return text;
 }
 
 export default function CartPage() {
   const [items, setItems] = useState<CartItem[]>([]);
   const [monitors, setMonitors] = useState<Monitor[]>([]);
   const [activeStore, setActiveStore] = useState<StoreKey>('medimops');
-  const [discountMode, setDiscountMode] = useState<DiscountMode>('percent');
+  const [discountType, setDiscountType] = useState<'percent' | 'euro'>('percent');
   const [discountValue, setDiscountValue] = useState('');
   const [message, setMessage] = useState('Caricamento carrello...');
 
-  useEffect(() => {
+  function refreshItems() {
     setItems(getCartItems({ includeIgnored: true }));
+  }
 
-    async function loadMonitors() {
-      try {
-        const response = await fetch('/api/monitors');
-        const json = (await response.json()) as {
-          data?: Monitor[];
-          error?: string;
-        };
+  async function loadMonitors() {
+    const response = await fetch('/api/monitors', {
+      cache: 'no-store'
+    });
 
-        if (!response.ok) {
-          throw new Error(json.error || 'Errore caricamento monitor.');
-        }
+    const json = (await response.json()) as {
+      data?: Monitor[];
+      error?: string;
+    };
 
-        setMonitors(json.data || []);
-        setMessage('Pronto.');
-      } catch (error) {
-        setMessage(
-          error instanceof Error
-            ? error.message
-            : 'Errore caricamento prezzi carrello.'
-        );
+    if (!response.ok) {
+      throw new Error(json.error || 'Errore caricamento monitor.');
+    }
+
+    setMonitors(json.data || []);
+  }
+
+  useEffect(() => {
+    refreshItems();
+
+    loadMonitors()
+      .then(() => setMessage('Pronto.'))
+      .catch((error: unknown) =>
+        setMessage(error instanceof Error ? error.message : 'Errore caricamento')
+      );
+
+    window.addEventListener('music-price-monitor-cart-updated', refreshItems);
+    window.addEventListener('storage', refreshItems);
+
+    return () => {
+      window.removeEventListener('music-price-monitor-cart-updated', refreshItems);
+      window.removeEventListener('storage', refreshItems);
+    };
+  }, []);
+
+  const monitorById = useMemo(() => {
+    const map = new Map<string, Monitor>();
+
+    monitors.forEach((monitor) => {
+      map.set(monitor.id, monitor);
+    });
+
+    return map;
+  }, [monitors]);
+
+  const activeStoreConfig =
+    STORES.find((store) => store.key === activeStore) || STORES[0];
+
+  const enrichedItems = useMemo(() => {
+    return items.map((item) => {
+      const monitor = monitorById.get(item.id);
+
+      return {
+        cartItem: item,
+        monitor,
+        type: monitor?.type || item.type,
+        artist: monitor?.artist || item.artist,
+        album: monitor?.album || item.album,
+        edition: monitor?.edition ?? item.edition ?? null,
+        ean_code: monitor?.ean_code ?? item.ean_code ?? null,
+        price:
+          monitor?.[activeStoreConfig.priceField] ??
+          (activeStore === 'medimops' ? item.medimops_current_price : null),
+        condition: monitor?.[activeStoreConfig.conditionField] ?? null,
+        url:
+          monitor?.[activeStoreConfig.urlField] ??
+          (activeStore === 'medimops' ? item.medimops_url : null),
+        is_ignored: Boolean(item.is_ignored)
+      };
+    });
+  }, [items, monitorById, activeStore, activeStoreConfig]);
+
+  const activeItems = enrichedItems.filter((item) => !item.is_ignored);
+  const pricedItems = activeItems.filter((item) => item.price !== null);
+  const activeItemCount = activeItems.length;
+  const shipping = getShipping(activeItemCount);
+  const rawSubtotal = pricedItems.reduce(
+    (total, item) => total + (item.price || 0),
+    0
+  );
+
+  const discountNumber = normalizeNumber(discountValue);
+
+  const rows = enrichedItems.map((item) => {
+    const price = item.price;
+    const hasPrice = price !== null;
+    const isActive = !item.is_ignored;
+
+    let rowDiscount = 0;
+
+    if (isActive && hasPrice) {
+      if (discountType === 'percent') {
+        rowDiscount = (price * discountNumber) / 100;
+      } else if (pricedItems.length > 0) {
+        rowDiscount = discountNumber / pricedItems.length;
       }
     }
 
-    loadMonitors();
-  }, []);
+    const discountedPrice =
+      isActive && hasPrice ? Math.max(0, price - rowDiscount) : null;
 
-  const discountNumber = parseItalianNumber(discountValue);
+    const shippingShare =
+      isActive && activeItemCount > 0 ? shipping / activeItemCount : 0;
 
-  const monitorsById = useMemo(() => {
-    return new Map(monitors.map((monitor) => [monitor.id, monitor]));
-  }, [monitors]);
+    const finalPrice =
+      discountedPrice !== null ? discountedPrice + shippingShare : null;
 
-  const summaries = useMemo(() => {
-    return STORES.map((store) =>
-      calculateCartSummary({
-        items,
-        monitorsById,
-        store: store.key,
-        storeLabel: store.label,
-        discountMode,
-        discountNumber
-      })
-    );
-  }, [items, monitorsById, discountMode, discountNumber]);
+    return {
+      ...item,
+      rowDiscount,
+      discountedPrice,
+      shippingShare,
+      finalPrice
+    };
+  });
 
-  const activeSummary =
-    summaries.find((summary) => summary.store === activeStore) || summaries[0];
+  const discountedSubtotal = rows
+    .filter((row) => !row.is_ignored && row.discountedPrice !== null)
+    .reduce((total, row) => total + (row.discountedPrice || 0), 0);
 
-  const medimopsSummary = summaries.find(
-    (summary) => summary.store === 'medimops'
-  );
-  const momoxSummary = summaries.find((summary) => summary.store === 'momox');
+  const finalTotal = discountedSubtotal + shipping;
 
-  function handleRemove(id: string) {
-    setItems(removeCartItem(id));
+  function removeItem(id: string) {
+    removeCartItem(id);
+    refreshItems();
   }
 
-  function handleToggleIgnored(id: string) {
-    setItems(toggleCartItemIgnored(id));
+  function toggleIgnored(id: string) {
+    toggleCartItemIgnored(id);
+    refreshItems();
   }
 
-  function handleClearCart() {
-    const confirmed = window.confirm('Vuoi svuotare tutto il carrello?');
+  function clearCart() {
+    if (!confirm('Svuotare tutto il carrello?')) return;
 
-    if (!confirmed) return;
-
-    setItems(clearCartItems());
+    clearCartItems();
+    refreshItems();
   }
 
-  function handleExportExcel() {
-    if (!activeSummary || activeSummary.rows.length === 0) {
-      window.alert('Il carrello è vuoto: non c’è nulla da esportare.');
-      return;
-    }
+  function exportCsv() {
+    const header = [
+      'Carrello',
+      'Stato',
+      'Artista',
+      'Titolo',
+      'EAN',
+      'Label',
+      `Prezzo ${activeStoreConfig.label}`,
+      'Condizione',
+      'Sconto riga',
+      'Prezzo scontato',
+      'Quota spedizione',
+      'Prezzo finale articolo'
+    ];
 
-    exportCsvForExcel(activeSummary.rows, activeSummary.storeLabel);
+    const csvRows = rows.map((row) => {
+      return [
+        activeStoreConfig.label,
+        row.is_ignored ? 'Ignorato' : 'Attivo',
+        row.artist,
+        row.album,
+        row.ean_code || '',
+        row.edition || '',
+        row.price ?? '',
+        row.condition || '',
+        row.rowDiscount ? row.rowDiscount.toFixed(2) : '',
+        row.discountedPrice !== null ? row.discountedPrice.toFixed(2) : '',
+        row.shippingShare ? row.shippingShare.toFixed(2) : '',
+        row.finalPrice !== null ? row.finalPrice.toFixed(2) : ''
+      ];
+    });
+
+    const content = [header, ...csvRows]
+      .map((row) => row.map(csvEscape).join(';'))
+      .join('\n');
+
+    const blob = new Blob([`\uFEFF${content}`], {
+      type: 'text/csv;charset=utf-8'
+    });
+
+    const url = window.URL.createObjectURL(blob);
+    const link = document.createElement('a');
+
+    link.href = url;
+    link.download = `carrello-${activeStoreConfig.key}-${getTodayForFilename()}.csv`;
+    link.click();
+
+    window.URL.revokeObjectURL(url);
   }
 
   return (
     <main className="mx-auto max-w-7xl p-4 sm:p-6">
       <div className="mb-4 rounded-2xl bg-white p-6 shadow-sm">
-        <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+        <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
           <div>
             <h1 className="text-3xl font-bold">Carrello comparativo</h1>
             <p className="mt-2 text-slate-600">
-              Simulazione separata per Medimops e Momox. Lo sconto e le righe
-              ignorate sono condivisi tra i due carrelli.
+              Confronta il carrello Medimops e Momox con sconti e spedizione.
             </p>
-            <p className="mt-2 rounded-lg bg-slate-100 p-2 text-sm text-slate-600">
+            <p className="mt-3 rounded-lg bg-slate-100 p-3 text-sm">
               Stato: {message}
             </p>
           </div>
@@ -670,17 +321,17 @@ export default function CartPage() {
             </Link>
 
             <button
-              className="rounded-lg border border-green-700 px-4 py-2 font-semibold text-green-700 hover:bg-green-50 disabled:opacity-50"
-              disabled={!activeSummary || activeSummary.rows.length === 0}
-              onClick={handleExportExcel}
+              className="rounded-lg border border-blue-700 px-4 py-2 font-semibold text-blue-700 hover:bg-blue-50 disabled:opacity-50"
+              onClick={exportCsv}
+              disabled={rows.length === 0}
             >
-              Esporta Excel {activeSummary?.storeLabel || ''}
+              Esporta Excel
             </button>
 
             <button
-              className="rounded-lg border border-red-300 px-4 py-2 font-semibold text-red-700 hover:bg-red-50 disabled:opacity-50"
+              className="rounded-lg border border-red-600 px-4 py-2 font-semibold text-red-700 hover:bg-red-50 disabled:opacity-50"
+              onClick={clearCart}
               disabled={items.length === 0}
-              onClick={handleClearCart}
             >
               Svuota carrello
             </button>
@@ -689,126 +340,203 @@ export default function CartPage() {
       </div>
 
       <section className="mb-4 rounded-2xl bg-white p-4 shadow-sm">
-        <div className="grid gap-4 md:grid-cols-4">
-          <label className="text-sm font-medium">
-            Tipo sconto
-            <select
-              className="mt-1 w-full rounded-lg border p-2"
-              value={discountMode}
-              onChange={(event) =>
-                setDiscountMode(event.target.value as DiscountMode)
-              }
-            >
-              <option value="percent">Percentuale %</option>
-              <option value="euro">Euro € totale carrello</option>
-            </select>
-          </label>
+        <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
+          <div className="flex flex-wrap gap-2">
+            {STORES.map((store) => {
+              const storeItems = items
+                .map((item) => monitorById.get(item.id))
+                .filter(Boolean) as Monitor[];
 
-          <label className="text-sm font-medium">
-            Sconto
-            <input
-              className="mt-1 w-full rounded-lg border p-2"
-              placeholder={discountMode === 'percent' ? 'es. 15' : 'es. 10'}
-              value={discountValue}
-              onChange={(event) => setDiscountValue(event.target.value)}
-            />
-            <span className="mt-1 block text-xs text-slate-500">
-              {discountMode === 'percent'
-                ? 'Lo sconto percentuale viene applicato a ogni riga di entrambi i carrelli.'
-                : 'Lo sconto in euro viene diviso sugli articoli attivi con prezzo, separatamente per Medimops e Momox.'}
-            </span>
-          </label>
+              const storeTotal = storeItems.reduce((total, monitor) => {
+                const price = monitor[store.priceField];
 
-          <div className="rounded-xl bg-blue-50 p-3">
-            <div className="text-xs font-semibold uppercase text-blue-700">
-              Totale Medimops
-            </div>
-            <div className="mt-1 text-xl font-bold text-blue-950">
-              {formatEuro(medimopsSummary?.totalFinal || 0)}
-            </div>
-            <div className="mt-1 text-xs text-blue-800">
-              Spedizione: {formatEuro(medimopsSummary?.shippingCost || 0)}
-            </div>
+                return total + (price || 0);
+              }, 0);
+
+              return (
+                <button
+                  key={store.key}
+                  className={`rounded-xl border px-4 py-3 text-left ${
+                    activeStore === store.key
+                      ? 'border-blue-700 bg-blue-50 text-blue-900'
+                      : 'bg-white hover:bg-slate-50'
+                  }`}
+                  onClick={() => setActiveStore(store.key)}
+                >
+                  <div className="font-semibold">{store.label}</div>
+                  <div className="text-sm text-slate-600">
+                    Totale grezzo: {formatEuro(storeTotal)}
+                  </div>
+                </button>
+              );
+            })}
           </div>
 
-          <div className="rounded-xl bg-green-50 p-3">
-            <div className="text-xs font-semibold uppercase text-green-700">
-              Totale Momox
-            </div>
-            <div className="mt-1 text-xl font-bold text-green-950">
-              {formatEuro(momoxSummary?.totalFinal || 0)}
-            </div>
-            <div className="mt-1 text-xs text-green-800">
-              Spedizione: {formatEuro(momoxSummary?.shippingCost || 0)}
-            </div>
+          <div className="grid gap-3 sm:grid-cols-[180px_180px]">
+            <label className="text-sm font-medium">
+              Tipo sconto
+              <select
+                className="mt-1 w-full rounded-lg border p-2"
+                value={discountType}
+                onChange={(event) =>
+                  setDiscountType(event.target.value as 'percent' | 'euro')
+                }
+              >
+                <option value="percent">Percentuale</option>
+                <option value="euro">Euro totale</option>
+              </select>
+            </label>
+
+            <label className="text-sm font-medium">
+              Valore sconto
+              <input
+                className="mt-1 w-full rounded-lg border p-2"
+                placeholder={discountType === 'percent' ? 'es. 10' : 'es. 5,00'}
+                value={discountValue}
+                onChange={(event) => setDiscountValue(event.target.value)}
+              />
+            </label>
           </div>
         </div>
       </section>
 
       <section className="mb-4 rounded-2xl bg-white p-4 shadow-sm">
-        <div className="mb-4 flex flex-wrap gap-2">
-          {summaries.map((summary) => (
-            <button
-              key={summary.store}
-              className={`rounded-lg border px-4 py-2 font-semibold ${
-                activeStore === summary.store
-                  ? 'border-blue-700 bg-blue-700 text-white'
-                  : 'border-slate-300 text-slate-700 hover:bg-slate-50'
-              }`}
-              onClick={() => setActiveStore(summary.store)}
-            >
-              {summary.storeLabel} — {formatEuro(summary.totalFinal)}
-            </button>
-          ))}
-        </div>
-
-        <div className="grid gap-4 md:grid-cols-2">
+        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
           <div className="rounded-xl bg-slate-50 p-3">
-            <div className="text-xs font-semibold uppercase text-slate-500">
-              Spedizione {activeSummary.storeLabel}
-            </div>
-            <div className="mt-1 text-xl font-bold">
-              {formatEuro(activeSummary.shippingCost)}
-            </div>
-            <div className="mt-1 text-xs text-slate-500">
-              {activeSummary.activeItemCount === 0
-                ? 'Nessun articolo attivo'
-                : `${activeSummary.activeItemCount} articoli attivi × ${formatEuro(
-                    activeSummary.shippingShare
-                  )} cad.`}
-            </div>
+            <div className="text-sm text-slate-500">Store</div>
+            <div className="text-xl font-bold">{activeStoreConfig.label}</div>
+          </div>
+
+          <div className="rounded-xl bg-slate-50 p-3">
+            <div className="text-sm text-slate-500">Articoli attivi</div>
+            <div className="text-xl font-bold">{activeItemCount}</div>
+          </div>
+
+          <div className="rounded-xl bg-slate-50 p-3">
+            <div className="text-sm text-slate-500">Subtotale</div>
+            <div className="text-xl font-bold">{formatEuro(rawSubtotal)}</div>
+          </div>
+
+          <div className="rounded-xl bg-slate-50 p-3">
+            <div className="text-sm text-slate-500">Spedizione</div>
+            <div className="text-xl font-bold">{formatEuro(shipping)}</div>
           </div>
 
           <div className="rounded-xl bg-green-50 p-3">
-            <div className="text-xs font-semibold uppercase text-green-700">
-              Totale finale {activeSummary.storeLabel}
-            </div>
-            <div className="mt-1 text-xl font-bold text-green-900">
-              {formatEuro(activeSummary.totalFinal)}
-            </div>
-            <div className="mt-1 text-xs text-green-800">
-              Prezzi scontati + spedizione
+            <div className="text-sm text-green-700">Totale finale</div>
+            <div className="text-xl font-bold text-green-800">
+              {formatEuro(finalTotal)}
             </div>
           </div>
         </div>
 
-        <SummaryCards summary={activeSummary} discountMode={discountMode} />
-
-        {activeSummary.missingPriceCount > 0 && (
-          <div className="mt-4 rounded-lg bg-amber-50 p-3 text-sm text-amber-900">
-            Attenzione: {activeSummary.missingPriceCount} articolo/i attivi non
-            hanno ancora un prezzo {activeSummary.storeLabel} rilevato. Quelle
-            righe non entrano nei totali dei prezzi, ma contano ancora come
-            articoli attivi per la spedizione.
-          </div>
+        {activeItems.some((item) => item.price === null) && (
+          <p className="mt-3 rounded-lg bg-amber-50 p-3 text-sm text-amber-900">
+            Alcuni articoli attivi non hanno prezzo nello store selezionato:
+            contano per la spedizione ma non nel subtotale prezzi.
+          </p>
         )}
       </section>
 
-      <CartTable
-        summary={activeSummary}
-        onToggleIgnored={handleToggleIgnored}
-        onRemove={handleRemove}
-      />
+      <section className="rounded-2xl bg-white p-4 shadow-sm">
+        <div className="overflow-x-auto">
+          <table className="min-w-full border-collapse text-sm">
+            <thead>
+              <tr className="bg-slate-100 text-left">
+                <th className="border-b p-2">Stato</th>
+                <th className="border-b p-2">Azioni</th>
+                <th className="border-b p-2">Artista</th>
+                <th className="border-b p-2">Titolo</th>
+                <th className="border-b p-2">EAN</th>
+                <th className="border-b p-2">Label</th>
+                <th className="border-b p-2">
+                  Prezzo {activeStoreConfig.label}
+                </th>
+                <th className="border-b p-2">Condizione</th>
+                <th className="border-b p-2">Sconto riga</th>
+                <th className="border-b p-2">Prezzo scontato</th>
+                <th className="border-b p-2">Quota spedizione</th>
+                <th className="border-b p-2">Prezzo finale articolo</th>
+              </tr>
+            </thead>
+
+            <tbody>
+              {rows.map((row) => (
+                <tr
+                  key={row.cartItem.id}
+                  className={`border-b align-top ${
+                    row.is_ignored ? 'bg-slate-50 text-slate-400' : ''
+                  }`}
+                >
+                  <td className="p-2">
+                    {row.is_ignored ? (
+                      <span className="rounded-full bg-slate-200 px-2 py-1 text-xs font-semibold text-slate-600">
+                        Ignorato
+                      </span>
+                    ) : (
+                      <span className="rounded-full bg-green-100 px-2 py-1 text-xs font-semibold text-green-800">
+                        Attivo
+                      </span>
+                    )}
+                  </td>
+
+                  <td className="p-2">
+                    <div className="flex flex-wrap gap-2">
+                      <button
+                        className="rounded-lg border px-3 py-1 text-xs hover:bg-slate-50"
+                        onClick={() => toggleIgnored(row.cartItem.id)}
+                      >
+                        {row.is_ignored ? 'Riattiva' : 'Ignora'}
+                      </button>
+
+                      <button
+                        className="rounded-lg border border-red-300 px-3 py-1 text-xs text-red-700 hover:bg-red-50"
+                        onClick={() => removeItem(row.cartItem.id)}
+                      >
+                        Rimuovi
+                      </button>
+                    </div>
+                  </td>
+
+                  <td className="p-2 font-medium">{row.artist}</td>
+                  <td className="p-2">{row.album}</td>
+                  <td className="p-2">{row.ean_code || '-'}</td>
+                  <td className="p-2">{row.edition || '-'}</td>
+
+                  <td className="p-2 font-semibold">
+                    {row.url && row.price !== null ? (
+                      <a
+                        href={row.url}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="underline decoration-dotted underline-offset-4 hover:text-blue-700"
+                      >
+                        {formatEuro(row.price)}
+                      </a>
+                    ) : (
+                      formatEuro(row.price)
+                    )}
+                  </td>
+
+                  <td className="p-2">{conditionBadge(row.condition)}</td>
+                  <td className="p-2">{formatEuro(row.rowDiscount)}</td>
+                  <td className="p-2">{formatEuro(row.discountedPrice)}</td>
+                  <td className="p-2">{formatEuro(row.shippingShare)}</td>
+                  <td className="p-2 font-bold">{formatEuro(row.finalPrice)}</td>
+                </tr>
+              ))}
+
+              {rows.length === 0 && (
+                <tr>
+                  <td className="p-4 text-center text-slate-500" colSpan={12}>
+                    Carrello vuoto.
+                  </td>
+                </tr>
+              )}
+            </tbody>
+          </table>
+        </div>
+      </section>
     </main>
   );
 }
