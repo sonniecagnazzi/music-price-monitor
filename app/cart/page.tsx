@@ -77,6 +77,76 @@ function calculatePercentDiscount(
   };
 }
 
+function formatCsvMoney(value: number | null): string {
+  if (value === null) return '';
+
+  return value.toFixed(2).replace('.', ',');
+}
+
+function escapeCsvValue(value: string | number | null | undefined): string {
+  const text = String(value ?? '');
+  const escaped = text.replace(/"/g, '""');
+
+  return `"${escaped}"`;
+}
+
+function buildCsv(rows: CalculatedRow[]): string {
+  const headers = [
+    'Stato',
+    'Artista',
+    'Titolo',
+    'EAN',
+    'Label',
+    'Prezzo Medimops',
+    'Sconto riga',
+    'Prezzo scontato',
+    'Quota spedizione',
+    'Prezzo finale articolo'
+  ];
+
+  const csvRows = rows.map((row) => {
+    return [
+      row.isIgnored ? 'Ignorato' : 'Attivo',
+      row.item.artist,
+      row.item.album,
+      row.item.ean_code || '',
+      row.item.edition || '',
+      formatCsvMoney(row.basePrice),
+      row.isIgnored ? '' : formatCsvMoney(row.discountAmount),
+      row.discountedPrice === null ? '' : formatCsvMoney(row.discountedPrice),
+      row.isIgnored ? '' : formatCsvMoney(row.shippingShare),
+      row.isIgnored || row.finalPrice === null
+        ? ''
+        : formatCsvMoney(row.finalPrice)
+    ];
+  });
+
+  return [headers, ...csvRows]
+    .map((row) => row.map(escapeCsvValue).join(';'))
+    .join('\n');
+}
+
+function exportCsvForExcel(rows: CalculatedRow[]) {
+  const csv = buildCsv(rows);
+
+  const blob = new Blob([`\uFEFF${csv}`], {
+    type: 'text/csv;charset=utf-8;'
+  });
+
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement('a');
+
+  const today = new Date().toISOString().slice(0, 10);
+
+  link.href = url;
+  link.download = `carrello-medimops-${today}.csv`;
+  document.body.appendChild(link);
+  link.click();
+  document.body.removeChild(link);
+
+  URL.revokeObjectURL(url);
+}
+
 export default function CartPage() {
   const [items, setItems] = useState<CartItem[]>([]);
   const [discountMode, setDiscountMode] = useState<DiscountMode>('percent');
@@ -216,6 +286,15 @@ export default function CartPage() {
     setItems(clearCartItems());
   }
 
+  function handleExportExcel() {
+    if (calculatedRows.length === 0) {
+      window.alert('Il carrello è vuoto: non c’è nulla da esportare.');
+      return;
+    }
+
+    exportCsvForExcel(calculatedRows);
+  }
+
   return (
     <main className="mx-auto max-w-7xl p-4 sm:p-6">
       <div className="mb-4 rounded-2xl bg-white p-6 shadow-sm">
@@ -235,6 +314,14 @@ export default function CartPage() {
             >
               Torna alla dashboard
             </Link>
+
+            <button
+              className="rounded-lg border border-green-700 px-4 py-2 font-semibold text-green-700 hover:bg-green-50 disabled:opacity-50"
+              disabled={items.length === 0}
+              onClick={handleExportExcel}
+            >
+              Esporta Excel
+            </button>
 
             <button
               className="rounded-lg border border-red-300 px-4 py-2 font-semibold text-red-700 hover:bg-red-50 disabled:opacity-50"
@@ -375,6 +462,7 @@ export default function CartPage() {
                 <th className="border-b p-2">Stato</th>
                 <th className="border-b p-2">Artista</th>
                 <th className="border-b p-2">Titolo</th>
+                <th className="border-b p-2">EAN</th>
                 <th className="border-b p-2">Label</th>
                 <th className="border-b p-2">Prezzo Medimops</th>
                 <th className="border-b p-2">Sconto riga</th>
@@ -428,6 +516,7 @@ export default function CartPage() {
 
                   <td className="p-2 font-medium">{row.item.artist}</td>
                   <td className="p-2">{row.item.album}</td>
+                  <td className="p-2">{row.item.ean_code || '-'}</td>
                   <td className="p-2">{row.item.edition || '-'}</td>
 
                   <td className="p-2 font-semibold">
@@ -460,7 +549,7 @@ export default function CartPage() {
 
               {calculatedRows.length === 0 && (
                 <tr>
-                  <td className="p-4 text-center text-slate-500" colSpan={10}>
+                  <td className="p-4 text-center text-slate-500" colSpan={11}>
                     Il carrello è vuoto. Torna alla dashboard e aggiungi qualche
                     disco.
                   </td>
