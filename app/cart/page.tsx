@@ -1,114 +1,58 @@
-import { NextRequest, NextResponse } from 'next/server';
-import { createClient } from '@supabase/supabase-js';
-import { env } from '@/lib/env';
-import { MONITOR_GENRES, type MonitorGenre, type MonitorType } from '@/lib/types';
-import { buildMomoxUrlFromMedimopsUrl, isMedimopsUrl } from '@/lib/store-urls';
+'use client';
 
-export const runtime = 'nodejs';
-export const dynamic = 'force-dynamic';
+import Link from 'next/link';
+import { useEffect, useMemo, useState } from 'react';
+import type { Monitor } from '@/lib/types';
+import {
+  clearCartItems,
+  getCartItems,
+  removeCartItem,
+  toggleCartItemIgnored,
+  type CartItem
+} from '@/lib/cart';
+import { formatEuro } from '@/lib/format';
 
-type CsvRow = Record<string, string>;
+type StoreKey = 'medimops' | 'momox';
 
-const REQUIRED_HEADERS = [
-  'Genere',
-  'Tipo',
-  'Artista',
-  'Album',
-  'EAN',
-  'Anno - Label',
-  'Country',
-  'Target',
-  'URL Medimops',
-  'URL Momox'
+type StoreConfig = {
+  key: StoreKey;
+  label: string;
+  priceField: 'medimops_current_price' | 'momox_current_price';
+  conditionField: 'medimops_condition' | 'momox_condition';
+  urlField: 'medimops_url' | 'momox_url';
+};
+
+const STORES: StoreConfig[] = [
+  {
+    key: 'medimops',
+    label: 'Medimops',
+    priceField: 'medimops_current_price',
+    conditionField: 'medimops_condition',
+    urlField: 'medimops_url'
+  },
+  {
+    key: 'momox',
+    label: 'Momox',
+    priceField: 'momox_current_price',
+    conditionField: 'momox_condition',
+    urlField: 'momox_url'
+  }
 ];
 
-function getSupabaseAdmin() {
-  return createClient(env.supabaseUrl(), env.supabaseServiceRoleKey(), {
-    auth: {
-      persistSession: false
-    }
-  });
+function getShipping(activeItemCount: number): number {
+  if (activeItemCount <= 0) return 0;
+  if (activeItemCount === 1) return 2.49;
+  if (activeItemCount === 2) return 4.98;
+  if (activeItemCount === 3) return 7.47;
+
+  return 7.99;
 }
 
-function normalizeHeader(value: string): string {
-  return value
-    .replace(/^\uFEFF/, '')
-    .replace(/\s+/g, ' ')
-    .trim();
+function getTodayForFilename() {
+  return new Date().toISOString().slice(0, 10);
 }
 
-function splitCsvLine(line: string): string[] {
-  const values: string[] = [];
-  let current = '';
-  let insideQuotes = false;
-
-  for (let index = 0; index < line.length; index += 1) {
-    const char = line[index];
-    const nextChar = line[index + 1];
-
-    if (char === '"' && insideQuotes && nextChar === '"') {
-      current += '"';
-      index += 1;
-      continue;
-    }
-
-    if (char === '"') {
-      insideQuotes = !insideQuotes;
-      continue;
-    }
-
-    if (char === ',' && !insideQuotes) {
-      values.push(current.trim());
-      current = '';
-      continue;
-    }
-
-    current += char;
-  }
-
-  values.push(current.trim());
-
-  return values;
-}
-
-function parseCsv(text: string): CsvRow[] {
-  const normalized = text.replace(/\r\n/g, '\n').replace(/\r/g, '\n');
-  const lines = normalized
-    .split('\n')
-    .map((line) => line.trim())
-    .filter((line) => line.length > 0);
-
-  if (lines.length < 2) {
-    throw new Error('CSV vuoto o senza righe dati.');
-  }
-
-  const headers = splitCsvLine(lines[0]).map(normalizeHeader);
-
-  const missingHeaders = REQUIRED_HEADERS.filter(
-    (header) => !headers.includes(header)
-  );
-
-  if (missingHeaders.length > 0) {
-    throw new Error(
-      `CSV non valido: mancano queste colonne obbligatorie: ${missingHeaders.join(', ')}.`
-    );
-  }
-
-  return lines.slice(1).map((line, rowIndex) => {
-    const values = splitCsvLine(line);
-    const row: CsvRow = {};
-
-    headers.forEach((header, index) => {
-      row[header] = values[index]?.trim() || '';
-    });
-
-    row.__line = String(rowIndex + 2);
-
-    return row;
-  });
-}
-
-function parseTarget(value: string, line: string): number {
+function normalizeNumber(value: string): number {
   const cleaned = value
     .trim()
     .replace(/\s/g, '')
@@ -116,283 +60,483 @@ function parseTarget(value: string, line: string): number {
     .replace(/\./g, '')
     .replace(',', '.');
 
-  if (!cleaned) {
-    throw new Error(`Riga ${line}: Target obbligatorio.`);
-  }
-
   const parsed = Number(cleaned);
 
-  if (!Number.isFinite(parsed) || parsed <= 0) {
-    throw new Error(`Riga ${line}: Target non valido.`);
-  }
+  if (!Number.isFinite(parsed) || parsed < 0) return 0;
 
-  return Math.round(parsed * 100) / 100;
+  return parsed;
 }
 
-function parseYearAndEdition(value: string): {
-  release_year: number | null;
-  edition: string | null;
-} {
-  const trimmed = value.trim();
+function conditionBadge(value: string | null) {
+  if (!value) return <span className="text-slate-400">-</span>;
 
-  if (!trimmed) {
-    return {
-      release_year: null,
-      edition: null
-    };
-  }
+  const cls =
+    value === 'EX'
+      ? 'bg-green-100 text-green-800'
+      : value === 'VG'
+        ? 'bg-blue-100 text-blue-800'
+        : value === 'G'
+          ? 'bg-amber-100 text-amber-800'
+          : 'bg-slate-100 text-slate-700';
 
-  const parts = trimmed.split('-');
-  const yearPart = parts[0]?.trim() || '';
-  const editionPart = parts.slice(1).join('-').trim();
-
-  const parsedYear = Number(yearPart);
-
-  return {
-    release_year:
-      Number.isFinite(parsedYear) && parsedYear >= 1900 && parsedYear <= 2100
-        ? Math.trunc(parsedYear)
-        : null,
-    edition: editionPart || null
-  };
+  return (
+    <span className={`rounded-full px-2 py-1 text-xs font-semibold ${cls}`}>
+      {value}
+    </span>
+  );
 }
 
-function normalizeGenre(value: string, line: string): MonitorGenre {
-  const trimmed = value.trim();
+function csvEscape(value: string | number | null | undefined): string {
+  const text = String(value ?? '');
 
-  if (!trimmed) {
-    throw new Error(`Riga ${line}: Genere obbligatorio.`);
+  if (/[",\n;]/.test(text)) {
+    return `"${text.replace(/"/g, '""')}"`;
   }
 
-  if (!MONITOR_GENRES.includes(trimmed as MonitorGenre)) {
-    throw new Error(
-      `Riga ${line}: Genere non valido "${trimmed}". Valori ammessi: ${MONITOR_GENRES.join(', ')}.`
-    );
-  }
-
-  return trimmed as MonitorGenre;
+  return text;
 }
 
-function normalizeType(value: string, line: string): MonitorType {
-  const upper = value.trim().toUpperCase();
+export default function CartPage() {
+  const [items, setItems] = useState<CartItem[]>([]);
+  const [monitors, setMonitors] = useState<Monitor[]>([]);
+  const [activeStore, setActiveStore] = useState<StoreKey>('medimops');
+  const [discountType, setDiscountType] = useState<'percent' | 'euro'>('percent');
+  const [discountValue, setDiscountValue] = useState('');
+  const [message, setMessage] = useState('Caricamento carrello...');
 
-  if (upper !== 'CD' && upper !== 'LP') {
-    throw new Error(`Riga ${line}: Tipo obbligatorio e deve essere CD oppure LP.`);
+  function refreshItems() {
+    setItems(getCartItems({ includeIgnored: true }));
   }
 
-  return upper as MonitorType;
-}
-
-function normalizeRequiredText(value: string, field: string, line: string): string {
-  const trimmed = value.trim();
-
-  if (!trimmed) {
-    throw new Error(`Riga ${line}: ${field} obbligatorio.`);
-  }
-
-  return trimmed;
-}
-
-function normalizeEan(value: string, line: string): string {
-  const cleaned = value.replace(/\D/g, '').trim();
-
-  if (!cleaned) {
-    throw new Error(`Riga ${line}: EAN obbligatorio.`);
-  }
-
-  if (!/^[0-9]{1,32}$/.test(cleaned)) {
-    throw new Error(`Riga ${line}: EAN non valido, usa solo numeri.`);
-  }
-
-  return cleaned;
-}
-
-function normalizeCountry(value: string): string | null {
-  const trimmed = value.trim().toUpperCase();
-
-  if (!trimmed) return null;
-
-  return trimmed.slice(0, 3);
-}
-
-function normalizeUrl(value: string): string {
-  return value.trim();
-}
-
-function validateMedimopsUrl(value: string, line: string): string {
-  const url = normalizeUrl(value);
-
-  if (!url) {
-    throw new Error(
-      `Riga ${line}: URL Medimops obbligatorio. Import bloccato: nessun record è stato caricato.`
-    );
-  }
-
-  try {
-    new URL(url);
-  } catch {
-    throw new Error(`Riga ${line}: URL Medimops non valido.`);
-  }
-
-  if (!isMedimopsUrl(url)) {
-    throw new Error(
-      `Riga ${line}: URL Medimops deve iniziare con https://www.medimops.de/.`
-    );
-  }
-
-  return url;
-}
-
-async function ensureNoDuplicateEans(eans: string[]) {
-  const supabase = getSupabaseAdmin();
-
-  const uniqueEans = Array.from(new Set(eans));
-
-  if (uniqueEans.length !== eans.length) {
-    const seen = new Set<string>();
-    const duplicate = eans.find((ean) => {
-      if (seen.has(ean)) return true;
-      seen.add(ean);
-      return false;
+  async function loadMonitors() {
+    const response = await fetch('/api/monitors', {
+      cache: 'no-store'
     });
 
-    throw new Error(
-      `CSV non valido: EAN duplicato nel file (${duplicate}). Nessun record è stato caricato.`
-    );
-  }
+    const json = (await response.json()) as {
+      data?: Monitor[];
+      error?: string;
+    };
 
-  const { data, error } = await supabase
-    .from('monitors')
-    .select('ean_code')
-    .in('ean_code', uniqueEans);
-
-  if (error) {
-    throw new Error(error.message);
-  }
-
-  if (data && data.length > 0) {
-    const duplicates = data
-      .map((row) => row.ean_code)
-      .filter(Boolean)
-      .join(', ');
-
-    throw new Error(
-      `CSV non valido: questi EAN esistono già nel database: ${duplicates}. Nessun record è stato caricato.`
-    );
-  }
-}
-
-export async function POST(request: NextRequest) {
-  try {
-    const formData = await request.formData();
-    const file = formData.get('file');
-
-    if (!(file instanceof File)) {
-      return NextResponse.json(
-        {
-          ok: false,
-          error: 'File CSV mancante.'
-        },
-        { status: 400 }
-      );
+    if (!response.ok) {
+      throw new Error(json.error || 'Errore caricamento monitor.');
     }
 
-    const text = await file.text();
-    const rows = parseCsv(text);
+    setMonitors(json.data || []);
+  }
 
-    if (rows.length === 0) {
-      return NextResponse.json(
-        {
-          ok: false,
-          error: 'CSV senza righe dati.'
-        },
-        { status: 400 }
+  useEffect(() => {
+    refreshItems();
+
+    loadMonitors()
+      .then(() => setMessage('Pronto.'))
+      .catch((error: unknown) =>
+        setMessage(error instanceof Error ? error.message : 'Errore caricamento')
       );
-    }
 
-    const parsedRows = rows.map((row) => {
-      const line = row.__line || '?';
+    window.addEventListener('music-price-monitor-cart-updated', refreshItems);
+    window.addEventListener('storage', refreshItems);
 
-      const genre = normalizeGenre(row.Genere || '', line);
-      const type = normalizeType(row.Tipo || '', line);
-      const artist = normalizeRequiredText(row.Artista || '', 'Artista', line);
-      const album = normalizeRequiredText(row.Album || '', 'Album', line);
-      const ean_code = normalizeEan(row.EAN || '', line);
-      const target = parseTarget(row.Target || '', line);
-      const medimops_url = validateMedimopsUrl(row['URL Medimops'] || '', line);
-      const momox_url = buildMomoxUrlFromMedimopsUrl(medimops_url);
-      const yearAndEdition = parseYearAndEdition(row['Anno - Label'] || '');
+    return () => {
+      window.removeEventListener('music-price-monitor-cart-updated', refreshItems);
+      window.removeEventListener('storage', refreshItems);
+    };
+  }, []);
+
+  const monitorById = useMemo(() => {
+    const map = new Map<string, Monitor>();
+
+    monitors.forEach((monitor) => {
+      map.set(monitor.id, monitor);
+    });
+
+    return map;
+  }, [monitors]);
+
+  const activeStoreConfig =
+    STORES.find((store) => store.key === activeStore) || STORES[0];
+
+  const enrichedItems = useMemo(() => {
+    return items.map((item) => {
+      const monitor = monitorById.get(item.id);
 
       return {
-        genre,
-        type,
-        artist,
-        album,
-        edition: yearAndEdition.edition,
-        ean_code,
-        release_year: yearAndEdition.release_year,
-        country: normalizeCountry(row.Country || ''),
-
-        site: 'Medimops',
-        url: medimops_url,
-        target_price: target,
-        current_price: null,
-
-        medimops_url,
-        medimops_target_price: target,
-        medimops_current_price: null,
-        medimops_condition: null,
-
-        momox_url,
-        momox_target_price: target,
-        momox_current_price: null,
-        momox_condition: null,
-
-        amazon_asin: null,
-        amazon_target_price: null,
-        amazon_fr_current_price: null,
-        amazon_de_current_price: null,
-        amazon_it_current_price: null,
-
-        alert_email: null,
-        is_active: true,
-        alert_sent: false,
-
-        last_checked_at: null,
-        last_status: null,
-        last_error: null
+        cartItem: item,
+        monitor,
+        type: monitor?.type || item.type,
+        artist: monitor?.artist || item.artist,
+        album: monitor?.album || item.album,
+        edition: monitor?.edition ?? item.edition ?? null,
+        ean_code: monitor?.ean_code ?? item.ean_code ?? null,
+        price:
+          monitor?.[activeStoreConfig.priceField] ??
+          (activeStore === 'medimops' ? item.medimops_current_price : null),
+        condition: monitor?.[activeStoreConfig.conditionField] ?? null,
+        url:
+          monitor?.[activeStoreConfig.urlField] ??
+          (activeStore === 'medimops' ? item.medimops_url : null),
+        is_ignored: Boolean(item.is_ignored)
       };
     });
+  }, [items, monitorById, activeStore, activeStoreConfig]);
 
-    await ensureNoDuplicateEans(parsedRows.map((row) => row.ean_code));
+  const activeItems = enrichedItems.filter((item) => !item.is_ignored);
+  const pricedItems = activeItems.filter((item) => item.price !== null);
+  const activeItemCount = activeItems.length;
+  const shipping = getShipping(activeItemCount);
+  const rawSubtotal = pricedItems.reduce(
+    (total, item) => total + (item.price || 0),
+    0
+  );
 
-    const supabase = getSupabaseAdmin();
+  const discountNumber = normalizeNumber(discountValue);
 
-    const { error } = await supabase.from('monitors').insert(parsedRows);
+  const rows = enrichedItems.map((item) => {
+    const price = item.price;
+    const hasPrice = price !== null;
+    const isActive = !item.is_ignored;
 
-    if (error) {
-      throw new Error(error.message);
+    let rowDiscount = 0;
+
+    if (isActive && hasPrice) {
+      if (discountType === 'percent') {
+        rowDiscount = (price * discountNumber) / 100;
+      } else if (pricedItems.length > 0) {
+        rowDiscount = discountNumber / pricedItems.length;
+      }
     }
 
-    return NextResponse.json({
-      ok: true,
-      imported: parsedRows.length,
-      message: `Import CSV completato: ${parsedRows.length} righe caricate. URL Momox generato automaticamente da URL Medimops.`
-    });
-  } catch (error) {
-    const message =
-      error instanceof Error
-        ? error.message
-        : 'Errore sconosciuto durante import CSV.';
+    const discountedPrice =
+      isActive && hasPrice ? Math.max(0, price - rowDiscount) : null;
 
-    console.error('[api/monitors/import-csv] Errore', message);
+    const shippingShare =
+      isActive && activeItemCount > 0 ? shipping / activeItemCount : 0;
 
-    return NextResponse.json(
-      {
-        ok: false,
-        error: message
-      },
-      { status: 400 }
-    );
+    const finalPrice =
+      discountedPrice !== null ? discountedPrice + shippingShare : null;
+
+    return {
+      ...item,
+      rowDiscount,
+      discountedPrice,
+      shippingShare,
+      finalPrice
+    };
+  });
+
+  const discountedSubtotal = rows
+    .filter((row) => !row.is_ignored && row.discountedPrice !== null)
+    .reduce((total, row) => total + (row.discountedPrice || 0), 0);
+
+  const finalTotal = discountedSubtotal + shipping;
+
+  function removeItem(id: string) {
+    removeCartItem(id);
+    refreshItems();
   }
+
+  function toggleIgnored(id: string) {
+    toggleCartItemIgnored(id);
+    refreshItems();
+  }
+
+  function clearCart() {
+    if (!confirm('Svuotare tutto il carrello?')) return;
+
+    clearCartItems();
+    refreshItems();
+  }
+
+  function exportCsv() {
+    const header = [
+      'Carrello',
+      'Stato',
+      'Artista',
+      'Titolo',
+      'EAN',
+      'Label',
+      `Prezzo ${activeStoreConfig.label}`,
+      'Condizione',
+      'Sconto riga',
+      'Prezzo scontato',
+      'Quota spedizione',
+      'Prezzo finale articolo'
+    ];
+
+    const csvRows = rows.map((row) => {
+      return [
+        activeStoreConfig.label,
+        row.is_ignored ? 'Ignorato' : 'Attivo',
+        row.artist,
+        row.album,
+        row.ean_code || '',
+        row.edition || '',
+        row.price ?? '',
+        row.condition || '',
+        row.rowDiscount ? row.rowDiscount.toFixed(2) : '',
+        row.discountedPrice !== null ? row.discountedPrice.toFixed(2) : '',
+        row.shippingShare ? row.shippingShare.toFixed(2) : '',
+        row.finalPrice !== null ? row.finalPrice.toFixed(2) : ''
+      ];
+    });
+
+    const content = [header, ...csvRows]
+      .map((row) => row.map(csvEscape).join(';'))
+      .join('\n');
+
+    const blob = new Blob([`\uFEFF${content}`], {
+      type: 'text/csv;charset=utf-8'
+    });
+
+    const url = window.URL.createObjectURL(blob);
+    const link = document.createElement('a');
+
+    link.href = url;
+    link.download = `carrello-${activeStoreConfig.key}-${getTodayForFilename()}.csv`;
+    link.click();
+
+    window.URL.revokeObjectURL(url);
+  }
+
+  return (
+    <main className="mx-auto max-w-7xl p-4 sm:p-6">
+      <div className="mb-4 rounded-2xl bg-white p-6 shadow-sm">
+        <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+          <div>
+            <h1 className="text-3xl font-bold">Carrello comparativo</h1>
+            <p className="mt-2 text-slate-600">
+              Confronta il carrello Medimops e Momox con sconti e spedizione.
+            </p>
+            <p className="mt-3 rounded-lg bg-slate-100 p-3 text-sm">
+              Stato: {message}
+            </p>
+          </div>
+
+          <div className="flex flex-wrap gap-2">
+            <Link
+              href="/"
+              className="rounded-lg border px-4 py-2 font-semibold text-slate-700 hover:bg-slate-50"
+            >
+              Torna alla dashboard
+            </Link>
+
+            <button
+              className="rounded-lg border border-blue-700 px-4 py-2 font-semibold text-blue-700 hover:bg-blue-50 disabled:opacity-50"
+              onClick={exportCsv}
+              disabled={rows.length === 0}
+            >
+              Esporta Excel
+            </button>
+
+            <button
+              className="rounded-lg border border-red-600 px-4 py-2 font-semibold text-red-700 hover:bg-red-50 disabled:opacity-50"
+              onClick={clearCart}
+              disabled={items.length === 0}
+            >
+              Svuota carrello
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <section className="mb-4 rounded-2xl bg-white p-4 shadow-sm">
+        <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
+          <div className="flex flex-wrap gap-2">
+            {STORES.map((store) => {
+              const storeItems = items
+                .map((item) => monitorById.get(item.id))
+                .filter(Boolean) as Monitor[];
+
+              const storeTotal = storeItems.reduce((total, monitor) => {
+                const price = monitor[store.priceField];
+
+                return total + (price || 0);
+              }, 0);
+
+              return (
+                <button
+                  key={store.key}
+                  className={`rounded-xl border px-4 py-3 text-left ${
+                    activeStore === store.key
+                      ? 'border-blue-700 bg-blue-50 text-blue-900'
+                      : 'bg-white hover:bg-slate-50'
+                  }`}
+                  onClick={() => setActiveStore(store.key)}
+                >
+                  <div className="font-semibold">{store.label}</div>
+                  <div className="text-sm text-slate-600">
+                    Totale grezzo: {formatEuro(storeTotal)}
+                  </div>
+                </button>
+              );
+            })}
+          </div>
+
+          <div className="grid gap-3 sm:grid-cols-[180px_180px]">
+            <label className="text-sm font-medium">
+              Tipo sconto
+              <select
+                className="mt-1 w-full rounded-lg border p-2"
+                value={discountType}
+                onChange={(event) =>
+                  setDiscountType(event.target.value as 'percent' | 'euro')
+                }
+              >
+                <option value="percent">Percentuale</option>
+                <option value="euro">Euro totale</option>
+              </select>
+            </label>
+
+            <label className="text-sm font-medium">
+              Valore sconto
+              <input
+                className="mt-1 w-full rounded-lg border p-2"
+                placeholder={discountType === 'percent' ? 'es. 10' : 'es. 5,00'}
+                value={discountValue}
+                onChange={(event) => setDiscountValue(event.target.value)}
+              />
+            </label>
+          </div>
+        </div>
+      </section>
+
+      <section className="mb-4 rounded-2xl bg-white p-4 shadow-sm">
+        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
+          <div className="rounded-xl bg-slate-50 p-3">
+            <div className="text-sm text-slate-500">Store</div>
+            <div className="text-xl font-bold">{activeStoreConfig.label}</div>
+          </div>
+
+          <div className="rounded-xl bg-slate-50 p-3">
+            <div className="text-sm text-slate-500">Articoli attivi</div>
+            <div className="text-xl font-bold">{activeItemCount}</div>
+          </div>
+
+          <div className="rounded-xl bg-slate-50 p-3">
+            <div className="text-sm text-slate-500">Subtotale</div>
+            <div className="text-xl font-bold">{formatEuro(rawSubtotal)}</div>
+          </div>
+
+          <div className="rounded-xl bg-slate-50 p-3">
+            <div className="text-sm text-slate-500">Spedizione</div>
+            <div className="text-xl font-bold">{formatEuro(shipping)}</div>
+          </div>
+
+          <div className="rounded-xl bg-green-50 p-3">
+            <div className="text-sm text-green-700">Totale finale</div>
+            <div className="text-xl font-bold text-green-800">
+              {formatEuro(finalTotal)}
+            </div>
+          </div>
+        </div>
+
+        {activeItems.some((item) => item.price === null) && (
+          <p className="mt-3 rounded-lg bg-amber-50 p-3 text-sm text-amber-900">
+            Alcuni articoli attivi non hanno prezzo nello store selezionato:
+            contano per la spedizione ma non nel subtotale prezzi.
+          </p>
+        )}
+      </section>
+
+      <section className="rounded-2xl bg-white p-4 shadow-sm">
+        <div className="overflow-x-auto">
+          <table className="min-w-full border-collapse text-sm">
+            <thead>
+              <tr className="bg-slate-100 text-left">
+                <th className="border-b p-2">Stato</th>
+                <th className="border-b p-2">Azioni</th>
+                <th className="border-b p-2">Artista</th>
+                <th className="border-b p-2">Titolo</th>
+                <th className="border-b p-2">EAN</th>
+                <th className="border-b p-2">Label</th>
+                <th className="border-b p-2">
+                  Prezzo {activeStoreConfig.label}
+                </th>
+                <th className="border-b p-2">Condizione</th>
+                <th className="border-b p-2">Sconto riga</th>
+                <th className="border-b p-2">Prezzo scontato</th>
+                <th className="border-b p-2">Quota spedizione</th>
+                <th className="border-b p-2">Prezzo finale articolo</th>
+              </tr>
+            </thead>
+
+            <tbody>
+              {rows.map((row) => (
+                <tr
+                  key={row.cartItem.id}
+                  className={`border-b align-top ${
+                    row.is_ignored ? 'bg-slate-50 text-slate-400' : ''
+                  }`}
+                >
+                  <td className="p-2">
+                    {row.is_ignored ? (
+                      <span className="rounded-full bg-slate-200 px-2 py-1 text-xs font-semibold text-slate-600">
+                        Ignorato
+                      </span>
+                    ) : (
+                      <span className="rounded-full bg-green-100 px-2 py-1 text-xs font-semibold text-green-800">
+                        Attivo
+                      </span>
+                    )}
+                  </td>
+
+                  <td className="p-2">
+                    <div className="flex flex-wrap gap-2">
+                      <button
+                        className="rounded-lg border px-3 py-1 text-xs hover:bg-slate-50"
+                        onClick={() => toggleIgnored(row.cartItem.id)}
+                      >
+                        {row.is_ignored ? 'Riattiva' : 'Ignora'}
+                      </button>
+
+                      <button
+                        className="rounded-lg border border-red-300 px-3 py-1 text-xs text-red-700 hover:bg-red-50"
+                        onClick={() => removeItem(row.cartItem.id)}
+                      >
+                        Rimuovi
+                      </button>
+                    </div>
+                  </td>
+
+                  <td className="p-2 font-medium">{row.artist}</td>
+                  <td className="p-2">{row.album}</td>
+                  <td className="p-2">{row.ean_code || '-'}</td>
+                  <td className="p-2">{row.edition || '-'}</td>
+
+                  <td className="p-2 font-semibold">
+                    {row.url && row.price !== null ? (
+                      <a
+                        href={row.url}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="underline decoration-dotted underline-offset-4 hover:text-blue-700"
+                      >
+                        {formatEuro(row.price)}
+                      </a>
+                    ) : (
+                      formatEuro(row.price)
+                    )}
+                  </td>
+
+                  <td className="p-2">{conditionBadge(row.condition)}</td>
+                  <td className="p-2">{formatEuro(row.rowDiscount)}</td>
+                  <td className="p-2">{formatEuro(row.discountedPrice)}</td>
+                  <td className="p-2">{formatEuro(row.shippingShare)}</td>
+                  <td className="p-2 font-bold">{formatEuro(row.finalPrice)}</td>
+                </tr>
+              ))}
+
+              {rows.length === 0 && (
+                <tr>
+                  <td className="p-4 text-center text-slate-500" colSpan={12}>
+                    Carrello vuoto.
+                  </td>
+                </tr>
+              )}
+            </tbody>
+          </table>
+        </div>
+      </section>
+    </main>
+  );
 }
