@@ -448,11 +448,11 @@ export default function CartPage() {
       'EAN',
       'Label',
       `Prezzo ${activeStoreConfig.label}`,
+      'Prezzo finale',
       'Condizione',
       'Sconto riga',
       'Prezzo scontato',
-      'Quota spedizione',
-      'Prezzo finale articolo'
+      'Quota spedizione'
     ];
 
     const csvRows = rows.map((row) => {
@@ -464,11 +464,11 @@ export default function CartPage() {
         row.ean_code || '',
         row.edition || '',
         row.price ?? '',
+        row.finalPrice !== null ? row.finalPrice.toFixed(2) : '',
         row.condition || '',
         row.rowDiscount ? row.rowDiscount.toFixed(2) : '',
         row.discountedPrice !== null ? row.discountedPrice.toFixed(2) : '',
-        row.shippingShare ? row.shippingShare.toFixed(2) : '',
-        row.finalPrice !== null ? row.finalPrice.toFixed(2) : ''
+        row.shippingShare ? row.shippingShare.toFixed(2) : ''
       ];
     });
 
@@ -606,116 +606,92 @@ export default function CartPage() {
             </p>
           </section>
 
-          <section className="mb-4 grid gap-4 xl:grid-cols-[1fr_390px]">
-            <div className="mpm-card rounded-3xl p-4">
-              <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
-                <div>
-                  <h2 className="text-xl font-black text-[#12201f]">Store</h2>
-                  <p className="mt-1 text-sm font-medium text-slate-500">
-                    Scegli quale carrello visualizzare.
-                  </p>
+          <section className="mpm-card mb-4 rounded-3xl p-4">
+            <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-[240px_170px_160px_150px_180px_180px_180px]">
+              <div>
+                <div className="mb-2 text-sm font-black uppercase tracking-wide text-slate-500">
+                  Store
                 </div>
-
-                <div className="flex flex-wrap gap-3">
-                  {STORES.map((store) => {
-                    const storeItems = items
-                      .map((item) => monitorById.get(item.id))
-                      .filter(Boolean) as Monitor[];
-
-                    const storeTotal = storeItems.reduce((total, monitor) => {
-                      const price = monitor[store.priceField];
-
-                      return total + (price || 0);
-                    }, 0);
-
-                    return (
-                      <button
-                        key={store.key}
-                        className={`rounded-2xl border px-5 py-3 text-left shadow-sm ${
-                          activeStore === store.key
-                            ? 'border-[#24BFBF] bg-cyan-50 text-[#123f3f]'
-                            : 'border-slate-200 bg-white text-slate-700 hover:bg-slate-50'
-                        }`}
-                        onClick={() => setActiveStore(store.key)}
-                      >
-                        <div className="text-sm font-black">{store.label}</div>
-                        <div className="mt-1 text-sm font-semibold text-slate-500">
-                          Totale grezzo: {formatEuro(storeTotal)}
-                        </div>
-                      </button>
-                    );
-                  })}
+                <div className="flex gap-2">
+                  {STORES.map((store) => (
+                    <button
+                      key={store.key}
+                      className={`h-11 rounded-xl border px-4 text-sm font-black shadow-sm ${
+                        activeStore === store.key
+                          ? 'border-[#24BFBF] bg-cyan-50 text-[#168c95]'
+                          : 'border-slate-200 bg-white text-slate-600 hover:bg-slate-50'
+                      }`}
+                      onClick={() => setActiveStore(store.key)}
+                    >
+                      {store.label}
+                    </button>
+                  ))}
                 </div>
               </div>
-            </div>
 
-            <div className="mpm-card rounded-3xl p-4">
-              <div className="grid gap-3 sm:grid-cols-2">
-                <label className="text-sm font-bold text-slate-700">
-                  Tipo sconto
-                  <select
-                    className="mt-1 h-11 w-full rounded-xl border border-slate-200 bg-white p-2 outline-none focus:border-[#24BFBF]"
-                    value={discountType}
-                    onChange={(event) =>
-                      setDiscountType(event.target.value as 'percent' | 'euro')
-                    }
-                  >
-                    <option value="percent">Percentuale</option>
-                    <option value="euro">Euro totale</option>
-                  </select>
-                </label>
+              <label className="text-sm font-bold text-slate-700">
+                Tipo sconto
+                <select
+                  className="mt-2 h-11 w-full rounded-xl border border-slate-200 bg-white px-3 outline-none focus:border-[#24BFBF]"
+                  value={discountType}
+                  onChange={(event) =>
+                    setDiscountType(event.target.value as 'percent' | 'euro')
+                  }
+                >
+                  <option value="percent">Percentuale</option>
+                  <option value="euro">Euro totale</option>
+                </select>
+              </label>
 
-                <label className="text-sm font-bold text-slate-700">
-                  Valore
-                  <input
-                    className="mt-1 h-11 w-full rounded-xl border border-slate-200 bg-white p-2 outline-none focus:border-[#24BFBF]"
-                    placeholder={discountType === 'percent' ? 'es. 10' : 'es. 5,00'}
-                    value={discountValue}
-                    onChange={(event) => setDiscountValue(event.target.value)}
-                  />
-                </label>
-              </div>
-            </div>
-          </section>
+              <label className="text-sm font-bold text-slate-700">
+                Valore
+                <input
+                  className="mt-2 h-11 w-full rounded-xl border border-slate-200 bg-white px-3 outline-none focus:border-[#24BFBF]"
+                  placeholder={discountType === 'percent' ? 'es. 10' : 'es. 5,00'}
+                  value={discountValue}
+                  onChange={(event) => setDiscountValue(event.target.value)}
+                />
+              </label>
 
-          <section className="mb-4 grid gap-4 md:grid-cols-2 xl:grid-cols-5">
-            <div className="mpm-card rounded-3xl p-4">
-              <div className="text-sm font-bold text-slate-500">Store</div>
-              <div className="mt-1 text-2xl font-black text-[#24BFBF]">
-                {activeStoreConfig.label}
-              </div>
-            </div>
-
-            <div className="mpm-card rounded-3xl p-4">
-              <div className="text-sm font-bold text-slate-500">Articoli attivi</div>
-              <div className="mt-1 text-2xl font-black text-[#2B403E]">
-                {activeItemCount}
-              </div>
-              {ignoredItemCount > 0 ? (
-                <div className="mt-1 text-xs font-bold text-slate-400">
-                  Ignorati: {ignoredItemCount}
+              <div className="rounded-2xl bg-white px-4 py-3 ring-1 ring-slate-100">
+                <div className="text-xs font-black uppercase tracking-wide text-slate-500">
+                  Articoli attivi
                 </div>
-              ) : null}
-            </div>
-
-            <div className="mpm-card rounded-3xl p-4">
-              <div className="text-sm font-bold text-slate-500">Subtotale</div>
-              <div className="mt-1 text-2xl font-black text-[#2B403E]">
-                {formatEuro(rawSubtotal)}
+                <div className="mt-1 text-2xl font-black text-[#2B403E]">
+                  {activeItemCount}
+                </div>
+                {ignoredItemCount > 0 ? (
+                  <div className="text-xs font-bold text-slate-400">
+                    Ignorati: {ignoredItemCount}
+                  </div>
+                ) : null}
               </div>
-            </div>
 
-            <div className="mpm-card rounded-3xl p-4">
-              <div className="text-sm font-bold text-slate-500">Spedizione</div>
-              <div className="mt-1 text-2xl font-black text-[#F2A25C]">
-                {formatEuro(shipping)}
+              <div className="rounded-2xl bg-white px-4 py-3 ring-1 ring-slate-100">
+                <div className="text-xs font-black uppercase tracking-wide text-slate-500">
+                  Subtotale
+                </div>
+                <div className="mt-1 text-2xl font-black text-[#2B403E]">
+                  {formatEuro(rawSubtotal)}
+                </div>
               </div>
-            </div>
 
-            <div className="rounded-3xl border border-emerald-100 bg-emerald-50 p-4 shadow-sm">
-              <div className="text-sm font-bold text-emerald-700">Totale finale</div>
-              <div className="mt-1 text-2xl font-black text-[#159b77]">
-                {formatEuro(finalTotal)}
+              <div className="rounded-2xl bg-white px-4 py-3 ring-1 ring-slate-100">
+                <div className="text-xs font-black uppercase tracking-wide text-slate-500">
+                  Spedizione
+                </div>
+                <div className="mt-1 text-2xl font-black text-[#F2A25C]">
+                  {formatEuro(shipping)}
+                </div>
+              </div>
+
+              <div className="rounded-2xl border border-emerald-100 bg-emerald-50 px-4 py-3">
+                <div className="text-xs font-black uppercase tracking-wide text-emerald-700">
+                  Totale finale
+                </div>
+                <div className="mt-1 text-2xl font-black text-[#159b77]">
+                  {formatEuro(finalTotal)}
+                </div>
               </div>
             </div>
           </section>
@@ -748,11 +724,11 @@ export default function CartPage() {
                     <th className="whitespace-nowrap border-b border-slate-200 px-3 py-3 text-xs font-bold uppercase tracking-wide text-slate-500">EAN</th>
                     <th className="whitespace-nowrap border-b border-slate-200 px-3 py-3 text-xs font-bold uppercase tracking-wide text-slate-500">Label</th>
                     <th className="whitespace-nowrap border-b border-slate-200 px-3 py-3 text-xs font-bold uppercase tracking-wide text-slate-500">Prezzo {activeStoreConfig.label}</th>
+                    <th className="whitespace-nowrap border-b border-slate-200 px-3 py-3 text-xs font-bold uppercase tracking-wide text-slate-500">Prezzo finale</th>
                     <th className="whitespace-nowrap border-b border-slate-200 px-3 py-3 text-xs font-bold uppercase tracking-wide text-slate-500">Condizione</th>
                     <th className="whitespace-nowrap border-b border-slate-200 px-3 py-3 text-xs font-bold uppercase tracking-wide text-slate-500">Sconto riga</th>
                     <th className="whitespace-nowrap border-b border-slate-200 px-3 py-3 text-xs font-bold uppercase tracking-wide text-slate-500">Prezzo scontato</th>
                     <th className="whitespace-nowrap border-b border-slate-200 px-3 py-3 text-xs font-bold uppercase tracking-wide text-slate-500">Quota spedizione</th>
-                    <th className="whitespace-nowrap border-b border-slate-200 px-3 py-3 text-xs font-bold uppercase tracking-wide text-slate-500">Prezzo finale articolo</th>
                   </tr>
                 </thead>
 
@@ -815,11 +791,11 @@ export default function CartPage() {
                         )}
                       </td>
 
+                      <td className="px-3 py-3 font-black text-[#159b77]">{formatEuro(row.finalPrice)}</td>
                       <td className="px-3 py-3">{conditionBadge(row.condition)}</td>
                       <td className="px-3 py-3 text-slate-600">{formatEuro(row.rowDiscount)}</td>
                       <td className="px-3 py-3 font-semibold text-slate-800">{formatEuro(row.discountedPrice)}</td>
                       <td className="px-3 py-3 text-slate-600">{formatEuro(row.shippingShare)}</td>
-                      <td className="px-3 py-3 font-black text-[#159b77]">{formatEuro(row.finalPrice)}</td>
                     </tr>
                   ))}
 
