@@ -96,48 +96,49 @@ function makeSource(source: string, context?: string): string {
   return `${source} | contesto: ${cleanContext(context)}`;
 }
 
+function normalizeForConditionSearch(value: string): string {
+  return value
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
 function normalizeCondition(value: string): string | null {
   const lower = value.toLowerCase();
+  const simplified = normalizeForConditionSearch(value);
 
   if (
+    lower.includes('très bon état') ||
+    simplified.includes('tres bon etat') ||
     lower.includes('sehr gut') ||
     lower.includes('sehr guter zustand') ||
-    lower.includes('très bon état') ||
-    lower.includes('tres bon etat') ||
     lower.includes('very good') ||
     lower.includes('ottime condizioni') ||
     lower.includes('ottimo stato')
   ) {
-    return 'Sehr gut';
+    return 'EX';
   }
 
   if (
-    lower.includes('wie neu') ||
-    lower.includes('comme neuf') ||
-    lower.includes('like new') ||
-    lower.includes('come nuovo')
-  ) {
-    return 'Wie neu';
-  }
-
-  if (
-    lower.includes('akzeptabel') ||
-    lower.includes('acceptable') ||
-    lower.includes('accettabile')
-  ) {
-    return 'Akzeptabel';
-  }
-
-  if (
-    lower.includes('gut') ||
-    lower.includes('guter zustand') ||
     lower.includes('bon état') ||
-    lower.includes('bon etat') ||
+    simplified.includes('bon etat') ||
+    lower.includes('guter zustand') ||
+    simplified.includes(' gut ') ||
     lower.includes('good condition') ||
     lower.includes('buono stato') ||
     lower.includes('buone condizioni')
   ) {
-    return 'Gut';
+    return 'VG';
+  }
+
+  if (
+    lower.includes('acceptable') ||
+    lower.includes('akzeptabel') ||
+    lower.includes('accettabile')
+  ) {
+    return 'G';
   }
 
   return null;
@@ -147,6 +148,28 @@ function extractConditionFromContext(context: string): string | null {
   const cleaned = cleanContext(context);
 
   return normalizeCondition(cleaned);
+}
+
+function extractConditionFromJsonLdRecord(
+  record: Record<string, unknown>
+): string | null {
+  const possibleValues = [
+    record.itemCondition,
+    record.condition,
+    record.availability,
+    record.description,
+    record.name
+  ];
+
+  for (const value of possibleValues) {
+    if (typeof value === 'string') {
+      const condition = normalizeCondition(value);
+
+      if (condition) return condition;
+    }
+  }
+
+  return null;
 }
 
 function extractFromJsonLd($: cheerio.CheerioAPI): ScrapeResult | null {
@@ -219,28 +242,6 @@ function findOfferPrice(value: unknown, context = ''): ScrapeResult {
   }
 
   return { price: null, source: 'json-ld-none', error: null, condition: null };
-}
-
-function extractConditionFromJsonLdRecord(
-  record: Record<string, unknown>
-): string | null {
-  const possibleValues = [
-    record.itemCondition,
-    record.condition,
-    record.availability,
-    record.description,
-    record.name
-  ];
-
-  for (const value of possibleValues) {
-    if (typeof value === 'string') {
-      const condition = normalizeCondition(value);
-
-      if (condition) return condition;
-    }
-  }
-
-  return null;
 }
 
 function isLikelyShippingOrNoise(context: string): boolean {
@@ -316,8 +317,9 @@ function hasPrimaryProductSignals(context: string): boolean {
   return signals.some((signal) => lower.includes(signal));
 }
 
-function hasVeryGoodConditionSignal(context: string): boolean {
+function hasExcellentConditionSignal(context: string): boolean {
   const lower = context.toLowerCase();
+  const simplified = normalizeForConditionSearch(context);
 
   const signals = [
     'très bon état',
@@ -329,14 +331,17 @@ function hasVeryGoodConditionSignal(context: string): boolean {
     'ottimo stato'
   ];
 
-  return signals.some((signal) => lower.includes(signal));
+  return signals.some((signal) => {
+    return lower.includes(signal) || simplified.includes(signal);
+  });
 }
 
-function hasPlainGoodConditionSignal(context: string): boolean {
+function hasVeryGoodConditionSignal(context: string): boolean {
   const lower = context.toLowerCase();
+  const simplified = normalizeForConditionSearch(context);
 
   const signals = [
-    ' bon état',
+    'bon état',
     'bon etat',
     'guter zustand',
     'good condition',
@@ -344,7 +349,9 @@ function hasPlainGoodConditionSignal(context: string): boolean {
     'buone condizioni'
   ];
 
-  return signals.some((signal) => lower.includes(signal));
+  return signals.some((signal) => {
+    return lower.includes(signal) || simplified.includes(signal);
+  });
 }
 
 function scoreCandidate(price: number, context: string, index: number): number {
@@ -370,9 +377,9 @@ function scoreCandidate(price: number, context: string, index: number): number {
   if (lower.includes('ajouter au panier')) score += 35;
   if (lower.includes('aggiungi al carrello')) score += 35;
 
-  if (hasVeryGoodConditionSignal(context)) score += 90;
+  if (hasExcellentConditionSignal(context)) score += 90;
 
-  if (hasPlainGoodConditionSignal(context) && !hasVeryGoodConditionSignal(context)) {
+  if (hasVeryGoodConditionSignal(context) && !hasExcellentConditionSignal(context)) {
     score -= 80;
   }
 
@@ -439,6 +446,8 @@ function findBestPriceAfterMarker(
 function findBestPriceNearPrimaryBlock(text: string): ScrapeResult | null {
   const markers = [
     'sehr gut',
+    'très bon état',
+    'tres bon etat',
     'auf lager',
     'inkl. mwst',
     'inklusive mwst',
