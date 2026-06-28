@@ -1435,13 +1435,6 @@ export default function Dashboard() {
                   onDoubleClick={handleHeaderDoubleClick}
                 />
                 <SortableHeader
-                  label="Genere"
-                  sortKey="genre"
-                  activeSortKey={sortKey}
-                  sortAsc={sortAsc}
-                  onDoubleClick={handleHeaderDoubleClick}
-                />
-                <SortableHeader
                   label="Tipo"
                   sortKey="type"
                   activeSortKey={sortKey}
@@ -1532,6 +1525,13 @@ export default function Dashboard() {
                   sortAsc={sortAsc}
                   onDoubleClick={handleHeaderDoubleClick}
                 />
+                <SortableHeader
+                  label="Genere"
+                  sortKey="genre"
+                  activeSortKey={sortKey}
+                  sortAsc={sortAsc}
+                  onDoubleClick={handleHeaderDoubleClick}
+                />
               </tr>
             </thead>
 
@@ -1609,7 +1609,6 @@ export default function Dashboard() {
                       <DetailCell value={monitor.last_error} />
                     </td>
                     <td className="p-2">{monitor.is_active ? 'Sì' : 'No'}</td>
-                    <td className="p-2">{monitor.genre}</td>
                     <td className="p-2">{monitor.type}</td>
                     <td className="p-2 font-medium">{monitor.artist}</td>
                     <td className="p-2">{monitor.album}</td>
@@ -1654,6 +1653,7 @@ export default function Dashboard() {
                     <td className="p-2 text-slate-500">
                       {formatEuro(monitor.momox_target_price)}
                     </td>
+                    <td className="p-2">{monitor.genre}</td>
                   </tr>
                 );
               })}
