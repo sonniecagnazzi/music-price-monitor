@@ -2,32 +2,42 @@ import { scrapePrice } from '../lib/scraper';
 
 type ScraperConditionTest = {
   name: string;
+  site: 'Medimops' | 'Momox';
   url: string;
   expectedPrice: number;
-  expectedCondition: string;
+  expectedCondition: 'EX' | 'VG' | 'G';
 };
 
 const TESTS: ScraperConditionTest[] = [
   {
-    name: 'Test 1 Base - una sola condizione',
+    name: 'Medimops Test 1 Base - una sola condizione',
+    site: 'Medimops',
     url: 'https://www.medimops.de/screaming-trees-anthology-sst-years-85-89-audio-cd-M0B000000M67.html',
     expectedPrice: 15.59,
-    expectedCondition: 'Sehr gut'
+    expectedCondition: 'EX'
   },
   {
-    name: 'Test 2 - più condizioni/prezzi',
+    name: 'Medimops Test 2 - più condizioni/prezzi',
+    site: 'Medimops',
     url: 'https://www.medimops.de/ozzy-osbourne-ozzmosis-audio-cd-M0B000002B3Q.html',
     expectedPrice: 8.59,
-    expectedCondition: 'Sehr gut'
+    expectedCondition: 'EX'
+  },
+  {
+    name: 'Momox Test 1 Base - una sola condizione',
+    site: 'Momox',
+    url: 'https://www.momox-shop.fr/screaming-trees-anthology-sst-years-85-89-audio-cd-M0B000000M67.html',
+    expectedPrice: 9.89,
+    expectedCondition: 'EX'
+  },
+  {
+    name: 'Momox Test 2 - più condizioni/prezzi',
+    site: 'Momox',
+    url: 'https://www.momox-shop.fr/ozzy-osbourne-ozzmosis-audio-cd-M0B000002B3Q.html',
+    expectedPrice: 8.99,
+    expectedCondition: 'EX'
   }
 ];
-
-function normalizeConditionForCompare(value: string | null | undefined): string {
-  return String(value || '')
-    .trim()
-    .toLowerCase()
-    .replace(/\s+/g, ' ');
-}
 
 function priceMatches(actual: number | null, expected: number): boolean {
   if (actual === null) return false;
@@ -36,16 +46,17 @@ function priceMatches(actual: number | null, expected: number): boolean {
 }
 
 async function main() {
-  console.log('[scraper-condition-test] Avvio test Medimops');
+  console.log('[scraper-condition-test] Avvio test Medimops + Momox');
   console.log('');
 
   let failed = 0;
 
   for (const test of TESTS) {
     console.log(`--- ${test.name} ---`);
+    console.log(`Sito: ${test.site}`);
     console.log(`URL: ${test.url}`);
     console.log(`Atteso prezzo: ${test.expectedPrice}`);
-    console.log(`Attesa condizione: ${test.expectedCondition}`);
+    console.log(`Attesa condizione normalizzata: ${test.expectedCondition}`);
 
     const result = await scrapePrice(test.url);
 
@@ -53,12 +64,10 @@ async function main() {
     const actualCondition = result.condition || null;
 
     const okPrice = priceMatches(actualPrice, test.expectedPrice);
-    const okCondition =
-      normalizeConditionForCompare(actualCondition) ===
-      normalizeConditionForCompare(test.expectedCondition);
+    const okCondition = actualCondition === test.expectedCondition;
 
     console.log(`Trovato prezzo: ${actualPrice ?? '-'}`);
-    console.log(`Trovata condizione: ${actualCondition ?? '-'}`);
+    console.log(`Trovata condizione normalizzata: ${actualCondition ?? '-'}`);
     console.log(`Fonte: ${result.source}`);
     console.log(`Errore: ${result.error || '-'}`);
 
