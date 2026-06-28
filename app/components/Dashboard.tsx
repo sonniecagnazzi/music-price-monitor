@@ -196,12 +196,7 @@ function TargetIcon() {
 function ImportIcon() {
   return (
     <svg aria-hidden="true" className="h-4 w-4" viewBox="0 0 24 24" fill="none">
-      <path
-        d="M12 3v12"
-        stroke="currentColor"
-        strokeWidth="1.8"
-        strokeLinecap="round"
-      />
+      <path d="M12 3v12" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
       <path
         d="m8 7 4-4 4 4"
         stroke="currentColor"
@@ -241,12 +236,7 @@ function EditIcon() {
         strokeWidth="1.8"
         strokeLinejoin="round"
       />
-      <path
-        d="M13.5 6 18 10.5"
-        stroke="currentColor"
-        strokeWidth="1.8"
-        strokeLinecap="round"
-      />
+      <path d="M13.5 6 18 10.5" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
     </svg>
   );
 }
@@ -676,6 +666,23 @@ function LinkedPrice({
   );
 }
 
+function AlbumCell({ value }: { value: string }) {
+  const shouldWrap = value.length > 40;
+
+  return (
+    <div
+      className={
+        shouldWrap
+          ? 'max-w-[360px] whitespace-normal break-words leading-snug text-slate-700'
+          : 'min-w-[300px] whitespace-nowrap text-slate-700'
+      }
+      title={value}
+    >
+      {value}
+    </div>
+  );
+}
+
 function DetailCell({ value }: { value: string | null }) {
   if (!value) return <span className="text-slate-400">-</span>;
 
@@ -765,57 +772,6 @@ function NavItem({
   );
 }
 
-function MetricCard({
-  title,
-  value,
-  subtitle,
-  tone,
-  icon
-}: {
-  title: string;
-  value: string;
-  subtitle: string;
-  tone: 'teal' | 'green' | 'orange' | 'dark';
-  icon: React.ReactNode;
-}) {
-  const toneMap = {
-    teal: {
-      value: 'text-[#24BFBF]',
-      circle: 'bg-cyan-50 text-[#24BFBF]'
-    },
-    green: {
-      value: 'text-[#1FBF92]',
-      circle: 'bg-emerald-50 text-[#1FBF92]'
-    },
-    orange: {
-      value: 'text-[#F2A25C]',
-      circle: 'bg-orange-50 text-[#F2A25C]'
-    },
-    dark: {
-      value: 'text-[#2B403E]',
-      circle: 'bg-slate-100 text-slate-600'
-    }
-  }[tone];
-
-  return (
-    <div className="mpm-card rounded-3xl p-5">
-      <div className="flex items-center justify-between gap-4">
-        <div>
-          <div className="text-sm font-semibold text-slate-500">{title}</div>
-          <div className={`mt-2 text-3xl font-black tracking-tight ${toneMap.value}`}>
-            {value}
-          </div>
-          <div className="mt-1 text-sm font-semibold text-slate-500">{subtitle}</div>
-        </div>
-
-        <div className={`flex h-14 w-14 items-center justify-center rounded-full ${toneMap.circle}`}>
-          {icon}
-        </div>
-      </div>
-    </div>
-  );
-}
-
 export default function Dashboard() {
   const [monitors, setMonitors] = useState<Monitor[]>([]);
   const [form, setForm] = useState<FormState>(emptyForm);
@@ -879,15 +835,6 @@ export default function Dashboard() {
   }, []);
 
   const activeFilterCount = countActiveFilters(filters, multiFilters);
-
-  const activeMonitorCount = monitors.filter((monitor) => monitor.is_active).length;
-  const inTargetCount = monitors.filter((monitor) => getDisplayStatus(monitor) === 'below_target').length;
-  const withoutUrlCount = monitors.filter((monitor) => !hasAnyUrl(monitor)).length;
-
-  const lastCheckedAt = monitors
-    .map((monitor) => monitor.last_checked_at)
-    .filter((value): value is string => Boolean(value))
-    .sort((a, b) => new Date(b).getTime() - new Date(a).getTime())[0];
 
   function handleHeaderDoubleClick(key: SortKey) {
     if (sortKey !== key) {
@@ -1049,6 +996,24 @@ export default function Dashboard() {
         !multiFilters.momox_condition.includes(monitor.momox_condition || '')
       ) return false;
 
+      const globalText = [
+        monitor.genre,
+        monitor.type,
+        monitor.artist,
+        monitor.album,
+        monitor.ean_code,
+        monitor.edition,
+        monitor.release_year,
+        monitor.country,
+        statusLabel,
+        urlStatusLabel,
+        bestPrice === null ? '' : `${bestPrice} ${formatEuro(bestPrice)}`
+      ].join(' ');
+
+      if (filters.global && !lower(globalText).includes(filters.global.toLowerCase())) {
+        return false;
+      }
+
       const row: Record<string, unknown> = {
         ...monitor,
         status: statusLabel,
@@ -1056,10 +1021,12 @@ export default function Dashboard() {
         best_price: bestPrice === null ? '' : `${bestPrice} ${formatEuro(bestPrice)}`
       };
 
-      return Object.entries(filters).every(
-        ([key, filterValue]) =>
-          !filterValue || lower(row[key]).includes(filterValue.toLowerCase())
-      );
+      return Object.entries(filters)
+        .filter(([key]) => key !== 'global')
+        .every(
+          ([key, filterValue]) =>
+            !filterValue || lower(row[key]).includes(filterValue.toLowerCase())
+        );
     });
 
     if (!sortKey) return [...filteredRows].sort(compareDefaultOrder);
@@ -1358,22 +1325,18 @@ export default function Dashboard() {
           <div className="mt-1 text-center text-xs text-white/55">
             Controlli automatici attivi
           </div>
-
-          <div className="mt-4 rounded-2xl border border-white/10 bg-black/10 p-3 text-xs text-white/70">
-            Palette attiva: teal, dark, green, orange.
-          </div>
         </div>
       </aside>
 
       <main className="lg:pl-72">
-        <div className="mx-auto max-w-[1760px] px-4 py-5 sm:px-6 lg:px-8">
-          <section className="mb-5">
+        <div className="mx-auto max-w-[1760px] px-4 py-4 sm:px-6 lg:px-6">
+          <section className="mb-4">
             <div className="flex flex-col gap-4 xl:flex-row xl:items-center xl:justify-between">
               <div>
                 <h1 className="text-4xl font-black tracking-tight text-[#12201f]">
                   Dashboard
                 </h1>
-                <p className="mt-2 text-sm font-medium text-slate-500">
+                <p className="mt-1 text-sm font-medium text-slate-500">
                   Monitoraggio prezzi dischi • Medimops / Momox
                 </p>
               </div>
@@ -1430,15 +1393,15 @@ export default function Dashboard() {
               </div>
             </div>
 
-            <div className="mt-5 rounded-2xl border border-slate-200 bg-white/70 p-3 text-sm font-medium text-slate-600 shadow-sm">
+            <p className="mt-3 rounded-2xl border border-slate-200 bg-white/70 px-4 py-2 text-sm font-medium text-slate-600 shadow-sm">
               Stato: {message}
-            </div>
+            </p>
           </section>
 
-          <section className="mb-5 grid gap-4 xl:grid-cols-[1fr_auto]">
+          <section className="mb-4 grid gap-3 xl:grid-cols-[1fr_auto]">
             <div className="relative">
               <input
-                className="mpm-focus h-12 w-full rounded-2xl border border-slate-200 bg-white px-12 text-sm font-medium text-slate-700 shadow-sm placeholder:text-slate-400"
+                className="mpm-focus h-11 w-full rounded-2xl border border-slate-200 bg-white px-12 text-sm font-medium text-slate-700 shadow-sm placeholder:text-slate-400"
                 placeholder="Cerca per artista, album, EAN, label, country..."
                 value={filters.global || ''}
                 onChange={(event) =>
@@ -1515,47 +1478,8 @@ export default function Dashboard() {
             </div>
           </section>
 
-          <section className="mb-5 grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-            <MetricCard
-              title="Monitor attivi"
-              value={String(activeMonitorCount)}
-              subtitle={`${monitors.length} record totali`}
-              tone="teal"
-              icon={<WaveIcon />}
-            />
-
-            <MetricCard
-              title="In target"
-              value={String(inTargetCount)}
-              subtitle={monitors.length ? `${Math.round((inTargetCount / monitors.length) * 100)}% del totale` : '0% del totale'}
-              tone="green"
-              icon={<TargetIcon />}
-            />
-
-            <MetricCard
-              title="Senza URL"
-              value={String(withoutUrlCount)}
-              subtitle="Da completare"
-              tone="orange"
-              icon={
-                <svg aria-hidden="true" className="h-5 w-5" viewBox="0 0 24 24" fill="none">
-                  <path d="M10 13a5 5 0 0 0 7 0l2-2a5 5 0 0 0-7-7l-1 1" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
-                  <path d="M14 11a5 5 0 0 0-7 0l-2 2a5 5 0 0 0 7 7l1-1" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
-                </svg>
-              }
-            />
-
-            <MetricCard
-              title="Ultimo controllo"
-              value={lastCheckedAt ? formatDate(lastCheckedAt) : '-'}
-              subtitle="Aggiornato da GitHub Actions"
-              tone="dark"
-              icon={<ClockIcon />}
-            />
-          </section>
-
           {filtersOpen && (
-            <section className="mpm-card mb-5 rounded-3xl p-4">
+            <section className="mpm-card mb-4 rounded-3xl p-4">
               <div className="mb-3 flex items-center justify-between gap-3">
                 <h3 className="text-sm font-black uppercase tracking-wide text-[#2B403E]">
                   Filtri avanzati
@@ -1643,7 +1567,7 @@ export default function Dashboard() {
           )}
 
           <section className="mpm-card overflow-hidden rounded-3xl">
-            <div className="flex flex-col gap-2 border-b border-slate-200 px-5 py-4 md:flex-row md:items-center md:justify-between">
+            <div className="flex flex-col gap-2 border-b border-slate-200 px-5 py-3 md:flex-row md:items-center md:justify-between">
               <div>
                 <h2 className="text-xl font-black text-[#12201f]">Monitor</h2>
                 <p className="text-sm font-medium text-slate-500">
@@ -1653,7 +1577,7 @@ export default function Dashboard() {
             </div>
 
             <div className="mpm-scrollbar overflow-x-auto">
-              <table className="min-w-[1680px] border-collapse text-sm">
+              <table className="min-w-[1850px] border-collapse text-sm">
                 <thead>
                   <tr className="bg-white text-left">
                     <th className="whitespace-nowrap border-b border-slate-200 px-3 py-3">
@@ -1695,7 +1619,7 @@ export default function Dashboard() {
 
                     return (
                       <tr key={monitor.id} className="border-b border-slate-100 bg-white align-top hover:bg-slate-50/70">
-                        <td className="px-3 py-4">
+                        <td className="px-3 py-3">
                           <input
                             type="checkbox"
                             checked={selectedIds.includes(monitor.id)}
@@ -1703,7 +1627,7 @@ export default function Dashboard() {
                           />
                         </td>
 
-                        <td className="px-3 py-4">
+                        <td className="px-3 py-3">
                           <div className="flex items-center justify-start gap-1.5">
                             <button
                               className="inline-flex h-8 w-8 items-center justify-center rounded-xl border border-slate-200 bg-white text-[#2B403E] hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-40"
@@ -1746,24 +1670,24 @@ export default function Dashboard() {
                           </div>
                         </td>
 
-                        <td className="px-3 py-4"><StatusBadge monitor={monitor} /></td>
-                        <td className="px-3 py-4"><UrlStatusCell monitor={monitor} /></td>
-                        <td className="px-3 py-4"><DetailCell value={monitor.last_error} /></td>
-                        <td className="px-3 py-4">
+                        <td className="px-3 py-3"><StatusBadge monitor={monitor} /></td>
+                        <td className="px-3 py-3"><UrlStatusCell monitor={monitor} /></td>
+                        <td className="px-3 py-3"><DetailCell value={monitor.last_error} /></td>
+                        <td className="px-3 py-3">
                           <span className={`inline-flex h-6 w-10 items-center rounded-full p-1 ${monitor.is_active ? 'bg-[#24BFBF]' : 'bg-slate-200'}`}>
                             <span className={`h-4 w-4 rounded-full bg-white shadow ${monitor.is_active ? 'ml-4' : ''}`} />
                           </span>
                         </td>
-                        <td className="px-3 py-4">
+                        <td className="px-3 py-3">
                           <span className={`rounded-full px-2.5 py-1 text-xs font-black ${monitor.type === 'CD' ? 'bg-cyan-50 text-[#168c95]' : 'bg-orange-50 text-[#d97825]'}`}>
                             {monitor.type}
                           </span>
                         </td>
-                        <td className="px-3 py-4 font-bold text-[#12201f]">{monitor.artist}</td>
-                        <td className="px-3 py-4 text-slate-700">{monitor.album}</td>
-                        <td className="px-3 py-4 font-black text-[#12201f]">{formatEuro(bestPrice)}</td>
+                        <td className="px-3 py-3 font-bold text-[#12201f]">{monitor.artist}</td>
+                        <td className="px-3 py-3"><AlbumCell value={monitor.album} /></td>
+                        <td className="px-3 py-3 font-black text-[#12201f]">{formatEuro(bestPrice)}</td>
 
-                        <td className="px-3 py-4">
+                        <td className="px-3 py-3">
                           <LinkedPrice
                             value={monitor.medimops_current_price}
                             url={monitor.medimops_url}
@@ -1774,9 +1698,9 @@ export default function Dashboard() {
                           />
                         </td>
 
-                        <td className="px-3 py-4">{conditionBadge(monitor.medimops_condition)}</td>
+                        <td className="px-3 py-3">{conditionBadge(monitor.medimops_condition)}</td>
 
-                        <td className="px-3 py-4">
+                        <td className="px-3 py-3">
                           <LinkedPrice
                             value={monitor.momox_current_price}
                             url={monitor.momox_url}
@@ -1787,15 +1711,15 @@ export default function Dashboard() {
                           />
                         </td>
 
-                        <td className="px-3 py-4">{conditionBadge(monitor.momox_condition)}</td>
-                        <td className="px-3 py-4 text-slate-600">{formatDate(monitor.last_checked_at)}</td>
-                        <td className="px-3 py-4 text-slate-600">{monitor.ean_code || '-'}</td>
-                        <td className="px-3 py-4 text-slate-600">{monitor.edition || '-'}</td>
-                        <td className="px-3 py-4 text-slate-600">{monitor.release_year || '-'}</td>
-                        <td className="px-3 py-4 text-slate-600">{monitor.country || '-'}</td>
-                        <td className="px-3 py-4 text-slate-500">{formatEuro(monitor.medimops_target_price)}</td>
-                        <td className="px-3 py-4 text-slate-500">{formatEuro(monitor.momox_target_price)}</td>
-                        <td className="px-3 py-4 text-slate-600">{monitor.genre}</td>
+                        <td className="px-3 py-3">{conditionBadge(monitor.momox_condition)}</td>
+                        <td className="px-3 py-3 text-slate-600">{formatDate(monitor.last_checked_at)}</td>
+                        <td className="px-3 py-3 text-slate-600">{monitor.ean_code || '-'}</td>
+                        <td className="px-3 py-3 text-slate-600">{monitor.edition || '-'}</td>
+                        <td className="px-3 py-3 text-slate-600">{monitor.release_year || '-'}</td>
+                        <td className="px-3 py-3 text-slate-600">{monitor.country || '-'}</td>
+                        <td className="px-3 py-3 text-slate-500">{formatEuro(monitor.medimops_target_price)}</td>
+                        <td className="px-3 py-3 text-slate-500">{formatEuro(monitor.momox_target_price)}</td>
+                        <td className="px-3 py-3 text-slate-600">{monitor.genre}</td>
                       </tr>
                     );
                   })}
