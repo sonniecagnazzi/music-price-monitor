@@ -38,6 +38,7 @@ export type Monitor = {
   momox_url: string | null;
   momox_target_price: number | null;
   momox_current_price: number | null;
+  momox_condition: string | null;
 
   amazon_asin: string | null;
   amazon_target_price: number | null;
