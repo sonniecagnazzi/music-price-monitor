@@ -1,10 +1,12 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { env } from '@/lib/env';
+import type { MonitorGenre } from '@/lib/types';
 
 type CsvRow = Record<string, string>;
 
 type ImportMonitorRow = {
+  genre: MonitorGenre;
   type: 'CD' | 'LP';
   artist: string;
   album: string;
@@ -38,6 +40,7 @@ type ImportMonitorRow = {
 };
 
 const REQUIRED_HEADERS = [
+  'Genere',
   'Tipo',
   'Artista',
   'Album',
@@ -48,6 +51,8 @@ const REQUIRED_HEADERS = [
   'URL Medimops',
   'URL Momox'
 ];
+
+const ALLOWED_GENRES: MonitorGenre[] = ['Alt', 'Jazz', 'H&M', 'Rock Pop'];
 
 function getSupabaseAdmin() {
   return createClient(env.supabaseUrl(), env.supabaseServiceRoleKey(), {
@@ -75,6 +80,22 @@ function normalizeCountry(value: string): string | null {
   if (!cleaned) return null;
 
   return cleaned.slice(0, 3);
+}
+
+function normalizeGenre(value: string): MonitorGenre | null {
+  const cleaned = value.trim();
+
+  const exactMatch = ALLOWED_GENRES.find((genre) => genre === cleaned);
+
+  if (exactMatch) return exactMatch;
+
+  const lower = cleaned.toLowerCase();
+
+  const relaxedMatch = ALLOWED_GENRES.find(
+    (genre) => genre.toLowerCase() === lower
+  );
+
+  return relaxedMatch || null;
 }
 
 function parseTarget(value: string): number | null {
@@ -211,6 +232,7 @@ function validateAndMapRows(rows: CsvRow[]): ImportMonitorRow[] {
   rows.forEach((row, index) => {
     const csvLineNumber = index + 2;
 
+    const genre = normalizeGenre(row['Genere'] || '');
     const type = normalizeText(row['Tipo']).toUpperCase();
     const artist = normalizeText(row['Artista']);
     const album = normalizeText(row['Album']);
@@ -220,6 +242,12 @@ function validateAndMapRows(rows: CsvRow[]): ImportMonitorRow[] {
     const medimopsUrl = normalizeText(row['URL Medimops']) || null;
     const momoxUrl = normalizeText(row['URL Momox']) || null;
     const yearAndLabel = parseYearAndLabel(row['Anno - Label'] || '');
+
+    if (!genre) {
+      throw new Error(
+        `Riga ${csvLineNumber}: Genere mancante o non valido. Valori ammessi: Alt, Jazz, H&M, Rock Pop.`
+      );
+    }
 
     if (type !== 'CD' && type !== 'LP') {
       throw new Error(
@@ -259,6 +287,7 @@ function validateAndMapRows(rows: CsvRow[]): ImportMonitorRow[] {
     const legacyUrl = medimopsUrl || momoxUrl || '';
 
     mappedRows.push({
+      genre,
       type,
       artist,
       album,
