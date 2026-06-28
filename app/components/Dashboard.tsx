@@ -2,7 +2,14 @@
 
 import Link from 'next/link';
 import { useEffect, useMemo, useRef, useState } from 'react';
-import type { LastStatus, Monitor, MonitorInput, MonitorType } from '@/lib/types';
+import type {
+  LastStatus,
+  Monitor,
+  MonitorGenre,
+  MonitorInput,
+  MonitorType
+} from '@/lib/types';
+import { MONITOR_GENRES } from '@/lib/types';
 import { formatDate, formatEuro, toNumberFromItalianInput } from '@/lib/format';
 import { buildAmazonUrl } from '@/lib/amazon-scraper';
 import { addCartItem, getCartItems, type CartItem } from '@/lib/cart';
@@ -11,6 +18,7 @@ type SortKey =
   | 'status'
   | 'is_active'
   | 'has_url'
+  | 'genre'
   | 'type'
   | 'artist'
   | 'album'
@@ -25,10 +33,11 @@ type SortKey =
   | 'medimops_target_price'
   | 'momox_target_price';
 
-type MultiFilterKey = 'status' | 'type' | 'is_active' | 'has_url';
+type MultiFilterKey = 'status' | 'type' | 'is_active' | 'has_url' | 'genre';
 
 type FormState = {
   id?: string;
+  genre: MonitorGenre;
   type: MonitorType;
   artist: string;
   album: string;
@@ -49,6 +58,7 @@ type FormState = {
 type MultiFilters = Record<MultiFilterKey, string[]>;
 
 const emptyForm: FormState = {
+  genre: 'Rock Pop',
   type: 'CD',
   artist: '',
   album: '',
@@ -70,14 +80,16 @@ const emptyMultiFilters: MultiFilters = {
   status: [],
   type: [],
   is_active: [],
-  has_url: []
+  has_url: [],
+  genre: []
 };
 
 const multiFilterOptions: Record<MultiFilterKey, string[]> = {
   status: ['In target', 'ok'],
   type: ['CD', 'LP'],
   is_active: ['Sì', 'No'],
-  has_url: ['Con URL', 'Senza URL']
+  has_url: ['Con URL', 'Senza URL'],
+  genre: [...MONITOR_GENRES]
 };
 
 const statusLabels: Record<LastStatus | 'never_checked', string> = {
@@ -626,7 +638,7 @@ export default function Dashboard() {
   const csvInputRef = useRef<HTMLInputElement | null>(null);
 
   function refreshCartState() {
-    const items = getCartItems();
+    const items = getCartItems({ includeIgnored: true });
 
     setCartIds(items.map((item) => item.id));
     setCartCount(items.length);
@@ -845,6 +857,13 @@ export default function Dashboard() {
         return false;
       }
 
+      if (
+        multiFilters.genre.length > 0 &&
+        !multiFilters.genre.includes(monitor.genre)
+      ) {
+        return false;
+      }
+
       const row: Record<string, unknown> = {
         ...monitor,
         status: statusLabel,
@@ -917,6 +936,7 @@ export default function Dashboard() {
   function editMonitor(monitor: Monitor) {
     setForm({
       id: monitor.id,
+      genre: monitor.genre || 'Rock Pop',
       type: monitor.type,
       artist: monitor.artist,
       album: monitor.album,
@@ -965,6 +985,7 @@ export default function Dashboard() {
     setMessage('Salvataggio...');
 
     const input: MonitorInput = {
+      genre: form.genre,
       type: form.type,
       artist: form.artist,
       album: form.album,
@@ -1263,7 +1284,22 @@ export default function Dashboard() {
               </button>
             </div>
 
-            <div className="grid gap-3 md:grid-cols-4">
+            <div className="grid gap-3 md:grid-cols-5">
+              <CompactMultiSelectFilter
+                label="Genere"
+                value={multiFilters.genre}
+                options={multiFilterOptions.genre}
+                isOpen={openMultiFilter === 'genre'}
+                onToggle={() =>
+                  setOpenMultiFilter(
+                    openMultiFilter === 'genre' ? null : 'genre'
+                  )
+                }
+                onChange={(value) =>
+                  setMultiFilters({ ...multiFilters, genre: value })
+                }
+              />
+
               <CompactMultiSelectFilter
                 label="Stato"
                 value={multiFilters.status}
@@ -1325,6 +1361,7 @@ export default function Dashboard() {
 
             <div className="mt-3 grid gap-2 md:grid-cols-3 lg:grid-cols-6">
               {[
+                ['genre', 'Filtro genere'],
                 ['artist', 'Filtro artista'],
                 ['album', 'Filtro album'],
                 ['best_price', 'Filtro Best€'],
@@ -1488,6 +1525,13 @@ export default function Dashboard() {
                   sortAsc={sortAsc}
                   onDoubleClick={handleHeaderDoubleClick}
                 />
+                <SortableHeader
+                  label="Genere"
+                  sortKey="genre"
+                  activeSortKey={sortKey}
+                  sortAsc={sortAsc}
+                  onDoubleClick={handleHeaderDoubleClick}
+                />
               </tr>
             </thead>
 
@@ -1609,13 +1653,14 @@ export default function Dashboard() {
                     <td className="p-2 text-slate-500">
                       {formatEuro(monitor.momox_target_price)}
                     </td>
+                    <td className="p-2">{monitor.genre}</td>
                   </tr>
                 );
               })}
 
               {filtered.length === 0 && (
                 <tr>
-                  <td className="p-4 text-center text-slate-500" colSpan={19}>
+                  <td className="p-4 text-center text-slate-500" colSpan={20}>
                     Nessun monitor trovato.
                   </td>
                 </tr>
@@ -1696,8 +1741,8 @@ export default function Dashboard() {
             </div>
 
             <div className="mt-4 rounded-lg bg-amber-50 p-3 text-sm text-amber-900">
-              Campi obbligatori: Tipo, Artista, Album, EAN, Target.
-              L’EAN deve essere presente e non già esistente.
+              Campi obbligatori: Genere, Tipo, Artista, Album, EAN, Target.
+              Il CSV deve iniziare con la colonna Genere.
             </div>
           </div>
         </div>
@@ -1712,8 +1757,9 @@ export default function Dashboard() {
                   {form.id ? 'Modifica monitor' : 'Nuovo monitor'}
                 </h2>
                 <p className="mt-1 text-sm text-slate-500">
-                  Inserisci i dati del disco. Medimops e Momox sono usati per
-                  il monitoraggio; Amazon resta solo come campo futuro.
+                  Inserisci i dati del disco. Il genere è obbligatorio.
+                  Medimops e Momox sono usati per il monitoraggio; Amazon resta
+                  solo come campo futuro.
                 </p>
               </div>
 
@@ -1728,6 +1774,27 @@ export default function Dashboard() {
 
             <form onSubmit={saveMonitor} className="space-y-5">
               <div className="grid gap-3 md:grid-cols-2 lg:grid-cols-4">
+                <label className="text-sm font-medium">
+                  Genere
+                  <select
+                    required
+                    className="mt-1 w-full rounded-lg border p-2"
+                    value={form.genre}
+                    onChange={(event) =>
+                      setForm({
+                        ...form,
+                        genre: event.target.value as MonitorGenre
+                      })
+                    }
+                  >
+                    {MONITOR_GENRES.map((genre) => (
+                      <option key={genre} value={genre}>
+                        {genre}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+
                 <label className="text-sm font-medium">
                   Tipo
                   <select

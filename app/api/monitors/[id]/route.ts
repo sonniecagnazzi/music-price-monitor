@@ -103,6 +103,7 @@ export async function PUT(
     const { data, error } = await supabase
       .from('monitors')
       .update({
+        genre: parsed.data.genre,
         type: parsed.data.type,
         artist: parsed.data.artist,
         album: parsed.data.album,
