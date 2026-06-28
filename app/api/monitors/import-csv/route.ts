@@ -1,43 +1,13 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { env } from '@/lib/env';
-import type { MonitorGenre } from '@/lib/types';
+import { MONITOR_GENRES, type MonitorGenre, type MonitorType } from '@/lib/types';
+import { buildMomoxUrlFromMedimopsUrl, isMedimopsUrl } from '@/lib/store-urls';
+
+export const runtime = 'nodejs';
+export const dynamic = 'force-dynamic';
 
 type CsvRow = Record<string, string>;
-
-type ImportMonitorRow = {
-  genre: MonitorGenre;
-  type: 'CD' | 'LP';
-  artist: string;
-  album: string;
-  edition: string | null;
-  ean_code: string;
-  release_year: number | null;
-  country: string | null;
-
-  medimops_url: string | null;
-  medimops_target_price: number;
-  medimops_current_price: null;
-
-  momox_url: string | null;
-  momox_target_price: number;
-  momox_current_price: null;
-
-  amazon_asin: null;
-  amazon_target_price: null;
-  amazon_fr_current_price: null;
-  amazon_de_current_price: null;
-  amazon_it_current_price: null;
-
-  alert_email: null;
-  is_active: boolean;
-  alert_sent: boolean;
-
-  site: 'Medimops' | 'Momox';
-  url: string;
-  target_price: number;
-  current_price: null;
-};
 
 const REQUIRED_HEADERS = [
   'Genere',
@@ -52,8 +22,6 @@ const REQUIRED_HEADERS = [
   'URL Momox'
 ];
 
-const ALLOWED_GENRES: MonitorGenre[] = ['Alt', 'Jazz', 'H&M', 'Rock Pop'];
-
 function getSupabaseAdmin() {
   return createClient(env.supabaseUrl(), env.supabaseServiceRoleKey(), {
     auth: {
@@ -63,97 +31,14 @@ function getSupabaseAdmin() {
 }
 
 function normalizeHeader(value: string): string {
-  return value.trim().replace(/^\uFEFF/, '');
+  return value
+    .replace(/^\uFEFF/, '')
+    .replace(/\s+/g, ' ')
+    .trim();
 }
 
-function normalizeText(value: unknown): string {
-  return String(value ?? '').trim();
-}
-
-function normalizeEan(value: string): string {
-  return value.replace(/\D/g, '').trim();
-}
-
-function normalizeCountry(value: string): string | null {
-  const cleaned = value.trim().toUpperCase();
-
-  if (!cleaned) return null;
-
-  return cleaned.slice(0, 3);
-}
-
-function normalizeGenre(value: string): MonitorGenre | null {
-  const cleaned = value.trim();
-
-  const exactMatch = ALLOWED_GENRES.find((genre) => genre === cleaned);
-
-  if (exactMatch) return exactMatch;
-
-  const lower = cleaned.toLowerCase();
-
-  const relaxedMatch = ALLOWED_GENRES.find(
-    (genre) => genre.toLowerCase() === lower
-  );
-
-  return relaxedMatch || null;
-}
-
-function parseTarget(value: string): number | null {
-  const cleaned = value
-    .trim()
-    .replace(/\s/g, '')
-    .replace('€', '')
-    .replace(/\./g, '')
-    .replace(',', '.');
-
-  if (!cleaned) return null;
-
-  const parsed = Number(cleaned);
-
-  if (!Number.isFinite(parsed)) return null;
-  if (parsed <= 0) return null;
-
-  return Math.round(parsed * 100) / 100;
-}
-
-function parseYearAndLabel(value: string): {
-  release_year: number | null;
-  edition: string | null;
-} {
-  const cleaned = value.trim();
-
-  if (!cleaned) {
-    return {
-      release_year: null,
-      edition: null
-    };
-  }
-
-  const separatorIndex = cleaned.indexOf('-');
-
-  const yearPart =
-    separatorIndex >= 0 ? cleaned.slice(0, separatorIndex).trim() : cleaned;
-
-  const labelPart =
-    separatorIndex >= 0 ? cleaned.slice(separatorIndex + 1).trim() : '';
-
-  const yearMatch = yearPart.match(/\d{4}/);
-  const releaseYear = yearMatch ? Number(yearMatch[0]) : null;
-
-  return {
-    release_year:
-      releaseYear !== null &&
-      Number.isFinite(releaseYear) &&
-      releaseYear >= 1900 &&
-      releaseYear <= 2100
-        ? releaseYear
-        : null,
-    edition: labelPart || null
-  };
-}
-
-function parseCsvLine(line: string): string[] {
-  const result: string[] = [];
+function splitCsvLine(line: string): string[] {
+  const values: string[] = [];
   let current = '';
   let insideQuotes = false;
 
@@ -173,7 +58,7 @@ function parseCsvLine(line: string): string[] {
     }
 
     if (char === ',' && !insideQuotes) {
-      result.push(current);
+      values.push(current.trim());
       current = '';
       continue;
     }
@@ -181,147 +66,220 @@ function parseCsvLine(line: string): string[] {
     current += char;
   }
 
-  result.push(current);
+  values.push(current.trim());
 
-  return result;
+  return values;
 }
 
 function parseCsv(text: string): CsvRow[] {
   const normalized = text.replace(/\r\n/g, '\n').replace(/\r/g, '\n');
   const lines = normalized
     .split('\n')
-    .map((line) => line.trimEnd())
-    .filter((line) => line.trim().length > 0);
+    .map((line) => line.trim())
+    .filter((line) => line.length > 0);
 
-  if (lines.length === 0) {
-    throw new Error('Il file CSV è vuoto.');
+  if (lines.length < 2) {
+    throw new Error('CSV vuoto o senza righe dati.');
   }
 
-  const headers = parseCsvLine(lines[0]).map(normalizeHeader);
+  const headers = splitCsvLine(lines[0]).map(normalizeHeader);
 
-  for (const requiredHeader of REQUIRED_HEADERS) {
-    if (!headers.includes(requiredHeader)) {
-      throw new Error(`Colonna obbligatoria mancante: "${requiredHeader}".`);
-    }
+  const missingHeaders = REQUIRED_HEADERS.filter(
+    (header) => !headers.includes(header)
+  );
+
+  if (missingHeaders.length > 0) {
+    throw new Error(
+      `CSV non valido: mancano queste colonne obbligatorie: ${missingHeaders.join(', ')}.`
+    );
   }
 
-  const rows: CsvRow[] = [];
-
-  for (let index = 1; index < lines.length; index += 1) {
-    const values = parseCsvLine(lines[index]);
+  return lines.slice(1).map((line, rowIndex) => {
+    const values = splitCsvLine(line);
     const row: CsvRow = {};
 
-    headers.forEach((header, headerIndex) => {
-      row[header] = normalizeText(values[headerIndex] ?? '');
+    headers.forEach((header, index) => {
+      row[header] = values[index]?.trim() || '';
     });
 
-    rows.push(row);
-  }
+    row.__line = String(rowIndex + 2);
 
-  return rows;
+    return row;
+  });
 }
 
-function validateAndMapRows(rows: CsvRow[]): ImportMonitorRow[] {
-  if (rows.length === 0) {
-    throw new Error('Il CSV contiene solo intestazioni ma nessuna riga dati.');
+function parseTarget(value: string, line: string): number {
+  const cleaned = value
+    .trim()
+    .replace(/\s/g, '')
+    .replace('€', '')
+    .replace(/\./g, '')
+    .replace(',', '.');
+
+  if (!cleaned) {
+    throw new Error(`Riga ${line}: Target obbligatorio.`);
   }
 
-  const seenEans = new Map<string, number>();
-  const mappedRows: ImportMonitorRow[] = [];
+  const parsed = Number(cleaned);
 
-  rows.forEach((row, index) => {
-    const csvLineNumber = index + 2;
+  if (!Number.isFinite(parsed) || parsed <= 0) {
+    throw new Error(`Riga ${line}: Target non valido.`);
+  }
 
-    const genre = normalizeGenre(row['Genere'] || '');
-    const type = normalizeText(row['Tipo']).toUpperCase();
-    const artist = normalizeText(row['Artista']);
-    const album = normalizeText(row['Album']);
-    const ean = normalizeEan(row['EAN'] || '');
-    const target = parseTarget(row['Target'] || '');
-    const country = normalizeCountry(row['Country'] || '');
-    const medimopsUrl = normalizeText(row['URL Medimops']) || null;
-    const momoxUrl = normalizeText(row['URL Momox']) || null;
-    const yearAndLabel = parseYearAndLabel(row['Anno - Label'] || '');
+  return Math.round(parsed * 100) / 100;
+}
 
-    if (!genre) {
-      throw new Error(
-        `Riga ${csvLineNumber}: Genere mancante o non valido. Valori ammessi: Alt, Jazz, H&M, Rock Pop.`
-      );
-    }
+function parseYearAndEdition(value: string): {
+  release_year: number | null;
+  edition: string | null;
+} {
+  const trimmed = value.trim();
 
-    if (type !== 'CD' && type !== 'LP') {
-      throw new Error(
-        `Riga ${csvLineNumber}: Tipo non valido. Valori ammessi: CD o LP.`
-      );
-    }
+  if (!trimmed) {
+    return {
+      release_year: null,
+      edition: null
+    };
+  }
 
-    if (!artist) {
-      throw new Error(`Riga ${csvLineNumber}: Artista mancante.`);
-    }
+  const parts = trimmed.split('-');
+  const yearPart = parts[0]?.trim() || '';
+  const editionPart = parts.slice(1).join('-').trim();
 
-    if (!album) {
-      throw new Error(`Riga ${csvLineNumber}: Album mancante.`);
-    }
+  const parsedYear = Number(yearPart);
 
-    if (!ean) {
-      throw new Error(`Riga ${csvLineNumber}: EAN mancante.`);
-    }
+  return {
+    release_year:
+      Number.isFinite(parsedYear) && parsedYear >= 1900 && parsedYear <= 2100
+        ? Math.trunc(parsedYear)
+        : null,
+    edition: editionPart || null
+  };
+}
 
-    if (seenEans.has(ean)) {
-      throw new Error(
-        `Riga ${csvLineNumber}: EAN duplicato nel CSV. Era già presente alla riga ${seenEans.get(
-          ean
-        )}. EAN: ${ean}.`
-      );
-    }
+function normalizeGenre(value: string, line: string): MonitorGenre {
+  const trimmed = value.trim();
 
-    seenEans.set(ean, csvLineNumber);
+  if (!trimmed) {
+    throw new Error(`Riga ${line}: Genere obbligatorio.`);
+  }
 
-    if (target === null) {
-      throw new Error(
-        `Riga ${csvLineNumber}: Target mancante o non valido. Esempio valido: 5 oppure 5,00.`
-      );
-    }
+  if (!MONITOR_GENRES.includes(trimmed as MonitorGenre)) {
+    throw new Error(
+      `Riga ${line}: Genere non valido "${trimmed}". Valori ammessi: ${MONITOR_GENRES.join(', ')}.`
+    );
+  }
 
-    const legacySite: 'Medimops' | 'Momox' = medimopsUrl ? 'Medimops' : 'Momox';
-    const legacyUrl = medimopsUrl || momoxUrl || '';
+  return trimmed as MonitorGenre;
+}
 
-    mappedRows.push({
-      genre,
-      type,
-      artist,
-      album,
-      edition: yearAndLabel.edition,
-      ean_code: ean,
-      release_year: yearAndLabel.release_year,
-      country,
+function normalizeType(value: string, line: string): MonitorType {
+  const upper = value.trim().toUpperCase();
 
-      medimops_url: medimopsUrl,
-      medimops_target_price: target,
-      medimops_current_price: null,
+  if (upper !== 'CD' && upper !== 'LP') {
+    throw new Error(`Riga ${line}: Tipo obbligatorio e deve essere CD oppure LP.`);
+  }
 
-      momox_url: momoxUrl,
-      momox_target_price: target,
-      momox_current_price: null,
+  return upper as MonitorType;
+}
 
-      amazon_asin: null,
-      amazon_target_price: null,
-      amazon_fr_current_price: null,
-      amazon_de_current_price: null,
-      amazon_it_current_price: null,
+function normalizeRequiredText(value: string, field: string, line: string): string {
+  const trimmed = value.trim();
 
-      alert_email: null,
-      is_active: true,
-      alert_sent: false,
+  if (!trimmed) {
+    throw new Error(`Riga ${line}: ${field} obbligatorio.`);
+  }
 
-      site: legacySite,
-      url: legacyUrl,
-      target_price: target,
-      current_price: null
+  return trimmed;
+}
+
+function normalizeEan(value: string, line: string): string {
+  const cleaned = value.replace(/\D/g, '').trim();
+
+  if (!cleaned) {
+    throw new Error(`Riga ${line}: EAN obbligatorio.`);
+  }
+
+  if (!/^[0-9]{1,32}$/.test(cleaned)) {
+    throw new Error(`Riga ${line}: EAN non valido, usa solo numeri.`);
+  }
+
+  return cleaned;
+}
+
+function normalizeCountry(value: string): string | null {
+  const trimmed = value.trim().toUpperCase();
+
+  if (!trimmed) return null;
+
+  return trimmed.slice(0, 3);
+}
+
+function normalizeUrl(value: string): string {
+  return value.trim();
+}
+
+function validateMedimopsUrl(value: string, line: string): string {
+  const url = normalizeUrl(value);
+
+  if (!url) {
+    throw new Error(
+      `Riga ${line}: URL Medimops obbligatorio. Import bloccato: nessun record è stato caricato.`
+    );
+  }
+
+  try {
+    new URL(url);
+  } catch {
+    throw new Error(`Riga ${line}: URL Medimops non valido.`);
+  }
+
+  if (!isMedimopsUrl(url)) {
+    throw new Error(
+      `Riga ${line}: URL Medimops deve iniziare con https://www.medimops.de/.`
+    );
+  }
+
+  return url;
+}
+
+async function ensureNoDuplicateEans(eans: string[]) {
+  const supabase = getSupabaseAdmin();
+
+  const uniqueEans = Array.from(new Set(eans));
+
+  if (uniqueEans.length !== eans.length) {
+    const seen = new Set<string>();
+    const duplicate = eans.find((ean) => {
+      if (seen.has(ean)) return true;
+      seen.add(ean);
+      return false;
     });
-  });
 
-  return mappedRows;
+    throw new Error(
+      `CSV non valido: EAN duplicato nel file (${duplicate}). Nessun record è stato caricato.`
+    );
+  }
+
+  const { data, error } = await supabase
+    .from('monitors')
+    .select('ean_code')
+    .in('ean_code', uniqueEans);
+
+  if (error) {
+    throw new Error(error.message);
+  }
+
+  if (data && data.length > 0) {
+    const duplicates = data
+      .map((row) => row.ean_code)
+      .filter(Boolean)
+      .join(', ');
+
+    throw new Error(
+      `CSV non valido: questi EAN esistono già nel database: ${duplicates}. Nessun record è stato caricato.`
+    );
+  }
 }
 
 export async function POST(request: NextRequest) {
@@ -332,67 +290,94 @@ export async function POST(request: NextRequest) {
     if (!(file instanceof File)) {
       return NextResponse.json(
         {
-          error: 'Nessun file CSV ricevuto.'
+          ok: false,
+          error: 'File CSV mancante.'
         },
         { status: 400 }
       );
     }
 
-    const csvText = await file.text();
-    const parsedRows = parseCsv(csvText);
-    const rowsToInsert = validateAndMapRows(parsedRows);
+    const text = await file.text();
+    const rows = parseCsv(text);
 
-    const eans = rowsToInsert.map((row) => row.ean_code);
+    if (rows.length === 0) {
+      return NextResponse.json(
+        {
+          ok: false,
+          error: 'CSV senza righe dati.'
+        },
+        { status: 400 }
+      );
+    }
+
+    const parsedRows = rows.map((row) => {
+      const line = row.__line || '?';
+
+      const genre = normalizeGenre(row.Genere || '', line);
+      const type = normalizeType(row.Tipo || '', line);
+      const artist = normalizeRequiredText(row.Artista || '', 'Artista', line);
+      const album = normalizeRequiredText(row.Album || '', 'Album', line);
+      const ean_code = normalizeEan(row.EAN || '', line);
+      const target = parseTarget(row.Target || '', line);
+      const medimops_url = validateMedimopsUrl(row['URL Medimops'] || '', line);
+      const momox_url = buildMomoxUrlFromMedimopsUrl(medimops_url);
+      const yearAndEdition = parseYearAndEdition(row['Anno - Label'] || '');
+
+      return {
+        genre,
+        type,
+        artist,
+        album,
+        edition: yearAndEdition.edition,
+        ean_code,
+        release_year: yearAndEdition.release_year,
+        country: normalizeCountry(row.Country || ''),
+
+        site: 'Medimops',
+        url: medimops_url,
+        target_price: target,
+        current_price: null,
+
+        medimops_url,
+        medimops_target_price: target,
+        medimops_current_price: null,
+        medimops_condition: null,
+
+        momox_url,
+        momox_target_price: target,
+        momox_current_price: null,
+        momox_condition: null,
+
+        amazon_asin: null,
+        amazon_target_price: null,
+        amazon_fr_current_price: null,
+        amazon_de_current_price: null,
+        amazon_it_current_price: null,
+
+        alert_email: null,
+        is_active: true,
+        alert_sent: false,
+
+        last_checked_at: null,
+        last_status: null,
+        last_error: null
+      };
+    });
+
+    await ensureNoDuplicateEans(parsedRows.map((row) => row.ean_code));
 
     const supabase = getSupabaseAdmin();
 
-    const { data: existingRows, error: existingError } = await supabase
-      .from('monitors')
-      .select('ean_code')
-      .in('ean_code', eans);
+    const { error } = await supabase.from('monitors').insert(parsedRows);
 
-    if (existingError) {
-      throw new Error(existingError.message);
-    }
-
-    const existingEans = new Set(
-      (existingRows || [])
-        .map((row) => String(row.ean_code || '').trim())
-        .filter(Boolean)
-    );
-
-    const duplicatedExistingEan = eans.find((ean) => existingEans.has(ean));
-
-    if (duplicatedExistingEan) {
-      const rowIndex = rowsToInsert.findIndex(
-        (row) => row.ean_code === duplicatedExistingEan
-      );
-
-      throw new Error(
-        `Riga ${rowIndex + 2}: EAN già presente nel database. EAN: ${duplicatedExistingEan}.`
-      );
-    }
-
-    const now = new Date().toISOString();
-
-    const rowsWithTimestamps = rowsToInsert.map((row) => ({
-      ...row,
-      created_at: now,
-      updated_at: now
-    }));
-
-    const { error: insertError } = await supabase
-      .from('monitors')
-      .insert(rowsWithTimestamps);
-
-    if (insertError) {
-      throw new Error(insertError.message);
+    if (error) {
+      throw new Error(error.message);
     }
 
     return NextResponse.json({
       ok: true,
-      imported: rowsToInsert.length,
-      message: `Import completato: ${rowsToInsert.length} righe caricate.`
+      imported: parsedRows.length,
+      message: `Import CSV completato: ${parsedRows.length} righe caricate. URL Momox generato automaticamente da URL Medimops.`
     });
   } catch (error) {
     const message =
@@ -400,9 +385,12 @@ export async function POST(request: NextRequest) {
         ? error.message
         : 'Errore sconosciuto durante import CSV.';
 
+    console.error('[api/monitors/import-csv] Errore', message);
+
     return NextResponse.json(
       {
-        error: `${message} Nessuna riga è stata importata.`
+        ok: false,
+        error: message
       },
       { status: 400 }
     );
