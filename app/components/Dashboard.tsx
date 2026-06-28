@@ -24,7 +24,9 @@ type SortKey =
   | 'album'
   | 'best_price'
   | 'medimops_current_price'
+  | 'medimops_condition'
   | 'momox_current_price'
+  | 'momox_condition'
   | 'last_checked_at'
   | 'ean_code'
   | 'edition'
@@ -33,7 +35,14 @@ type SortKey =
   | 'medimops_target_price'
   | 'momox_target_price';
 
-type MultiFilterKey = 'status' | 'type' | 'is_active' | 'has_url' | 'genre';
+type MultiFilterKey =
+  | 'status'
+  | 'type'
+  | 'is_active'
+  | 'has_url'
+  | 'genre'
+  | 'medimops_condition'
+  | 'momox_condition';
 
 type FormState = {
   id?: string;
@@ -81,15 +90,21 @@ const emptyMultiFilters: MultiFilters = {
   type: [],
   is_active: [],
   has_url: [],
-  genre: []
+  genre: [],
+  medimops_condition: [],
+  momox_condition: []
 };
+
+const conditionOptions = ['EX', 'VG', 'G'];
 
 const multiFilterOptions: Record<MultiFilterKey, string[]> = {
   status: ['In target', 'ok'],
   type: ['CD', 'LP'],
   is_active: ['Sì', 'No'],
   has_url: ['Con URL', 'Senza URL'],
-  genre: [...MONITOR_GENRES]
+  genre: [...MONITOR_GENRES],
+  medimops_condition: conditionOptions,
+  momox_condition: conditionOptions
 };
 
 const statusLabels: Record<LastStatus | 'never_checked', string> = {
@@ -451,6 +466,27 @@ function sitePriceClass(
   return isSiteInTarget(currentPrice, targetPrice)
     ? 'font-semibold text-green-700'
     : 'font-semibold';
+}
+
+function conditionBadge(value: string | null) {
+  if (!value) {
+    return <span className="text-slate-400">-</span>;
+  }
+
+  const cls =
+    value === 'EX'
+      ? 'bg-green-100 text-green-800'
+      : value === 'VG'
+        ? 'bg-blue-100 text-blue-800'
+        : value === 'G'
+          ? 'bg-amber-100 text-amber-800'
+          : 'bg-slate-100 text-slate-700';
+
+  return (
+    <span className={`rounded-full px-2 py-1 text-xs font-semibold ${cls}`}>
+      {value}
+    </span>
+  );
 }
 
 function compareNullableNumbers(
@@ -864,6 +900,22 @@ export default function Dashboard() {
         return false;
       }
 
+      if (
+        multiFilters.medimops_condition.length > 0 &&
+        !multiFilters.medimops_condition.includes(
+          monitor.medimops_condition || ''
+        )
+      ) {
+        return false;
+      }
+
+      if (
+        multiFilters.momox_condition.length > 0 &&
+        !multiFilters.momox_condition.includes(monitor.momox_condition || '')
+      ) {
+        return false;
+      }
+
       const row: Record<string, unknown> = {
         ...monitor,
         status: statusLabel,
@@ -1069,23 +1121,33 @@ export default function Dashboard() {
 
   async function checkOne(id: string) {
     setBusy(true);
-    setMessage('Controllo prezzo in corso...');
+    setMessage('Avvio controllo singolo su GitHub Actions...');
 
     try {
       const response = await fetch(`/api/monitors/${id}/check`, {
         method: 'POST'
       });
 
-      const json = (await response.json()) as { error?: string };
+      const json = (await response.json()) as {
+        ok?: boolean;
+        message?: string;
+        error?: string;
+      };
 
       if (!response.ok) {
-        throw new Error(json.error || 'Errore controllo');
+        throw new Error(json.error || 'Errore avvio controllo singolo.');
       }
 
-      await loadData();
-      setMessage('Controllo completato.');
+      setMessage(
+        json.message ||
+          'Controllo singolo avviato su GitHub Actions. Aggiorna tra 1-2 minuti.'
+      );
     } catch (error) {
-      setMessage(error instanceof Error ? error.message : 'Errore controllo');
+      setMessage(
+        error instanceof Error
+          ? error.message
+          : 'Errore durante avvio controllo singolo.'
+      );
     } finally {
       setBusy(false);
     }
@@ -1098,54 +1160,38 @@ export default function Dashboard() {
     }
 
     const confirmed = confirm(
-      `Vuoi controllare ora tutti i ${filtered.length} record visibili nel datagrid?`
+      'Vuoi avviare ora il controllo GitHub Actions per tutti i monitor attivi?'
     );
 
     if (!confirmed) return;
 
     setBusy(true);
-
-    let checked = 0;
-    let failed = 0;
+    setMessage('Avvio controllo completo su GitHub Actions...');
 
     try {
-      for (const monitor of filtered) {
-        checked += 1;
-        setMessage(
-          `Controllo ${checked}/${filtered.length}: ${monitor.artist} - ${monitor.album}`
-        );
+      const response = await fetch('/api/monitors/check-all', {
+        method: 'POST'
+      });
 
-        const response = await fetch(`/api/monitors/${monitor.id}/check`, {
-          method: 'POST'
-        });
+      const json = (await response.json()) as {
+        ok?: boolean;
+        message?: string;
+        error?: string;
+      };
 
-        const json = (await response.json()) as { error?: string };
-
-        if (!response.ok) {
-          failed += 1;
-          console.error(
-            `Errore controllo ${monitor.artist} - ${monitor.album}`,
-            json.error
-          );
-        }
+      if (!response.ok) {
+        throw new Error(json.error || 'Errore avvio controllo completo.');
       }
 
-      await loadData();
-
-      if (failed > 0) {
-        setMessage(
-          `Controllo datagrid completato: ${checked - failed} ok, ${failed} errori.`
-        );
-      } else {
-        setMessage(
-          `Controllo datagrid completato: ${checked} record controllati.`
-        );
-      }
+      setMessage(
+        json.message ||
+          'Controllo completo avviato su GitHub Actions. Aggiorna tra qualche minuto.'
+      );
     } catch (error) {
       setMessage(
         error instanceof Error
           ? error.message
-          : 'Errore durante controllo datagrid'
+          : 'Errore durante avvio controllo completo.'
       );
     } finally {
       setBusy(false);
@@ -1284,7 +1330,7 @@ export default function Dashboard() {
               </button>
             </div>
 
-            <div className="grid gap-3 md:grid-cols-5">
+            <div className="grid gap-3 md:grid-cols-4 lg:grid-cols-7">
               <CompactMultiSelectFilter
                 label="Genere"
                 value={multiFilters.genre}
@@ -1297,6 +1343,46 @@ export default function Dashboard() {
                 }
                 onChange={(value) =>
                   setMultiFilters({ ...multiFilters, genre: value })
+                }
+              />
+
+              <CompactMultiSelectFilter
+                label="Cond. Medimops"
+                value={multiFilters.medimops_condition}
+                options={multiFilterOptions.medimops_condition}
+                isOpen={openMultiFilter === 'medimops_condition'}
+                onToggle={() =>
+                  setOpenMultiFilter(
+                    openMultiFilter === 'medimops_condition'
+                      ? null
+                      : 'medimops_condition'
+                  )
+                }
+                onChange={(value) =>
+                  setMultiFilters({
+                    ...multiFilters,
+                    medimops_condition: value
+                  })
+                }
+              />
+
+              <CompactMultiSelectFilter
+                label="Cond. Momox"
+                value={multiFilters.momox_condition}
+                options={multiFilterOptions.momox_condition}
+                isOpen={openMultiFilter === 'momox_condition'}
+                onToggle={() =>
+                  setOpenMultiFilter(
+                    openMultiFilter === 'momox_condition'
+                      ? null
+                      : 'momox_condition'
+                  )
+                }
+                onChange={(value) =>
+                  setMultiFilters({
+                    ...multiFilters,
+                    momox_condition: value
+                  })
                 }
               />
 
@@ -1365,6 +1451,8 @@ export default function Dashboard() {
                 ['artist', 'Filtro artista'],
                 ['album', 'Filtro album'],
                 ['best_price', 'Filtro Best€'],
+                ['medimops_condition', 'Filtro cond. Medimops'],
+                ['momox_condition', 'Filtro cond. Momox'],
                 ['ean_code', 'Filtro EAN'],
                 ['edition', 'Filtro label'],
                 ['release_year', 'Filtro anno'],
@@ -1470,8 +1558,22 @@ export default function Dashboard() {
                   onDoubleClick={handleHeaderDoubleClick}
                 />
                 <SortableHeader
+                  label="Medimops Cond."
+                  sortKey="medimops_condition"
+                  activeSortKey={sortKey}
+                  sortAsc={sortAsc}
+                  onDoubleClick={handleHeaderDoubleClick}
+                />
+                <SortableHeader
                   label="Momox €"
                   sortKey="momox_current_price"
+                  activeSortKey={sortKey}
+                  sortAsc={sortAsc}
+                  onDoubleClick={handleHeaderDoubleClick}
+                />
+                <SortableHeader
+                  label="Momox Cond."
+                  sortKey="momox_condition"
                   activeSortKey={sortKey}
                   sortAsc={sortAsc}
                   onDoubleClick={handleHeaderDoubleClick}
@@ -1593,8 +1695,8 @@ export default function Dashboard() {
                           className="inline-flex h-9 w-9 items-center justify-center rounded-lg border text-blue-700 hover:bg-blue-50 disabled:opacity-50"
                           disabled={busy}
                           onClick={() => checkOne(monitor.id)}
-                          title="Controlla ora"
-                          aria-label="Controlla ora"
+                          title="Controlla ora con GitHub Actions"
+                          aria-label="Controlla ora con GitHub Actions"
                         >
                           <CheckIcon />
                         </button>
@@ -1629,6 +1731,10 @@ export default function Dashboard() {
                     </td>
 
                     <td className="p-2">
+                      {conditionBadge(monitor.medimops_condition)}
+                    </td>
+
+                    <td className="p-2">
                       <LinkedPrice
                         value={monitor.momox_current_price}
                         url={monitor.momox_url}
@@ -1637,6 +1743,10 @@ export default function Dashboard() {
                           monitor.momox_target_price
                         )}
                       />
+                    </td>
+
+                    <td className="p-2">
+                      {conditionBadge(monitor.momox_condition)}
                     </td>
 
                     <td className="p-2">
@@ -1660,7 +1770,7 @@ export default function Dashboard() {
 
               {filtered.length === 0 && (
                 <tr>
-                  <td className="p-4 text-center text-slate-500" colSpan={20}>
+                  <td className="p-4 text-center text-slate-500" colSpan={22}>
                     Nessun monitor trovato.
                   </td>
                 </tr>
@@ -1726,9 +1836,7 @@ export default function Dashboard() {
               <div className="text-lg font-semibold text-slate-800">
                 Trascina qui il CSV
               </div>
-              <div className="mt-2 text-sm text-slate-500">
-                oppure
-              </div>
+              <div className="mt-2 text-sm text-slate-500">oppure</div>
 
               <button
                 type="button"

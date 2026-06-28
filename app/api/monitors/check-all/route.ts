@@ -4,32 +4,16 @@ import { dispatchMonitorWorkflow } from '@/lib/github-actions';
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
-export async function POST(
-  _request: NextRequest,
-  context: { params: { id: string } }
-) {
+export async function POST(_request: NextRequest) {
   try {
-    const id = context.params.id;
-
-    if (!id) {
-      return NextResponse.json(
-        {
-          ok: false,
-          error: 'ID monitor mancante.'
-        },
-        { status: 400 }
-      );
-    }
-
     const result = await dispatchMonitorWorkflow({
-      mode: 'single',
-      monitorId: id
+      mode: 'all'
     });
 
     return NextResponse.json({
       ok: true,
       message:
-        'Controllo singolo avviato su GitHub Actions. Aggiorna la dashboard tra 1-2 minuti.',
+        'Controllo completo avviato su GitHub Actions. Aggiorna la dashboard tra qualche minuto.',
       result
     });
   } catch (error) {
@@ -38,7 +22,7 @@ export async function POST(
         ? error.message
         : 'Errore sconosciuto durante avvio GitHub Actions.';
 
-    console.error('[api/monitors/[id]/check] Errore', message);
+    console.error('[api/monitors/check-all] Errore', message);
 
     return NextResponse.json(
       {

@@ -1,18 +1,94 @@
 import { runMonitor } from '../lib/monitor-runner';
+import {
+  setMonitorJobFinished,
+  setMonitorJobRunning
+} from '../lib/monitor-job-status';
+
+function getMonitorMode(): 'all' | 'single' {
+  const value = String(process.env.MONITOR_MODE || 'all').trim();
+
+  if (value === 'single') return 'single';
+
+  return 'all';
+}
 
 async function main() {
+  const mode = getMonitorMode();
+  const monitorId = String(process.env.MONITOR_ID || '').trim();
+
   console.log(`[monitor] Avvio ${new Date().toISOString()}`);
-  const summary = await runMonitor({ onlyActive: true });
+  console.log(`[monitor] Modalità: ${mode}`);
+
+  await setMonitorJobRunning(
+    mode === 'single'
+      ? `Controllo singolo in corso: ${monitorId || 'ID mancante'}`
+      : 'Controllo completo in corso.'
+  );
+
+  if (mode === 'single') {
+    if (!monitorId) {
+      throw new Error('MONITOR_ID mancante per modalità single.');
+    }
+
+    console.log(`[monitor] Monitor singolo: ${monitorId}`);
+
+    const summary = await runMonitor({
+      monitorId,
+      onlyActive: false
+    });
+
+    console.log(`[monitor] Totale: ${summary.total}`);
+    console.log(`[monitor] Controllati: ${summary.checked}`);
+    console.log(`[monitor] Alert inviati: ${summary.alertsSent}`);
+    console.log(`[monitor] Errori: ${summary.errors}`);
+
+    for (const detail of summary.details) {
+      console.log(
+        `[monitor] ${detail.status} - ${detail.artist} - ${detail.album}: ${detail.message}`
+      );
+    }
+
+    await setMonitorJobFinished(
+      `Controllo singolo completato. Controllati: ${summary.checked}. Errori: ${summary.errors}.`
+    );
+
+    return;
+  }
+
+  const summary = await runMonitor({
+    onlyActive: true
+  });
+
   console.log(`[monitor] Totale: ${summary.total}`);
   console.log(`[monitor] Controllati: ${summary.checked}`);
   console.log(`[monitor] Alert inviati: ${summary.alertsSent}`);
   console.log(`[monitor] Errori: ${summary.errors}`);
+
   for (const detail of summary.details) {
-    console.log(`[monitor] ${detail.status} - ${detail.artist} - ${detail.album}: ${detail.message}`);
+    console.log(
+      `[monitor] ${detail.status} - ${detail.artist} - ${detail.album}: ${detail.message}`
+    );
   }
+
+  await setMonitorJobFinished(
+    `Controllo completo completato. Controllati: ${summary.checked}. Errori: ${summary.errors}.`
+  );
 }
 
-main().catch((error: unknown) => {
-  console.error('[monitor] Errore fatale', error instanceof Error ? error.message : error);
+main().catch(async (error: unknown) => {
+  const message =
+    error instanceof Error ? error.message : 'Errore fatale sconosciuto';
+
+  console.error('[monitor] Errore fatale', message);
+
+  try {
+    await setMonitorJobFinished(`Controllo terminato con errore: ${message}`);
+  } catch (statusError) {
+    console.error(
+      '[monitor] Errore aggiornamento stato job',
+      statusError instanceof Error ? statusError.message : statusError
+    );
+  }
+
   process.exit(1);
 });

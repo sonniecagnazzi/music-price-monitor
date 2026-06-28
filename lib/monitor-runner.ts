@@ -19,6 +19,7 @@ type SiteCheck = {
   site: string;
   price: number | null;
   target: number | null;
+  condition: string | null;
   error: string | null;
   source: string | null;
   isBelowTarget: boolean;
@@ -82,6 +83,7 @@ async function checkStoreSite(
       site,
       price: null,
       target,
+      condition: null,
       error: null,
       source: null,
       isBelowTarget: false,
@@ -99,6 +101,7 @@ async function checkStoreSite(
       site,
       price,
       target,
+      condition: result.condition || null,
       error: result.error,
       source: result.source,
       isBelowTarget,
@@ -112,6 +115,7 @@ async function checkStoreSite(
       site,
       price: null,
       target,
+      condition: null,
       error: message,
       source: `${site}:exception`,
       isBelowTarget: false,
@@ -124,6 +128,10 @@ function buildMessage(checks: SiteCheck[]) {
   return checks
     .filter((check) => !check.skipped)
     .map((check) => {
+      const conditionPart = check.condition
+        ? `, condizione ${check.condition}`
+        : '';
+
       if (check.price === null) {
         if (check.error) {
           return `${check.site}: errore ${check.error}; fonte ${check.source || '-'}`;
@@ -132,7 +140,7 @@ function buildMessage(checks: SiteCheck[]) {
         return `${check.site}: nessuna offerta valida; fonte ${check.source || '-'}`;
       }
 
-      return `${check.site}: prezzo ${check.price}, target ${check.target}; fonte ${check.source || '-'}`;
+      return `${check.site}: prezzo ${check.price}${conditionPart}, target ${check.target}; fonte ${check.source || '-'}`;
     })
     .join(' | ');
 }
@@ -169,11 +177,29 @@ function getLowestPrice(checks: SiteCheck[]): number | null {
 function mergeSources(checks: SiteCheck[]) {
   return checks
     .filter((check) => !check.skipped && (check.source || check.error))
-    .map(
-      (check) =>
-        `${check.site}: ${check.source || check.error || 'nessuna fonte'}`
-    )
+    .map((check) => {
+      const conditionPart = check.condition
+        ? `; condizione ${check.condition}`
+        : '';
+
+      return `${check.site}: ${check.source || check.error || 'nessuna fonte'}${conditionPart}`;
+    })
     .join(' | ');
+}
+
+function getNextCondition(
+  previousCondition: string | null,
+  check: SiteCheck
+): string | null {
+  if (check.skipped) {
+    return previousCondition || null;
+  }
+
+  if (check.price === null) {
+    return previousCondition || null;
+  }
+
+  return check.condition || null;
 }
 
 export async function runMonitor(
@@ -283,10 +309,22 @@ export async function runMonitor(
       let nextAlertSent = monitor.alert_sent;
       let alertSentNow = false;
 
+      const nextMedimopsCondition = getNextCondition(
+        monitor.medimops_condition,
+        medimopsCheck
+      );
+
+      const nextMomoxCondition = getNextCondition(
+        monitor.momox_condition,
+        momoxCheck
+      );
+
       const monitorForEmail: Monitor = {
         ...monitor,
         medimops_current_price: medimopsCheck.price,
+        medimops_condition: nextMedimopsCondition,
         momox_current_price: momoxCheck.price,
+        momox_condition: nextMomoxCondition,
         current_price: lowestPrice
       };
 
@@ -322,7 +360,9 @@ export async function runMonitor(
         .from('monitors')
         .update({
           medimops_current_price: medimopsCheck.price,
+          medimops_condition: nextMedimopsCondition,
           momox_current_price: momoxCheck.price,
+          momox_condition: nextMomoxCondition,
           current_price: lowestPrice,
           last_checked_at: checkedAt,
           last_status: nextStatus,
