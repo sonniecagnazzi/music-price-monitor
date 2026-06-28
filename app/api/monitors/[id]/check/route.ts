@@ -1,9 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { runMonitor } from '@/lib/monitor-runner';
+import { dispatchMonitorWorkflow } from '@/lib/github-actions';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
-export const maxDuration = 60;
 
 export async function POST(
   _request: NextRequest,
@@ -22,26 +21,22 @@ export async function POST(
       );
     }
 
-    const summary = await runMonitor({
-      monitorId: id,
-      onlyActive: false
+    const result = await dispatchMonitorWorkflow({
+      mode: 'single',
+      monitorId: id
     });
-
-    const detail = summary.details[0] || null;
 
     return NextResponse.json({
       ok: true,
-      summary,
-      detail,
       message:
-        detail?.message ||
-        `Controllo completato. Record controllati: ${summary.checked}.`
+        'Controllo singolo avviato su GitHub Actions. Aggiorna la dashboard tra 1-2 minuti.',
+      result
     });
   } catch (error) {
     const message =
       error instanceof Error
         ? error.message
-        : 'Errore sconosciuto durante controllo singolo.';
+        : 'Errore sconosciuto durante avvio GitHub Actions.';
 
     console.error('[api/monitors/[id]/check] Errore', message);
 
