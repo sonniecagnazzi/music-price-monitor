@@ -116,6 +116,7 @@ export async function POST(request: NextRequest) {
     const { data, error } = await supabase
       .from('monitors')
       .insert({
+        genre: parsed.data.genre,
         type: parsed.data.type,
         artist: parsed.data.artist,
         album: parsed.data.album,
