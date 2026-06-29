@@ -74,6 +74,14 @@ function parsePrice(value: string): number | null {
   return prices[0];
 }
 
+/**
+ * Compatibilità con amazon-scraper.ts.
+ * Non tocca la logica Amazon: espone solo la normalizzazione prezzo già usata prima.
+ */
+export function normalizePrice(value: string): number | null {
+  return parsePrice(value);
+}
+
 function extractJsonLdText($: cheerio.CheerioAPI): string {
   const parts: string[] = [];
 
@@ -99,16 +107,8 @@ function normalizeCondition(value: string, store: StoreName): string | null {
 
   const nearMintSignals =
     store === 'Medimops'
-      ? [
-          'wie neu',
-          'zustand wie neu',
-          'artikelzustand wie neu'
-        ]
-      : [
-          'comme neuf',
-          'etat comme neuf',
-          'article comme neuf'
-        ];
+      ? ['wie neu', 'zustand wie neu', 'artikelzustand wie neu']
+      : ['comme neuf', 'etat comme neuf', 'article comme neuf'];
 
   if (nearMintSignals.some((signal) => text.includes(signal))) {
     return 'NM';
@@ -164,16 +164,8 @@ function normalizeCondition(value: string, store: StoreName): string | null {
 
   const goodSignals =
     store === 'Medimops'
-      ? [
-          'akzeptabel',
-          'acceptable',
-          'accettabile'
-        ]
-      : [
-          'acceptable',
-          'accettabile',
-          'akzeptabel'
-        ];
+      ? ['akzeptabel', 'acceptable', 'accettabile']
+      : ['acceptable', 'accettabile', 'akzeptabel'];
 
   if (goodSignals.some((signal) => text.includes(signal))) {
     return 'G';
@@ -220,10 +212,6 @@ async function fetchText(url: string): Promise<string> {
 }
 
 async function fetchViaJinaReader(url: string): Promise<string> {
-  const target = `https://r.jina.ai/http://r.jina.ai/http://`;
-
-  void target;
-
   const normalizedUrl = url.replace(/^https?:\/\//, '');
   const readerUrl = `https://r.jina.ai/http://${normalizedUrl}`;
 
@@ -242,27 +230,7 @@ async function fetchViaJinaReader(url: string): Promise<string> {
   return response.text();
 }
 
-async function fetchViaJinaSearch(url: string): Promise<string> {
-  const searchUrl = `https://r.jina.ai/http://r.jina.ai/http://`;
-
-  void searchUrl;
-
-  const query = encodeURIComponent(url);
-  const readerUrl = `https://r.jina.ai/http://r.jina.ai/http://`;
-
-  void readerUrl;
-
-  const response = await fetch(`https://r.jina.ai/http://r.jina.ai/http://`, {
-    headers: {
-      accept: 'text/plain,text/markdown,*/*',
-      'user-agent': USER_AGENT
-    },
-    signal: timeoutSignal(REQUEST_TIMEOUT_MS)
-  }).catch(() => null);
-
-  void query;
-  void response;
-
+async function fetchViaJinaSearch(_url: string): Promise<string> {
   throw new Error('Jina Search non disponibile per questo URL.');
 }
 
@@ -444,7 +412,10 @@ function pickBestCandidate(candidates: Candidate[]): Candidate | null {
   })[0];
 }
 
-function resultFromCandidate(candidate: Candidate | null, sourceLabel: string): ScrapeResult {
+function resultFromCandidate(
+  candidate: Candidate | null,
+  sourceLabel: string
+): ScrapeResult {
   if (!candidate || candidate.price === null) {
     return {
       price: null,
