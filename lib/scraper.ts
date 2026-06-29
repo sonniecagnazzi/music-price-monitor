@@ -44,7 +44,7 @@ function normalizeForSearch(value: string): string {
   return normalizeText(value)
     .toLowerCase()
     .normalize('NFD')
-    .replace(/\p{Diacritic}/gu, '');
+    .replace(/[\u0300-\u036f]/g, '');
 }
 
 function parsePrice(value: string): number | null {
