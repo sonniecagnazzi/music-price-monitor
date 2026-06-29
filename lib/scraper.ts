@@ -7,6 +7,8 @@ export type ScrapeResult = {
   condition?: string | null;
   status: 'ok' | 'not_found' | 'error';
   message: string;
+  source?: string | null;
+  error?: string | null;
 };
 
 type Candidate = {
@@ -421,7 +423,9 @@ function resultFromCandidate(
       price: null,
       condition: null,
       status: 'not_found',
-      message: `Prezzo non trovato (${sourceLabel}).`
+      message: `Prezzo non trovato (${sourceLabel}).`,
+      source: sourceLabel,
+      error: null
     };
   }
 
@@ -431,7 +435,9 @@ function resultFromCandidate(
     status: 'ok',
     message: candidate.condition
       ? `Prezzo trovato: ${candidate.price.toFixed(2)} €, condizione ${candidate.condition}.`
-      : `Prezzo trovato: ${candidate.price.toFixed(2)} €, condizione non trovata.`
+      : `Prezzo trovato: ${candidate.price.toFixed(2)} €, condizione non trovata.`,
+    source: `${sourceLabel}:${candidate.source}`,
+    error: null
   };
 }
 
@@ -443,7 +449,9 @@ export async function scrapePrice(url: string): Promise<ScrapeResult> {
       price: null,
       condition: null,
       status: 'not_found',
-      message: 'URL mancante.'
+      message: 'URL mancante.',
+      source: null,
+      error: 'URL mancante.'
     };
   }
 
@@ -488,7 +496,9 @@ export async function scrapePrice(url: string): Promise<ScrapeResult> {
           price: null,
           condition: null,
           status: 'error',
-          message: `Errore scraping: direct=${directMessage}; reader=${readerMessage}`
+          message: `Errore scraping: direct=${directMessage}; reader=${readerMessage}`,
+          source: null,
+          error: `direct=${directMessage}; reader=${readerMessage}`
         };
       }
     }
@@ -497,7 +507,9 @@ export async function scrapePrice(url: string): Promise<ScrapeResult> {
       price: null,
       condition: null,
       status: 'not_found',
-      message: `Prezzo non trovato dopo fallback. Direct: ${directMessage}`
+      message: `Prezzo non trovato dopo fallback. Direct: ${directMessage}`,
+      source: null,
+      error: directMessage
     };
   }
 
@@ -517,6 +529,8 @@ export async function scrapePrice(url: string): Promise<ScrapeResult> {
     price: null,
     condition: null,
     status: 'not_found',
-    message: 'Prezzo non trovato.'
+    message: 'Prezzo non trovato.',
+    source: null,
+    error: 'Prezzo non trovato.'
   };
 }
