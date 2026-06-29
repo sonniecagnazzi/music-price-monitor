@@ -202,24 +202,58 @@ function getStoreFromUrl(url: string): StoreName {
   return 'Medimops';
 }
 
+function buildBrowserLikeHeaders(url: string): Record<string, string> {
+  const isMedimops = url.includes('medimops.de');
+  const isMomox = url.includes('momox-shop.fr');
+
+  const acceptLanguage = isMedimops
+    ? 'de-DE,de;q=0.9,en-US;q=0.8,en;q=0.7'
+    : isMomox
+      ? 'fr-FR,fr;q=0.9,en-US;q=0.8,en;q=0.7'
+      : 'en-US,en;q=0.9';
+
+  const referer = isMedimops
+    ? 'https://www.medimops.de/'
+    : isMomox
+      ? 'https://www.momox-shop.fr/'
+      : 'https://www.google.com/';
+
+  return {
+    'user-agent':
+      'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36',
+    accept:
+      'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8',
+    'accept-language': acceptLanguage,
+    'cache-control': 'no-cache',
+    pragma: 'no-cache',
+    referer,
+    'upgrade-insecure-requests': '1'
+  };
+}
+
 async function fetchText(url: string): Promise<string> {
   const response = await fetch(url, {
-    headers: {
-      accept:
-        'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8',
-      'accept-language': 'it-IT,it;q=0.9,en;q=0.8,de;q=0.7,fr;q=0.7',
-      'cache-control': 'no-cache',
-      pragma: 'no-cache',
-      'user-agent': USER_AGENT
-    },
-    signal: timeoutSignal(REQUEST_TIMEOUT_MS)
+    method: 'GET',
+    redirect: 'follow',
+    headers: buildBrowserLikeHeaders(url)
   });
 
+  const body = await response.text();
+
   if (!response.ok) {
+    const sample = body
+      .replace(/\s+/g, ' ')
+      .trim()
+      .slice(0, 700);
+
+    console.log(
+      `[scraper-http-debug] url=${url} status=${response.status} statusText="${response.statusText}" body="${sample}"`
+    );
+
     throw new Error(`HTTP ${response.status}`);
   }
 
-  return response.text();
+  return body;
 }
 
 async function fetchViaJinaReader(url: string): Promise<string> {
