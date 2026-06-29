@@ -108,7 +108,7 @@ export default function MonitorJobWatcher() {
 
     checkStatus();
 
-    intervalId = setInterval(checkStatus, 10000);
+    intervalId = setInterval(checkStatus, 2000);
 
     return () => {
       isMounted = false;

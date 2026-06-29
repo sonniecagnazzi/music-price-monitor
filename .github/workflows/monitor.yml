@@ -70,3 +70,4 @@ jobs:
           DEFAULT_ALERT_EMAIL: ${{ secrets.DEFAULT_ALERT_EMAIL }}
           CRON_SECRET: ${{ secrets.CRON_SECRET }}
           APP_BASE_URL: ${{ secrets.APP_BASE_URL }}
+          VERCEL_AUTOMATION_BYPASS_SECRET: ${{ secrets.VERCEL_AUTOMATION_BYPASS_SECRET }}
