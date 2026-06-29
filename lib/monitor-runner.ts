@@ -265,14 +265,20 @@ async function checkStoreSite(
 
 function getNextPrice(check: SiteCheck): number | null {
   if (check.status === 'skipped') return check.previousPrice;
-  if (check.currentPrice === null) return check.previousPrice;
+
+  if (check.status !== 'ok') {
+    return null;
+  }
 
   return check.currentPrice;
 }
 
 function getNextCondition(check: SiteCheck): string | null {
   if (check.status === 'skipped') return check.previousCondition;
-  if (check.currentPrice === null) return check.previousCondition;
+
+  if (check.status !== 'ok') {
+    return null;
+  }
 
   return normalizeCondition(check.condition);
 }
