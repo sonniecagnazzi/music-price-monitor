@@ -185,6 +185,120 @@ function normalizeCondition(value: string, store: StoreName): string | null {
   return null;
 }
 
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+function parseCandidatePrice(value: string): number | null {
+  const normalized = normalizeText(value);
+  const match = normalized.match(/([0-9]{1,4}(?:[.,][0-9]{2}))\s*€/);
+
+  if (!match) return null;
+
+  const raw = match[1].replace('.', '').replace(',', '.');
+  const price = Number(raw);
+
+  if (!Number.isFinite(price) || price <= 0) return null;
+
+  return Math.round(price * 100) / 100;
+}
+
+function getConditionSearchTerms(store: StoreName): Array<{
+  condition: string;
+  terms: string[];
+}> {
+  if (store === 'Medimops') {
+    return [
+      {
+        condition: 'NM',
+        terms: [
+          'wie neu',
+          'zustand wie neu',
+          'artikelzustand wie neu',
+          'neuwertig',
+          'neuwertiger zustand',
+          'artikelzustand neuwertig'
+        ]
+      },
+      {
+        condition: 'EX',
+        terms: ['sehr gut', 'zustand sehr gut', 'artikelzustand sehr gut']
+      },
+      {
+        condition: 'VG',
+        terms: ['gut', 'zustand gut', 'artikelzustand gut']
+      },
+      {
+        condition: 'G',
+        terms: ['akzeptabel', 'zustand akzeptabel', 'artikelzustand akzeptabel']
+      }
+    ];
+  }
+
+  return [
+    {
+      condition: 'NM',
+      terms: ['comme neuf', 'etat comme neuf']
+    },
+    {
+      condition: 'EX',
+      terms: ['tres bon etat', 'très bon état']
+    },
+    {
+      condition: 'VG',
+      terms: ['bon etat', 'bon état']
+    },
+    {
+      condition: 'G',
+      terms: ['acceptable']
+    }
+  ];
+}
+
+function extractConditionPriceCandidates(
+  value: string,
+  store: StoreName,
+  source: string
+): Candidate[] {
+  const normalized = normalizeText(value);
+  const searchable = normalizeForSearch(normalized);
+  const candidates: Candidate[] = [];
+
+  for (const group of getConditionSearchTerms(store)) {
+    for (const term of group.terms) {
+      const searchableTerm = normalizeForSearch(term);
+      const termRegex = new RegExp(escapeRegExp(searchableTerm), 'g');
+
+      let match: RegExpExecArray | null;
+
+      while ((match = termRegex.exec(searchable)) !== null) {
+        const index = match.index;
+        const before = normalized.slice(Math.max(0, index - 90), index);
+        const after = normalized.slice(
+          index,
+          Math.min(normalized.length, index + searchableTerm.length + 120)
+        );
+
+        const afterPrice = parseCandidatePrice(after);
+        const beforePrice = parseCandidatePrice(before);
+        const price = afterPrice ?? beforePrice;
+
+        if (price === null) continue;
+
+        candidates.push({
+          price,
+          condition: group.condition,
+          score: 1000 + conditionScore(group.condition),
+          source: `${source}:condition-price:${searchableTerm}`
+        });
+      }
+    }
+  }
+
+  return candidates;
+}
+
+
 function conditionScore(condition: string | null): number {
   if (condition === 'NM') return 120;
   if (condition === 'EX') return 40;
@@ -281,7 +395,11 @@ async function fetchViaJinaSearch(_url: string): Promise<string> {
 
 function extractCandidatesFromHtml(html: string, store: StoreName): Candidate[] {
   const $ = cheerio.load(html);
-  const candidates: Candidate[] = [];
+  const candidates: Candidate[] = extractConditionPriceCandidates(
+    html,
+    store,
+    'html-condition-price'
+  );
 
   const jsonLdText = extractJsonLdText($);
 
@@ -394,7 +512,11 @@ function extractCandidatesFromHtml(html: string, store: StoreName): Candidate[] 
 
 function extractCandidatesFromText(text: string, store: StoreName): Candidate[] {
   const normalized = normalizeText(text);
-  const candidates: Candidate[] = [];
+  const candidates: Candidate[] = extractConditionPriceCandidates(
+    normalized,
+    store,
+    'text-condition-price'
+  );
 
   const condition = normalizeCondition(normalized, store);
   const price = parsePrice(normalized);
