@@ -9,8 +9,8 @@ export type ScrapeResult = {
   condition?: string | null;
   status?: 'ok' | 'not_found' | 'error';
   message?: string;
-  source?: string | null;
-  error?: string | null;
+  source: string | null;
+  error: string | null;
 };
 
 type Candidate = {
