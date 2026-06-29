@@ -9,7 +9,7 @@ export type ScrapeResult = {
   condition?: string | null;
   status?: 'ok' | 'not_found' | 'error';
   message?: string;
-  source: string | null;
+  source: string;
   error: string | null;
 };
 
@@ -452,7 +452,7 @@ export async function scrapePrice(url: string): Promise<ScrapeResult> {
       condition: null,
       status: 'not_found',
       message: 'URL mancante.',
-      source: null,
+      source: 'scraper',
       error: 'URL mancante.'
     };
   }
@@ -499,7 +499,7 @@ export async function scrapePrice(url: string): Promise<ScrapeResult> {
           condition: null,
           status: 'error',
           message: `Errore scraping: direct=${directMessage}; reader=${readerMessage}`,
-          source: null,
+          source: 'scraper',
           error: `direct=${directMessage}; reader=${readerMessage}`
         };
       }
@@ -510,7 +510,7 @@ export async function scrapePrice(url: string): Promise<ScrapeResult> {
       condition: null,
       status: 'not_found',
       message: `Prezzo non trovato dopo fallback. Direct: ${directMessage}`,
-      source: null,
+      source: 'scraper',
       error: directMessage
     };
   }
@@ -532,7 +532,7 @@ export async function scrapePrice(url: string): Promise<ScrapeResult> {
     condition: null,
     status: 'not_found',
     message: 'Prezzo non trovato.',
-    source: null,
+    source: 'scraper',
     error: 'Prezzo non trovato.'
   };
 }
