@@ -408,7 +408,7 @@ function buildFallbackUrlVariants(url: string): string[] {
     variants.add(trimmedUrl.toLowerCase().replace('https://www.momox-shop.fr/', 'https://momox-shop.fr/'));
   }
 
-  return [...variants].filter(Boolean);
+  return Array.from(variants).filter(Boolean);
 }
 
 function buildSearchQueryFromUrl(url: string, store: StoreName): string {
