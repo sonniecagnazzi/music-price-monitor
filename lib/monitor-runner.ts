@@ -523,7 +523,7 @@ export async function runMonitor(
 
       for (const check of checks) {
         console.log(
-          `[runner-debug] check monitor=${monitor.id} site=${check.site} artist="${monitor.artist}" album="${monitor.album}" url="${check.url || ''}" price=${check.price} previousPrice=${check.previousPrice} condition=${check.condition} previousCondition=${check.previousCondition} status=${check.status} message="${check.message}"`
+          `[runner-debug] check monitor=${monitor.id} site=${check.site} artist="${monitor.artist}" album="${monitor.album}" url="${check.url || ''}" nextPrice=${getNextPrice(check)} previousPrice=${check.previousPrice} nextCondition=${getNextCondition(check)} previousCondition=${check.previousCondition} status=${check.status} message="${check.message}"`
         );
       }
 
