@@ -459,8 +459,6 @@ async function updateMonitorAfterChecks(
   const now = new Date().toISOString();
   const message = buildCheckMessage(checks);
 
-  console.log(
-
   const { error } = await supabase
     .from('monitors')
     .update({
