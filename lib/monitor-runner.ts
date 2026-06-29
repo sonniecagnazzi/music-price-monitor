@@ -40,7 +40,7 @@ type MonitorRow = {
   alert_sent: boolean;
 
   last_checked_at: string | null;
-  last_status: 'ok' | 'below_target' | 'error' | null;
+  last_status: 'ok' | 'below_target' | 'not_found' | 'error' | null;
   last_error: string | null;
 
   created_at?: string | null;
@@ -305,24 +305,31 @@ function hasAnyError(checks: SiteCheck[]): boolean {
   return checks.some((check) => check.status === 'error');
 }
 
-function getLastStatus(checks: SiteCheck[]): 'ok' | 'below_target' | 'error' {
+function getLastStatus(checks: SiteCheck[]): 'ok' | 'below_target' | 'not_found' | 'error' {
   const medimops = checks.find((check) => check.site === 'Medimops');
   const momox = checks.find((check) => check.site === 'Momox');
 
-  const medimopsInTarget = medimops
-    ? isInTarget(
-        getNextPrice(medimops),
-        medimops.targetPrice,
-        getNextCondition(medimops)
-      )
-    : false;
+  const medimopsInTarget =
+    medimops && medimops.status === 'ok'
+      ? isInTarget(
+          getNextPrice(medimops),
+          medimops.targetPrice,
+          getNextCondition(medimops)
+        )
+      : false;
 
-  const momoxInTarget = momox
-    ? isInTarget(getNextPrice(momox), momox.targetPrice, getNextCondition(momox))
-    : false;
+  const momoxInTarget =
+    momox && momox.status === 'ok'
+      ? isInTarget(getNextPrice(momox), momox.targetPrice, getNextCondition(momox))
+      : false;
 
   if (medimopsInTarget || momoxInTarget) return 'below_target';
   if (hasAnyError(checks)) return 'error';
+
+  const hasFreshOk = checks.some((check) => check.status === 'ok');
+  const hasNotFound = checks.some((check) => check.status === 'not_found');
+
+  if (!hasFreshOk && hasNotFound) return 'not_found';
 
   return 'ok';
 }
@@ -331,6 +338,8 @@ function buildTargetOffers(monitor: MonitorRow, checks: SiteCheck[]): TargetEmai
   const offers: TargetEmailOffer[] = [];
 
   checks.forEach((check) => {
+    if (check.status !== 'ok') return;
+
     const price = getNextPrice(check);
     const condition = getNextCondition(check);
 
@@ -468,7 +477,7 @@ async function updateMonitorAfterChecks(
 
       last_checked_at: now,
       last_status: lastStatus,
-      last_error: lastStatus === 'error' ? message : null,
+      last_error: lastStatus === 'error' || lastStatus === 'not_found' ? message : null,
       alert_sent: lastStatus === 'below_target'
     })
     .eq('id', monitor.id);
