@@ -466,13 +466,24 @@ async function fetchViaInternalAppFetch(url: string, store: StoreName): Promise<
 
   const endpoint = `${appBaseUrl.replace(/\/+$/, '')}/api/scrape-fetch`;
 
+  const vercelBypassSecret = String(
+    process.env.VERCEL_AUTOMATION_BYPASS_SECRET || ''
+  ).trim();
+
+  const headers: Record<string, string> = {
+    'content-type': 'application/json',
+    accept: 'application/json',
+    authorization: `Bearer ${cronSecret}`
+  };
+
+  if (vercelBypassSecret) {
+    headers['x-vercel-protection-bypass'] = vercelBypassSecret;
+    headers['x-vercel-set-bypass-cookie'] = 'true';
+  }
+
   const response = await fetch(endpoint, {
     method: 'POST',
-    headers: {
-      'content-type': 'application/json',
-      accept: 'application/json',
-      authorization: `Bearer ${cronSecret}`
-    },
+    headers,
     body: JSON.stringify({
       url
     })
