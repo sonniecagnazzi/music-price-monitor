@@ -470,6 +470,7 @@ async function fetchViaInternalAppFetch(url: string, store: StoreName): Promise<
     method: 'POST',
     headers: {
       'content-type': 'application/json',
+      accept: 'application/json',
       authorization: `Bearer ${cronSecret}`
     },
     body: JSON.stringify({
@@ -477,13 +478,44 @@ async function fetchViaInternalAppFetch(url: string, store: StoreName): Promise<
     })
   });
 
-  const json = (await response.json()) as {
+  const rawBody = await response.text();
+  const contentType = response.headers.get('content-type') || '';
+
+  if (!contentType.includes('application/json')) {
+    const sample = rawBody.replace(/\s+/g, ' ').trim().slice(0, 700);
+
+    console.log(
+      `[scraper-fallback-debug] ${store} internal-app-fetch non-json endpoint=${endpoint} httpStatus=${response.status} contentType="${contentType}" body="${sample}"`
+    );
+
+    throw new Error(`Internal app fetch non JSON HTTP ${response.status}`);
+  }
+
+  let json: {
     ok?: boolean;
     status?: number;
     statusText?: string;
     text?: string;
     error?: string;
   };
+
+  try {
+    json = JSON.parse(rawBody) as {
+      ok?: boolean;
+      status?: number;
+      statusText?: string;
+      text?: string;
+      error?: string;
+    };
+  } catch {
+    const sample = rawBody.replace(/\s+/g, ' ').trim().slice(0, 700);
+
+    console.log(
+      `[scraper-fallback-debug] ${store} internal-app-fetch invalid-json endpoint=${endpoint} httpStatus=${response.status} body="${sample}"`
+    );
+
+    throw new Error(`Internal app fetch JSON non valido HTTP ${response.status}`);
+  }
 
   const text = String(json.text || '');
 
