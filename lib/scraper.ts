@@ -837,7 +837,7 @@ export async function scrapePrice(url: string): Promise<ScrapeResult> {
           : 'errore Jina Reader sconosciuto';
 
       try {
-        const searchText = await fetchViaJinaSearch(trimmedUrl);
+        const searchText = await fetchViaJinaSearch(trimmedUrl, store);
         const candidates = extractCandidatesFromText(searchText, store);
         const best = pickBestCandidate(candidates);
 
