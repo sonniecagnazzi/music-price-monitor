@@ -361,6 +361,8 @@ async function fetchText(url: string): Promise<string> {
       .slice(0, 700);
 
     console.log(
+      `[scraper-http-debug] url=${url} status=${response.status} statusText="${response.statusText}" body="${sample}"`
+    );
 
     throw new Error(`HTTP ${response.status}`);
   }
@@ -443,6 +445,8 @@ async function fetchViaJinaSearch(url: string, store: StoreName): Promise<string
   const body = await response.text();
 
   console.log(
+    `[scraper-fallback-debug] ${store} jina-search status=${response.status} url=${url} query="${query}" length=${body.length}`
+  );
 
   if (!response.ok) {
     throw new Error(`Jina Search HTTP ${response.status}`);
@@ -492,6 +496,8 @@ async function fetchViaInternalAppFetch(url: string, store: StoreName): Promise<
     const sample = rawBody.replace(/\s+/g, ' ').trim().slice(0, 700);
 
     console.log(
+      `[scraper-fallback-debug] ${store} internal-app-fetch non-json endpoint=${endpoint} httpStatus=${response.status} contentType="${contentType}" body="${sample}"`
+    );
 
     throw new Error(`Internal app fetch non JSON HTTP ${response.status}`);
   }
@@ -516,6 +522,8 @@ async function fetchViaInternalAppFetch(url: string, store: StoreName): Promise<
     const sample = rawBody.replace(/\s+/g, ' ').trim().slice(0, 700);
 
     console.log(
+      `[scraper-fallback-debug] ${store} internal-app-fetch invalid-json endpoint=${endpoint} httpStatus=${response.status} body="${sample}"`
+    );
 
     throw new Error(`Internal app fetch JSON non valido HTTP ${response.status}`);
   }
@@ -523,6 +531,8 @@ async function fetchViaInternalAppFetch(url: string, store: StoreName): Promise<
   const text = String(json.text || '');
 
   console.log(
+    `[scraper-fallback-debug] ${store} internal-app-fetch httpStatus=${response.status} targetStatus=${json.status || 'n/a'} ok=${json.ok ? 'yes' : 'no'} url=${url} length=${text.length} hasWieNeu=${normalizeForSearch(text).includes('wie neu')} hasSehrGut=${normalizeForSearch(text).includes('sehr gut')} hasCommeNeuf=${normalizeForSearch(text).includes('comme neuf')}`
+  );
 
   if (!response.ok) {
     throw new Error(json.error || `Internal app fetch HTTP ${response.status}`);
@@ -556,6 +566,8 @@ async function fetchViaFallbackReaders(url: string, store: StoreName): Promise<s
     const message = error instanceof Error ? error.message : 'errore sconosciuto';
 
     console.log(
+      `[scraper-fallback-debug] ${store} internal-app-fetch error="${message}"`
+    );
 
     errors.push(`internal-app-fetch: ${message}`);
   }
@@ -571,6 +583,8 @@ async function fetchViaFallbackReaders(url: string, store: StoreName): Promise<s
       );
 
       console.log(
+        `[scraper-fallback-debug] ${store} jina-reader variant="${variant}" length=${text.length} hasUsefulCandidate=${hasUsefulCandidate ? 'yes' : 'no'} hasWieNeu=${normalizeForSearch(text).includes('wie neu')} hasCommeNeuf=${normalizeForSearch(text).includes('comme neuf')}`
+      );
 
       if (text.trim().length > 0 && hasUsefulCandidate) {
         return text;
@@ -581,6 +595,8 @@ async function fetchViaFallbackReaders(url: string, store: StoreName): Promise<s
       const message = error instanceof Error ? error.message : 'errore sconosciuto';
 
       console.log(
+        `[scraper-fallback-debug] ${store} jina-reader variant="${variant}" error="${message}"`
+      );
 
       errors.push(`reader ${variant}: ${message}`);
     }
@@ -844,10 +860,16 @@ function logScraperDebug(
     .filter(Boolean);
 
   console.log(
+    `[scraper-debug] ${store} ${label} url=${url} signals=${JSON.stringify(signals)}`
+  );
 
   console.log(
+    `[scraper-debug] ${store} ${label} topCandidates=${JSON.stringify(topCandidates)}`
+  );
 
   console.log(
+    `[scraper-debug] ${store} ${label} excerpts=${JSON.stringify(excerpts)}`
+  );
 }
 
 function pickBestCandidate(candidates: Candidate[]): Candidate | null {
