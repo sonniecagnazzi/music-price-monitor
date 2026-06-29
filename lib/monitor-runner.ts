@@ -219,7 +219,7 @@ async function checkStoreSite(
         currentPrice: result.price,
         condition: normalizeCondition(result.condition),
         status: 'ok',
-        message: result.message
+        message: result.message || `${site}: prezzo trovato.`
       };
     }
 
@@ -233,7 +233,7 @@ async function checkStoreSite(
         currentPrice: previousPrice,
         condition: previousCondition,
         status: 'not_found',
-        message: result.message
+        message: result.message || `${site}: prezzo non trovato.`
       };
     }
 
@@ -246,7 +246,7 @@ async function checkStoreSite(
       currentPrice: previousPrice,
       condition: previousCondition,
       status: 'error',
-      message: result.message
+      message: result.message || `${site}: errore durante scraping.`
     };
   } catch (error) {
     return {
