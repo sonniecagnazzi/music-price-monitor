@@ -444,6 +444,10 @@ async function updateMonitorAfterChecks(
   const now = new Date().toISOString();
   const message = buildCheckMessage(checks);
 
+  console.log(
+    `[runner-debug] update-payload monitor=${monitor.id} medimops_price=${medimops ? getNextPrice(medimops) : monitor.medimops_current_price} medimops_condition=${medimops ? getNextCondition(medimops) : monitor.medimops_condition} momox_price=${momox ? getNextPrice(momox) : monitor.momox_current_price} momox_condition=${momox ? getNextCondition(momox) : monitor.momox_condition} lastStatus=${lastStatus} message="${message}"`
+  );
+
   const { error } = await supabase
     .from('monitors')
     .update({
@@ -516,6 +520,12 @@ export async function runMonitor(
         checkStoreSite(monitor, 'Medimops'),
         checkStoreSite(monitor, 'Momox')
       ]);
+
+      for (const check of checks) {
+        console.log(
+          `[runner-debug] check monitor=${monitor.id} site=${check.site} artist="${monitor.artist}" album="${monitor.album}" url="${check.url || ''}" price=${check.price} previousPrice=${check.previousPrice} condition=${check.condition} previousCondition=${check.previousCondition} status=${check.status} message="${check.message}"`
+        );
+      }
 
       if (!hasAnyUsefulCheck(checks)) {
         details.push({
