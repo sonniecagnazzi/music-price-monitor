@@ -7,8 +7,8 @@ export type StoreName = 'Medimops' | 'Momox';
 export type ScrapeResult = {
   price: number | null;
   condition?: string | null;
-  status: 'ok' | 'not_found' | 'error';
-  message: string;
+  status?: 'ok' | 'not_found' | 'error';
+  message?: string;
   source?: string | null;
   error?: string | null;
 };
