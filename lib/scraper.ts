@@ -509,32 +509,7 @@ async function fetchViaInternalAppFetch(url: string, store: StoreName): Promise<
 }
 
 async function fetchViaFallbackReaders(url: string, store: StoreName): Promise<string> {
-  const variants = buildFallbackUrlVariants(url);
   const errors: string[] = [];
-
-  for (const variant of variants) {
-    try {
-      const text = await fetchViaJinaReader(variant);
-
-      console.log(
-        `[scraper-fallback-debug] ${store} jina-reader variant="${variant}" length=${text.length} hasWieNeu=${normalizeForSearch(text).includes('wie neu')} hasCommeNeuf=${normalizeForSearch(text).includes('comme neuf')}`
-      );
-
-      if (text.trim().length > 0) {
-        return text;
-      }
-
-      errors.push(`reader empty: ${variant}`);
-    } catch (error) {
-      const message = error instanceof Error ? error.message : 'errore sconosciuto';
-
-      console.log(
-        `[scraper-fallback-debug] ${store} jina-reader variant="${variant}" error="${message}"`
-      );
-
-      errors.push(`reader ${variant}: ${message}`);
-    }
-  }
 
   try {
     const internalText = await fetchViaInternalAppFetch(url, store);
@@ -554,14 +529,48 @@ async function fetchViaFallbackReaders(url: string, store: StoreName): Promise<s
     errors.push(`internal-app-fetch: ${message}`);
   }
 
+  const variants = buildFallbackUrlVariants(url);
+
+  for (const variant of variants) {
+    try {
+      const text = await fetchViaJinaReader(variant);
+      const candidates = extractCandidatesFromText(text, store);
+      const hasUsefulCandidate = candidates.some(
+        (candidate) => candidate.price !== null && candidate.condition !== null
+      );
+
+      console.log(
+        `[scraper-fallback-debug] ${store} jina-reader variant="${variant}" length=${text.length} hasUsefulCandidate=${hasUsefulCandidate ? 'yes' : 'no'} hasWieNeu=${normalizeForSearch(text).includes('wie neu')} hasCommeNeuf=${normalizeForSearch(text).includes('comme neuf')}`
+      );
+
+      if (text.trim().length > 0 && hasUsefulCandidate) {
+        return text;
+      }
+
+      errors.push(`reader unusable: ${variant}`);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'errore sconosciuto';
+
+      console.log(
+        `[scraper-fallback-debug] ${store} jina-reader variant="${variant}" error="${message}"`
+      );
+
+      errors.push(`reader ${variant}: ${message}`);
+    }
+  }
+
   try {
     const searchText = await fetchViaJinaSearch(url, store);
+    const candidates = extractCandidatesFromText(searchText, store);
+    const hasUsefulCandidate = candidates.some(
+      (candidate) => candidate.price !== null && candidate.condition !== null
+    );
 
-    if (searchText.trim().length > 0) {
+    if (searchText.trim().length > 0 && hasUsefulCandidate) {
       return searchText;
     }
 
-    errors.push('jina-search empty');
+    errors.push('jina-search unusable');
   } catch (error) {
     const message = error instanceof Error ? error.message : 'errore sconosciuto';
     errors.push(`jina-search: ${message}`);
