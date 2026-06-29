@@ -455,6 +455,59 @@ async function fetchViaJinaSearch(url: string, store: StoreName): Promise<string
   return body;
 }
 
+
+async function fetchViaInternalAppFetch(url: string, store: StoreName): Promise<string> {
+  const appBaseUrl = String(process.env.APP_BASE_URL || '').trim();
+  const cronSecret = String(process.env.CRON_SECRET || '').trim();
+
+  if (!appBaseUrl || !cronSecret) {
+    throw new Error('APP_BASE_URL o CRON_SECRET mancanti per fallback interno.');
+  }
+
+  const endpoint = `${appBaseUrl.replace(/\/+$/, '')}/api/scrape-fetch`;
+
+  const response = await fetch(endpoint, {
+    method: 'POST',
+    headers: {
+      'content-type': 'application/json',
+      authorization: `Bearer ${cronSecret}`
+    },
+    body: JSON.stringify({
+      url
+    })
+  });
+
+  const json = (await response.json()) as {
+    ok?: boolean;
+    status?: number;
+    statusText?: string;
+    text?: string;
+    error?: string;
+  };
+
+  const text = String(json.text || '');
+
+  console.log(
+    `[scraper-fallback-debug] ${store} internal-app-fetch httpStatus=${response.status} targetStatus=${json.status || 'n/a'} ok=${json.ok ? 'yes' : 'no'} url=${url} length=${text.length} hasWieNeu=${normalizeForSearch(text).includes('wie neu')} hasSehrGut=${normalizeForSearch(text).includes('sehr gut')} hasCommeNeuf=${normalizeForSearch(text).includes('comme neuf')}`
+  );
+
+  if (!response.ok) {
+    throw new Error(json.error || `Internal app fetch HTTP ${response.status}`);
+  }
+
+  if (!json.ok) {
+    throw new Error(
+      json.error || `Internal app target HTTP ${json.status || 'sconosciuto'}`
+    );
+  }
+
+  if (!text.trim()) {
+    throw new Error('Internal app fetch vuoto.');
+  }
+
+  return text;
+}
+
 async function fetchViaFallbackReaders(url: string, store: StoreName): Promise<string> {
   const variants = buildFallbackUrlVariants(url);
   const errors: string[] = [];
@@ -481,6 +534,24 @@ async function fetchViaFallbackReaders(url: string, store: StoreName): Promise<s
 
       errors.push(`reader ${variant}: ${message}`);
     }
+  }
+
+  try {
+    const internalText = await fetchViaInternalAppFetch(url, store);
+
+    if (internalText.trim().length > 0) {
+      return internalText;
+    }
+
+    errors.push('internal-app-fetch empty');
+  } catch (error) {
+    const message = error instanceof Error ? error.message : 'errore sconosciuto';
+
+    console.log(
+      `[scraper-fallback-debug] ${store} internal-app-fetch error="${message}"`
+    );
+
+    errors.push(`internal-app-fetch: ${message}`);
   }
 
   try {
