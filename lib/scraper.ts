@@ -1,3 +1,5 @@
+// Scraper compatibility version: 2026-06-29
+
 import * as cheerio from 'cheerio';
 
 export type StoreName = 'Medimops' | 'Momox';
