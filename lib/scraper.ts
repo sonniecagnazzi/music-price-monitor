@@ -422,6 +422,71 @@ function extractCandidatesFromText(text: string, store: StoreName): Candidate[] 
   return candidates;
 }
 
+
+function logScraperDebug(
+  url: string,
+  store: StoreName,
+  label: string,
+  candidates: Candidate[],
+  rawText: string
+) {
+  const normalizedRawText = normalizeForSearch(rawText);
+  const shouldDebug =
+    url.includes('M0B00005USE3') ||
+    normalizedRawText.includes('wie neu') ||
+    normalizedRawText.includes('neuwertig') ||
+    normalizedRawText.includes('comme neuf');
+
+  if (!shouldDebug) return;
+
+  const topCandidates = [...candidates]
+    .sort((a, b) => b.score - a.score)
+    .slice(0, 12)
+    .map((candidate) => ({
+      source: candidate.source,
+      price: candidate.price,
+      condition: candidate.condition,
+      score: candidate.score
+    }));
+
+  const signals = {
+    hasWieNeu: normalizedRawText.includes('wie neu'),
+    hasNeuwertig: normalizedRawText.includes('neuwertig'),
+    hasSehrGut: normalizedRawText.includes('sehr gut'),
+    hasCommeNeuf: normalizedRawText.includes('comme neuf'),
+    hasTresBonEtat: normalizedRawText.includes('tres bon etat')
+  };
+
+  const signalTerms = ['wie neu', 'neuwertig', 'sehr gut', 'comme neuf', 'tres bon etat'];
+  const excerpts = signalTerms
+    .map((term) => {
+      const index = normalizedRawText.indexOf(term);
+
+      if (index < 0) return null;
+
+      return {
+        term,
+        excerpt: normalizedRawText.slice(
+          Math.max(0, index - 180),
+          Math.min(normalizedRawText.length, index + 220)
+        )
+      };
+    })
+    .filter(Boolean);
+
+  console.log(
+    `[scraper-debug] ${store} ${label} url=${url} signals=${JSON.stringify(signals)}`
+  );
+
+  console.log(
+    `[scraper-debug] ${store} ${label} topCandidates=${JSON.stringify(topCandidates)}`
+  );
+
+  console.log(
+    `[scraper-debug] ${store} ${label} excerpts=${JSON.stringify(excerpts)}`
+  );
+}
+
 function pickBestCandidate(candidates: Candidate[]): Candidate | null {
   const valid = candidates.filter((candidate) => candidate.price !== null);
 
@@ -484,6 +549,7 @@ export async function scrapePrice(url: string): Promise<ScrapeResult> {
   try {
     const html = await fetchText(trimmedUrl);
     const candidates = extractCandidatesFromHtml(html, store);
+    logScraperDebug(trimmedUrl, store, 'direct-html', candidates, html);
     const best = pickBestCandidate(candidates);
 
     if (best) {
@@ -496,6 +562,7 @@ export async function scrapePrice(url: string): Promise<ScrapeResult> {
     try {
       const readerText = await fetchViaJinaReader(trimmedUrl);
       const candidates = extractCandidatesFromText(readerText, store);
+      logScraperDebug(trimmedUrl, store, 'jina-reader-after-direct-error', candidates, readerText);
       const best = pickBestCandidate(candidates);
 
       if (best) {
@@ -540,6 +607,7 @@ export async function scrapePrice(url: string): Promise<ScrapeResult> {
   try {
     const readerText = await fetchViaJinaReader(trimmedUrl);
     const candidates = extractCandidatesFromText(readerText, store);
+    logScraperDebug(trimmedUrl, store, 'jina-reader-after-no-direct-result', candidates, readerText);
     const best = pickBestCandidate(candidates);
 
     if (best) {
