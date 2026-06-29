@@ -389,8 +389,114 @@ async function fetchViaJinaReader(url: string): Promise<string> {
   return response.text();
 }
 
-async function fetchViaJinaSearch(_url: string): Promise<string> {
-  throw new Error('Jina Search non disponibile per questo URL.');
+
+
+function buildFallbackUrlVariants(url: string): string[] {
+  const trimmedUrl = url.trim();
+  const variants = new Set<string>();
+
+  variants.add(trimmedUrl);
+  variants.add(trimmedUrl.toLowerCase());
+
+  if (trimmedUrl.includes('www.medimops.de')) {
+    variants.add(trimmedUrl.replace('https://www.medimops.de/', 'https://medimops.de/'));
+    variants.add(trimmedUrl.toLowerCase().replace('https://www.medimops.de/', 'https://medimops.de/'));
+  }
+
+  if (trimmedUrl.includes('www.momox-shop.fr')) {
+    variants.add(trimmedUrl.replace('https://www.momox-shop.fr/', 'https://momox-shop.fr/'));
+    variants.add(trimmedUrl.toLowerCase().replace('https://www.momox-shop.fr/', 'https://momox-shop.fr/'));
+  }
+
+  return [...variants].filter(Boolean);
+}
+
+function buildSearchQueryFromUrl(url: string, store: StoreName): string {
+  try {
+    const parsed = new URL(url);
+    const slug = parsed.pathname
+      .replace(/\.html$/i, '')
+      .replace(/^\/+/, '')
+      .replace(/-/g, ' ')
+      .replace(/\s+/g, ' ')
+      .trim();
+
+    return `${store} ${slug}`;
+  } catch {
+    return `${store} ${url}`;
+  }
+}
+
+async function fetchViaJinaSearch(url: string, store: StoreName): Promise<string> {
+  const query = buildSearchQueryFromUrl(url, store);
+  const searchUrl = `https://s.jina.ai/?q=${encodeURIComponent(query)}`;
+
+  const response = await fetch(searchUrl, {
+    method: 'GET',
+    headers: {
+      'user-agent': USER_AGENT,
+      accept: 'text/plain,text/markdown,*/*',
+      'accept-language': store === 'Medimops'
+        ? 'de-DE,de;q=0.9,en-US;q=0.8,en;q=0.7'
+        : 'fr-FR,fr;q=0.9,en-US;q=0.8,en;q=0.7'
+    }
+  });
+
+  const body = await response.text();
+
+  console.log(
+    `[scraper-fallback-debug] ${store} jina-search status=${response.status} url=${url} query="${query}" length=${body.length}`
+  );
+
+  if (!response.ok) {
+    throw new Error(`Jina Search HTTP ${response.status}`);
+  }
+
+  return body;
+}
+
+async function fetchViaFallbackReaders(url: string, store: StoreName): Promise<string> {
+  const variants = buildFallbackUrlVariants(url);
+  const errors: string[] = [];
+
+  for (const variant of variants) {
+    try {
+      const text = await fetchViaJinaReader(variant);
+
+      console.log(
+        `[scraper-fallback-debug] ${store} jina-reader variant="${variant}" length=${text.length} hasWieNeu=${normalizeForSearch(text).includes('wie neu')} hasCommeNeuf=${normalizeForSearch(text).includes('comme neuf')}`
+      );
+
+      if (text.trim().length > 0) {
+        return text;
+      }
+
+      errors.push(`reader empty: ${variant}`);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'errore sconosciuto';
+
+      console.log(
+        `[scraper-fallback-debug] ${store} jina-reader variant="${variant}" error="${message}"`
+      );
+
+      errors.push(`reader ${variant}: ${message}`);
+    }
+  }
+
+  try {
+    const searchText = await fetchViaJinaSearch(url, store);
+
+    if (searchText.trim().length > 0) {
+      return searchText;
+    }
+
+    errors.push('jina-search empty');
+  } catch (error) {
+    const message = error instanceof Error ? error.message : 'errore sconosciuto';
+    errors.push(`jina-search: ${message}`);
+  }
+
+  throw new Error(`Fallback non riusciti: ${errors.join(' | ')}`);
 }
 
 function extractCandidatesFromHtml(html: string, store: StoreName): Candidate[] {
@@ -716,7 +822,7 @@ export async function scrapePrice(url: string): Promise<ScrapeResult> {
       error instanceof Error ? error.message : 'errore diretto sconosciuto';
 
     try {
-      const readerText = await fetchViaJinaReader(trimmedUrl);
+      const readerText = await fetchViaFallbackReaders(trimmedUrl, store);
       const candidates = extractCandidatesFromText(readerText, store);
       logScraperDebug(trimmedUrl, store, 'jina-reader-after-direct-error', candidates, readerText);
       const best = pickBestCandidate(candidates);
@@ -761,7 +867,7 @@ export async function scrapePrice(url: string): Promise<ScrapeResult> {
   }
 
   try {
-    const readerText = await fetchViaJinaReader(trimmedUrl);
+    const readerText = await fetchViaFallbackReaders(trimmedUrl, store);
     const candidates = extractCandidatesFromText(readerText, store);
     logScraperDebug(trimmedUrl, store, 'jina-reader-after-no-direct-result', candidates, readerText);
     const best = pickBestCandidate(candidates);
