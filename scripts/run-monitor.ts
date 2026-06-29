@@ -31,6 +31,7 @@ async function main() {
     }
 
     console.log(`[monitor] Monitor singolo: ${monitorId}`);
+    console.log('[monitor] Mail riepilogativa disabilitata per controllo singolo.');
 
     const summary = await runMonitor({
       monitorId,
@@ -39,7 +40,7 @@ async function main() {
 
     console.log(`[monitor] Totale: ${summary.total}`);
     console.log(`[monitor] Controllati: ${summary.checked}`);
-    console.log(`[monitor] Alert inviati: ${summary.alertsSent}`);
+    console.log(`[monitor] Mail riepilogative inviate: ${summary.alertsSent}`);
     console.log(`[monitor] Errori: ${summary.errors}`);
 
     for (const detail of summary.details) {
@@ -49,11 +50,13 @@ async function main() {
     }
 
     await setMonitorJobFinished(
-      `Controllo singolo completato. Controllati: ${summary.checked}. Errori: ${summary.errors}.`
+      `Controllo singolo completato. Controllati: ${summary.checked}. Errori: ${summary.errors}. Nessuna mail inviata.`
     );
 
     return;
   }
+
+  console.log('[monitor] Mail riepilogativa abilitata per controllo completo/cron.');
 
   const summary = await runMonitor({
     onlyActive: true
@@ -61,7 +64,7 @@ async function main() {
 
   console.log(`[monitor] Totale: ${summary.total}`);
   console.log(`[monitor] Controllati: ${summary.checked}`);
-  console.log(`[monitor] Alert inviati: ${summary.alertsSent}`);
+  console.log(`[monitor] Mail riepilogative inviate: ${summary.alertsSent}`);
   console.log(`[monitor] Errori: ${summary.errors}`);
 
   for (const detail of summary.details) {
@@ -71,7 +74,7 @@ async function main() {
   }
 
   await setMonitorJobFinished(
-    `Controllo completo completato. Controllati: ${summary.checked}. Errori: ${summary.errors}.`
+    `Controllo completo completato. Controllati: ${summary.checked}. Errori: ${summary.errors}. Mail riepilogative inviate: ${summary.alertsSent}.`
   );
 }
 

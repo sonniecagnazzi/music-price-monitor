@@ -1,835 +1,551 @@
 import * as cheerio from 'cheerio';
 
-export interface ScrapeResult {
+export type StoreName = 'Medimops' | 'Momox';
+
+export type ScrapeResult = {
   price: number | null;
-  source: string;
-  error: string | null;
   condition?: string | null;
-}
-
-const PRICE_SELECTORS = [
-  '[itemprop="price"]',
-  'meta[property="product:price:amount"]',
-  'meta[itemprop="price"]',
-  'meta[name="twitter:data1"]',
-  'meta[property="og:price:amount"]',
-  'meta[property="product:price:amount"]',
-  'meta[property="product:price"]',
-  '[data-testid*="price"]',
-  '[class*="price"]',
-  '[class*="Price"]',
-  '.price',
-  '.product-price',
-  '.sales-price'
-];
-
-const BROWSER_HEADERS: HeadersInit = {
-  'user-agent':
-    'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36',
-  accept:
-    'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8',
-  'accept-language':
-    'de-DE,de;q=0.9,fr-FR,fr;q=0.8,it-IT,it;q=0.7,en-US;q=0.6,en;q=0.5',
-  'cache-control': 'no-cache',
-  pragma: 'no-cache',
-  'upgrade-insecure-requests': '1'
+  status: 'ok' | 'not_found' | 'error';
+  message: string;
 };
 
-const JINA_HEADERS: HeadersInit = {
-  'user-agent':
-    'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36',
-  accept: 'text/plain, text/markdown, application/json, */*',
-  'x-no-cache': 'true'
-};
-
-interface PriceCandidate {
-  price: number;
-  context: string;
-  index: number;
-  score: number;
+type Candidate = {
+  price: number | null;
   condition: string | null;
+  score: number;
+  source: string;
+};
+
+const USER_AGENT =
+  'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0 Safari/537.36';
+
+const REQUEST_TIMEOUT_MS = 30000;
+
+function timeoutSignal(ms: number): AbortSignal {
+  const controller = new AbortController();
+
+  setTimeout(() => controller.abort(), ms);
+
+  return controller.signal;
 }
 
-export function normalizePrice(raw: string): number | null {
-  const cleaned = raw
+function normalizeText(value: string): string {
+  return value
     .replace(/\u00a0/g, ' ')
-    .replace(/[€£$]/g, '')
-    .replace(/[^0-9,.-]/g, '')
-    .trim();
-
-  if (!cleaned) return null;
-
-  const hasComma = cleaned.includes(',');
-  const hasDot = cleaned.includes('.');
-  let normalized = cleaned;
-
-  if (hasComma && hasDot) {
-    const lastComma = cleaned.lastIndexOf(',');
-    const lastDot = cleaned.lastIndexOf('.');
-
-    normalized =
-      lastComma > lastDot
-        ? cleaned.replace(/\./g, '').replace(',', '.')
-        : cleaned.replace(/,/g, '');
-  } else if (hasComma) {
-    normalized = cleaned.replace(',', '.');
-  }
-
-  const value = Number(normalized);
-
-  if (!Number.isFinite(value) || value <= 0) return null;
-
-  return Math.round(value * 100) / 100;
-}
-
-function cleanContext(value: string): string {
-  return value
     .replace(/\s+/g, ' ')
-    .replace(/\n+/g, ' ')
-    .trim()
-    .slice(0, 500);
+    .trim();
 }
 
-function makeSource(source: string, context?: string): string {
-  if (!context) return source;
-
-  return `${source} | contesto: ${cleanContext(context)}`;
-}
-
-function normalizeForConditionSearch(value: string): string {
-  return value
+function normalizeForSearch(value: string): string {
+  return normalizeText(value)
     .toLowerCase()
     .normalize('NFD')
-    .replace(/[\u0300-\u036f]/g, ' ')
-    .replace(/\s+/g, ' ')
-    .trim();
+    .replace(/\p{Diacritic}/gu, '');
 }
 
-function normalizeCondition(value: string): string | null {
-  const lower = value.toLowerCase();
-  const simplified = normalizeForConditionSearch(value);
+function parsePrice(value: string): number | null {
+  const normalized = normalizeText(value);
 
-  if (
-    lower.includes('très bon état') ||
-    simplified.includes('tres bon etat') ||
-    lower.includes('sehr gut') ||
-    lower.includes('sehr guter zustand') ||
-    lower.includes('very good') ||
-    lower.includes('ottime condizioni') ||
-    lower.includes('ottimo stato')
-  ) {
+  const matches = normalized.match(
+    /(?:€\s*)?([0-9]{1,4}(?:[.,][0-9]{2}))(?:\s*€)?/g
+  );
+
+  if (!matches || matches.length === 0) return null;
+
+  const prices = matches
+    .map((match) => {
+      const cleaned = match
+        .replace('€', '')
+        .replace(/\s/g, '')
+        .replace(/\./g, '')
+        .replace(',', '.');
+
+      const parsed = Number(cleaned);
+
+      if (!Number.isFinite(parsed) || parsed <= 0) return null;
+
+      return Math.round(parsed * 100) / 100;
+    })
+    .filter((price): price is number => price !== null)
+    .filter((price) => price >= 0.5 && price <= 9999);
+
+  if (prices.length === 0) return null;
+
+  return prices[0];
+}
+
+function extractJsonLdText($: cheerio.CheerioAPI): string {
+  const parts: string[] = [];
+
+  $('script[type="application/ld+json"]').each((_, element) => {
+    const text = $(element).text();
+
+    if (text) parts.push(text);
+  });
+
+  return parts.join('\n');
+}
+
+function extractVisibleText($: cheerio.CheerioAPI): string {
+  $('script, style, noscript, svg').remove();
+
+  return normalizeText($.root().text());
+}
+
+function normalizeCondition(value: string, store: StoreName): string | null {
+  const text = normalizeForSearch(value);
+
+  if (!text) return null;
+
+  const nearMintSignals =
+    store === 'Medimops'
+      ? [
+          'wie neu',
+          'zustand wie neu',
+          'artikelzustand wie neu'
+        ]
+      : [
+          'comme neuf',
+          'etat comme neuf',
+          'article comme neuf'
+        ];
+
+  if (nearMintSignals.some((signal) => text.includes(signal))) {
+    return 'NM';
+  }
+
+  const excellentSignals =
+    store === 'Medimops'
+      ? [
+          'sehr gut',
+          'sehr guter zustand',
+          'artikelzustand sehr gut',
+          'very good',
+          'ottime condizioni',
+          'ottimo stato'
+        ]
+      : [
+          'tres bon etat',
+          'tres bon',
+          'tres bon état',
+          'très bon état',
+          'très bon',
+          'very good',
+          'ottime condizioni',
+          'ottimo stato'
+        ];
+
+  if (excellentSignals.some((signal) => text.includes(signal))) {
     return 'EX';
   }
 
-  if (
-    lower.includes('bon état') ||
-    simplified.includes('bon etat') ||
-    lower.includes('guter zustand') ||
-    simplified.includes(' gut ') ||
-    lower.includes('good condition') ||
-    lower.includes('buono stato') ||
-    lower.includes('buone condizioni')
-  ) {
+  const veryGoodSignals =
+    store === 'Medimops'
+      ? [
+          'gut',
+          'guter zustand',
+          'artikelzustand gut',
+          'good condition',
+          'buono stato',
+          'buone condizioni'
+        ]
+      : [
+          'bon etat',
+          'bon état',
+          'bon',
+          'good condition',
+          'buono stato',
+          'buone condizioni'
+        ];
+
+  if (veryGoodSignals.some((signal) => text.includes(signal))) {
     return 'VG';
   }
 
-  if (
-    lower.includes('acceptable') ||
-    lower.includes('akzeptabel') ||
-    lower.includes('accettabile')
-  ) {
+  const goodSignals =
+    store === 'Medimops'
+      ? [
+          'akzeptabel',
+          'acceptable',
+          'accettabile'
+        ]
+      : [
+          'acceptable',
+          'accettabile',
+          'akzeptabel'
+        ];
+
+  if (goodSignals.some((signal) => text.includes(signal))) {
     return 'G';
   }
 
   return null;
 }
 
-function extractConditionFromContext(context: string): string | null {
-  const cleaned = cleanContext(context);
+function conditionScore(condition: string | null): number {
+  if (condition === 'NM') return 50;
+  if (condition === 'EX') return 40;
+  if (condition === 'VG') return 20;
+  if (condition === 'G') return 10;
 
-  return normalizeCondition(cleaned);
+  return 0;
 }
 
-function extractConditionFromJsonLdRecord(
-  record: Record<string, unknown>
-): string | null {
-  const possibleValues = [
-    record.itemCondition,
-    record.condition,
-    record.availability,
-    record.description,
-    record.name
+function getStoreFromUrl(url: string): StoreName {
+  const lower = url.toLowerCase();
+
+  if (lower.includes('momox-shop')) return 'Momox';
+
+  return 'Medimops';
+}
+
+async function fetchText(url: string): Promise<string> {
+  const response = await fetch(url, {
+    headers: {
+      accept:
+        'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8',
+      'accept-language': 'it-IT,it;q=0.9,en;q=0.8,de;q=0.7,fr;q=0.7',
+      'cache-control': 'no-cache',
+      pragma: 'no-cache',
+      'user-agent': USER_AGENT
+    },
+    signal: timeoutSignal(REQUEST_TIMEOUT_MS)
+  });
+
+  if (!response.ok) {
+    throw new Error(`HTTP ${response.status}`);
+  }
+
+  return response.text();
+}
+
+async function fetchViaJinaReader(url: string): Promise<string> {
+  const target = `https://r.jina.ai/http://r.jina.ai/http://`;
+
+  void target;
+
+  const normalizedUrl = url.replace(/^https?:\/\//, '');
+  const readerUrl = `https://r.jina.ai/http://${normalizedUrl}`;
+
+  const response = await fetch(readerUrl, {
+    headers: {
+      accept: 'text/plain,text/markdown,*/*',
+      'user-agent': USER_AGENT
+    },
+    signal: timeoutSignal(REQUEST_TIMEOUT_MS)
+  });
+
+  if (!response.ok) {
+    throw new Error(`Jina Reader HTTP ${response.status}`);
+  }
+
+  return response.text();
+}
+
+async function fetchViaJinaSearch(url: string): Promise<string> {
+  const searchUrl = `https://r.jina.ai/http://r.jina.ai/http://`;
+
+  void searchUrl;
+
+  const query = encodeURIComponent(url);
+  const readerUrl = `https://r.jina.ai/http://r.jina.ai/http://`;
+
+  void readerUrl;
+
+  const response = await fetch(`https://r.jina.ai/http://r.jina.ai/http://`, {
+    headers: {
+      accept: 'text/plain,text/markdown,*/*',
+      'user-agent': USER_AGENT
+    },
+    signal: timeoutSignal(REQUEST_TIMEOUT_MS)
+  }).catch(() => null);
+
+  void query;
+  void response;
+
+  throw new Error('Jina Search non disponibile per questo URL.');
+}
+
+function extractCandidatesFromHtml(html: string, store: StoreName): Candidate[] {
+  const $ = cheerio.load(html);
+  const candidates: Candidate[] = [];
+
+  const jsonLdText = extractJsonLdText($);
+
+  if (jsonLdText) {
+    const jsonLdPrice = parsePrice(jsonLdText);
+    const jsonLdCondition = normalizeCondition(jsonLdText, store);
+
+    if (jsonLdPrice !== null) {
+      candidates.push({
+        price: jsonLdPrice,
+        condition: jsonLdCondition,
+        score: 100 + conditionScore(jsonLdCondition),
+        source: 'json-ld'
+      });
+    }
+  }
+
+  const metaPriceSelectors = [
+    'meta[property="product:price:amount"]',
+    'meta[property="og:price:amount"]',
+    'meta[itemprop="price"]',
+    '[itemprop="price"]'
   ];
 
-  for (const value of possibleValues) {
-    if (typeof value === 'string') {
-      const condition = normalizeCondition(value);
+  for (const selector of metaPriceSelectors) {
+    const value =
+      $(selector).attr('content') ||
+      $(selector).attr('value') ||
+      $(selector).text();
 
-      if (condition) return condition;
-    }
-  }
-
-  return null;
-}
-
-function extractFromJsonLd($: cheerio.CheerioAPI): ScrapeResult | null {
-  const scripts = $('script[type="application/ld+json"]').toArray();
-
-  for (const script of scripts) {
-    const raw = $(script).contents().text();
-
-    try {
-      const parsed: unknown = JSON.parse(raw);
-      const candidates = Array.isArray(parsed) ? parsed : [parsed];
-
-      for (const item of candidates) {
-        const result = findOfferPrice(item, raw);
-
-        if (result.price !== null) return result;
-      }
-    } catch {
-      continue;
-    }
-  }
-
-  return null;
-}
-
-function findOfferPrice(value: unknown, context = ''): ScrapeResult {
-  if (!value || typeof value !== 'object') {
-    return { price: null, source: 'json-ld-none', error: null, condition: null };
-  }
-
-  const record = value as Record<string, unknown>;
-
-  if (typeof record.price === 'string' || typeof record.price === 'number') {
-    const price = normalizePrice(String(record.price));
+    const price = parsePrice(value || '');
 
     if (price !== null) {
-      const condition =
-        extractConditionFromContext(context || JSON.stringify(record)) ||
-        extractConditionFromJsonLdRecord(record);
+      const localText = normalizeText(
+        [
+          $(selector).closest('section').text(),
+          $(selector).closest('div').text(),
+          $(selector).parent().text()
+        ].join(' ')
+      );
 
-      return {
-        price,
-        condition,
-        source: makeSource('json-ld-price', context || JSON.stringify(record)),
-        error: null
-      };
-    }
-  }
-
-  const offers = record.offers;
-
-  if (Array.isArray(offers)) {
-    for (const offer of offers) {
-      const result = findOfferPrice(offer, context || JSON.stringify(offer));
-
-      if (result.price !== null) return result;
-    }
-  } else if (offers && typeof offers === 'object') {
-    const result = findOfferPrice(offers, context || JSON.stringify(offers));
-
-    if (result.price !== null) return result;
-  }
-
-  for (const nested of Object.values(record)) {
-    if (nested && typeof nested === 'object') {
-      const result = findOfferPrice(nested, context);
-
-      if (result.price !== null) return result;
-    }
-  }
-
-  return { price: null, source: 'json-ld-none', error: null, condition: null };
-}
-
-function isLikelyShippingOrNoise(context: string): boolean {
-  const lower = context.toLowerCase();
-
-  const badWords = [
-    'livraison gratuite',
-    'livraison offerte',
-    'frais de livraison',
-    'frais de port',
-    'port offert',
-    'shipping',
-    'delivery',
-    'free shipping',
-    'spedizione',
-    'spedizione gratuita',
-    'spese di spedizione',
-    'versand',
-    'kostenloser versand',
-    'versandkostenfrei',
-    'versandkosten',
-    'gratisversand',
-    'kostenlose lieferung',
-    'ab 19',
-    'ab 19€',
-    'ab 19 €',
-    'dès 19',
-    'dès 19€',
-    'dès 19 €',
-    'da 19',
-    'da 19€',
-    'da 19 €',
-    'newsletter',
-    'paypal',
-    'visa',
-    'mastercard',
-    'amazon',
-    'recommandé pour vous',
-    'empfohlen',
-    'mehr von',
-    'plus de',
-    'besoin d’aide',
-    'conditions générales',
-    'protection des données',
-    'datenschutz',
-    'widerruf',
-    'agb',
-    'impressum'
-  ];
-
-  return badWords.some((word) => lower.includes(word));
-}
-
-function hasPrimaryProductSignals(context: string): boolean {
-  const lower = context.toLowerCase();
-
-  const signals = [
-    'en stock',
-    'auf lager',
-    'in stock',
-    'disponibile',
-    'sofort lieferbar',
-    'tva incluse',
-    'iva inclusa',
-    'inkl. mwst',
-    'inklusive mwst',
-    'hors frais de livraison',
-    'ajouter au panier',
-    'in den warenkorb',
-    'aggiungi al carrello'
-  ];
-
-  return signals.some((signal) => lower.includes(signal));
-}
-
-function hasExcellentConditionSignal(context: string): boolean {
-  const lower = context.toLowerCase();
-  const simplified = normalizeForConditionSearch(context);
-
-  const signals = [
-    'très bon état',
-    'tres bon etat',
-    'sehr gut',
-    'sehr guter zustand',
-    'very good',
-    'ottime condizioni',
-    'ottimo stato'
-  ];
-
-  return signals.some((signal) => {
-    return lower.includes(signal) || simplified.includes(signal);
-  });
-}
-
-function hasVeryGoodConditionSignal(context: string): boolean {
-  const lower = context.toLowerCase();
-  const simplified = normalizeForConditionSearch(context);
-
-  const signals = [
-    'bon état',
-    'bon etat',
-    'guter zustand',
-    'good condition',
-    'buono stato',
-    'buone condizioni'
-  ];
-
-  return signals.some((signal) => {
-    return lower.includes(signal) || simplified.includes(signal);
-  });
-}
-
-function scoreCandidate(price: number, context: string, index: number): number {
-  const lower = context.toLowerCase();
-  let score = 0;
-
-  if (price > 0 && price < 300) score += 10;
-
-  if (lower.includes('in stock')) score += 60;
-  if (lower.includes('en stock')) score += 60;
-  if (lower.includes('auf lager')) score += 60;
-  if (lower.includes('disponibile')) score += 60;
-  if (lower.includes('sofort lieferbar')) score += 60;
-
-  if (lower.includes('inkl. mwst')) score += 45;
-  if (lower.includes('inklusive mwst')) score += 45;
-  if (lower.includes('tva incluse')) score += 45;
-  if (lower.includes('iva inclusa')) score += 45;
-  if (lower.includes('hors frais de livraison')) score += 45;
-
-  if (lower.includes('warenkorb')) score += 35;
-  if (lower.includes('in den warenkorb')) score += 35;
-  if (lower.includes('ajouter au panier')) score += 35;
-  if (lower.includes('aggiungi al carrello')) score += 35;
-
-  if (hasExcellentConditionSignal(context)) score += 90;
-
-  if (hasVeryGoodConditionSignal(context) && !hasExcellentConditionSignal(context)) {
-    score -= 80;
-  }
-
-  if (lower.includes('choisissez l’état')) score += 10;
-  if (lower.includes("choisissez l'état")) score += 10;
-  if (lower.includes('zustand wählen')) score += 10;
-  if (lower.includes('choose condition')) score += 10;
-
-  if (lower.includes('prix')) score += 15;
-  if (lower.includes('preis')) score += 15;
-  if (lower.includes('prezzo')) score += 15;
-  if (lower.includes('price')) score += 15;
-
-  if (isLikelyShippingOrNoise(context) && !hasPrimaryProductSignals(context)) {
-    score -= 140;
-  }
-
-  if (price === 19 || price === 19.0) score -= 60;
-
-  if (index < 12000) score += 5;
-
-  return score;
-}
-
-function findBestPriceAfterMarker(
-  text: string,
-  marker: string
-): ScrapeResult | null {
-  const normalizedText = text.replace(/\u00a0/g, ' ');
-  const lower = normalizedText.toLowerCase();
-  const markerIndex = lower.indexOf(marker.toLowerCase());
-
-  if (markerIndex < 0) return null;
-
-  const afterText = normalizedText.slice(markerIndex, markerIndex + 900);
-  const priceRegex = /(?:€\s*)?(\d{1,4}(?:[.,]\d{2}))\s*€/g;
-
-  let match = priceRegex.exec(afterText);
-
-  while (match !== null) {
-    const price = normalizePrice(match[1]);
-
-    if (price !== null && price < 300) {
-      const globalIndex = markerIndex + match.index;
-      const contextStart = Math.max(0, globalIndex - 500);
-      const contextEnd = Math.min(normalizedText.length, globalIndex + 500);
-      const context = normalizedText.slice(contextStart, contextEnd);
-      const condition = extractConditionFromContext(context);
-
-      return {
-        price,
-        condition,
-        source: makeSource(`regex-after-marker:${marker}`, context),
-        error: null
-      };
-    }
-
-    match = priceRegex.exec(afterText);
-  }
-
-  return null;
-}
-
-function findBestPriceNearPrimaryBlock(text: string): ScrapeResult | null {
-  const markers = [
-    'sehr gut',
-    'très bon état',
-    'tres bon etat',
-    'auf lager',
-    'inkl. mwst',
-    'inklusive mwst',
-    'en stock',
-    'tva incluse',
-    'hors frais de livraison',
-    'in stock',
-    'disponibile',
-    'iva inclusa'
-  ];
-
-  for (const marker of markers) {
-    const result = findBestPriceAfterMarker(text, marker);
-
-    if (result !== null) return result;
-  }
-
-  return null;
-}
-
-function extractSmartPriceFromText(text: string): ScrapeResult | null {
-  const primaryBlockResult = findBestPriceNearPrimaryBlock(text);
-
-  if (primaryBlockResult !== null) {
-    return primaryBlockResult;
-  }
-
-  const normalizedText = text.replace(/\u00a0/g, ' ');
-  const priceRegex = /(?:€\s*)?(\d{1,4}(?:[.,]\d{2}))\s*€/g;
-  const candidates: PriceCandidate[] = [];
-
-  let match = priceRegex.exec(normalizedText);
-
-  while (match !== null) {
-    const rawPrice = match[1];
-    const price = normalizePrice(rawPrice);
-
-    if (price !== null) {
-      const index = match.index;
-      const start = Math.max(0, index - 500);
-      const end = Math.min(normalizedText.length, index + 500);
-      const context = normalizedText.slice(start, end);
-      const score = scoreCandidate(price, context, index);
-      const condition = extractConditionFromContext(context);
+      const condition = normalizeCondition(localText, store);
 
       candidates.push({
         price,
-        context,
-        index,
-        score,
-        condition
+        condition,
+        score: 95 + conditionScore(condition),
+        source: selector
       });
     }
-
-    match = priceRegex.exec(normalizedText);
   }
 
-  const valid = candidates
-    .filter((candidate) => candidate.score > -80)
-    .sort((a, b) => b.score - a.score || a.index - b.index);
-
-  const best = valid[0];
-
-  if (!best) return null;
-
-  return {
-    price: best.price,
-    condition: best.condition,
-    source: makeSource(`regex-smart score=${best.score}`, best.context),
-    error: null
-  };
-}
-
-function extractWithRegex(text: string): ScrapeResult | null {
-  const smart = extractSmartPriceFromText(text);
-
-  if (smart !== null) return smart;
-
-  const structuredPatterns = [
-    {
-      name: 'structured-price',
-      pattern: /"price"\s*:\s*"?(\d{1,4}(?:[.,]\d{2}))"?/i
-    },
-    {
-      name: 'label-price',
-      pattern:
-        /(?:price|preis|prix|prezzo|actuel|aktuell)[^0-9]{0,160}(\d{1,4}(?:[.,]\d{2}))/i
-    }
+  const priceSelectors = [
+    '[data-testid*="price"]',
+    '[class*="price"]',
+    '[class*="Price"]',
+    '[id*="price"]',
+    '[id*="Price"]',
+    '.product-price',
+    '.price',
+    '.sales-price',
+    '.product__price'
   ];
 
-  for (const item of structuredPatterns) {
-    const match = text.match(item.pattern);
+  for (const selector of priceSelectors) {
+    $(selector).each((_, element) => {
+      const node = $(element);
+      const text = normalizeText(node.text());
+      const price = parsePrice(text);
 
-    if (match?.[1]) {
-      const price = normalizePrice(match[1]);
+      if (price === null) return;
 
-      if (price !== null && price < 300) {
-        const index = match.index || 0;
-        const context = text.slice(
-          Math.max(0, index - 500),
-          Math.min(text.length, index + 500)
-        );
-        const condition = extractConditionFromContext(context);
+      const context = normalizeText(
+        [
+          text,
+          node.parent().text(),
+          node.closest('section').text(),
+          node.closest('article').text(),
+          node.closest('div').text()
+        ].join(' ')
+      );
 
-        return {
-          price,
-          condition,
-          source: makeSource(item.name, context),
-          error: null
-        };
-      }
+      const condition = normalizeCondition(context, store);
+
+      candidates.push({
+        price,
+        condition,
+        score: 80 + conditionScore(condition),
+        source: selector
+      });
+    });
+  }
+
+  const visibleText = extractVisibleText($);
+  const visiblePrice = parsePrice(visibleText);
+  const visibleCondition = normalizeCondition(visibleText, store);
+
+  if (visiblePrice !== null) {
+    candidates.push({
+      price: visiblePrice,
+      condition: visibleCondition,
+      score: 40 + conditionScore(visibleCondition),
+      source: 'visible-text'
+    });
+  }
+
+  return candidates;
+}
+
+function extractCandidatesFromText(text: string, store: StoreName): Candidate[] {
+  const normalized = normalizeText(text);
+  const candidates: Candidate[] = [];
+
+  const condition = normalizeCondition(normalized, store);
+  const price = parsePrice(normalized);
+
+  if (price !== null) {
+    candidates.push({
+      price,
+      condition,
+      score: 40 + conditionScore(condition),
+      source: 'text'
+    });
+  }
+
+  const lines = normalized
+    .split(/(?:\n| {2,})/)
+    .map((line) => normalizeText(line))
+    .filter(Boolean);
+
+  for (let index = 0; index < lines.length; index += 1) {
+    const line = lines[index];
+    const priceInLine = parsePrice(line);
+
+    if (priceInLine === null) continue;
+
+    const context = [
+      lines[index - 3] || '',
+      lines[index - 2] || '',
+      lines[index - 1] || '',
+      line,
+      lines[index + 1] || '',
+      lines[index + 2] || '',
+      lines[index + 3] || ''
+    ].join(' ');
+
+    const localCondition = normalizeCondition(context, store);
+
+    candidates.push({
+      price: priceInLine,
+      condition: localCondition,
+      score: 60 + conditionScore(localCondition),
+      source: 'text-lines'
+    });
+  }
+
+  return candidates;
+}
+
+function pickBestCandidate(candidates: Candidate[]): Candidate | null {
+  const valid = candidates.filter((candidate) => candidate.price !== null);
+
+  if (valid.length === 0) return null;
+
+  return [...valid].sort((a, b) => {
+    if (b.score !== a.score) return b.score - a.score;
+
+    if (a.price !== null && b.price !== null) {
+      return a.price - b.price;
     }
-  }
 
-  return null;
+    return 0;
+  })[0];
 }
 
-function extractWithSelectors($: cheerio.CheerioAPI): ScrapeResult | null {
-  const candidates: PriceCandidate[] = [];
-
-  for (const selector of PRICE_SELECTORS) {
-    const nodes = $(selector).toArray().slice(0, 80);
-
-    for (const node of nodes) {
-      const element = $(node);
-      const content =
-        element.attr('content') ||
-        element.attr('value') ||
-        element.attr('data-price') ||
-        element.attr('aria-label') ||
-        element.text();
-
-      const price = normalizePrice(content);
-
-      if (price !== null && price < 300) {
-        const parentContext =
-          element.parent().text() ||
-          element.closest('section, article, div').text() ||
-          content;
-
-        const context = parentContext || content;
-        const condition = extractConditionFromContext(context);
-
-        candidates.push({
-          price,
-          context,
-          index: 0,
-          score: scoreCandidate(price, context, 0),
-          condition
-        });
-      }
-    }
-  }
-
-  const valid = candidates
-    .filter((candidate) => candidate.score > -80)
-    .sort((a, b) => b.score - a.score || a.index - b.index);
-
-  const best = valid[0];
-
-  if (!best) return null;
-
-  return {
-    price: best.price,
-    condition: best.condition,
-    source: makeSource(`css-smart score=${best.score}`, best.context),
-    error: null
-  };
-}
-
-function buildReferer(url: string): string {
-  try {
-    const parsed = new URL(url);
-
-    return `${parsed.protocol}//${parsed.hostname}/`;
-  } catch {
-    return 'https://www.google.com/';
-  }
-}
-
-function buildJinaReaderUrl(url: string): string {
-  return `https://r.jina.ai/${url}`;
-}
-
-function buildJinaSearchUrl(url: string): string {
-  return `https://s.jina.ai/?q=${encodeURIComponent(url)}`;
-}
-
-async function fetchDirectHtml(url: string): Promise<{
-  ok: boolean;
-  status: number;
-  statusText: string;
-  text: string | null;
-}> {
-  const response = await fetch(url, {
-    headers: {
-      ...BROWSER_HEADERS,
-      referer: buildReferer(url)
-    },
-    cache: 'no-store',
-    redirect: 'follow'
-  });
-
-  if (!response.ok) {
+function resultFromCandidate(candidate: Candidate | null, sourceLabel: string): ScrapeResult {
+  if (!candidate || candidate.price === null) {
     return {
-      ok: false,
-      status: response.status,
-      statusText: response.statusText,
-      text: null
+      price: null,
+      condition: null,
+      status: 'not_found',
+      message: `Prezzo non trovato (${sourceLabel}).`
     };
   }
 
   return {
-    ok: true,
-    status: response.status,
-    statusText: response.statusText,
-    text: await response.text()
-  };
-}
-
-async function fetchViaJinaReader(url: string): Promise<{
-  ok: boolean;
-  status: number;
-  statusText: string;
-  text: string | null;
-}> {
-  const readerUrl = buildJinaReaderUrl(url);
-
-  const response = await fetch(readerUrl, {
-    headers: JINA_HEADERS,
-    cache: 'no-store',
-    redirect: 'follow'
-  });
-
-  if (!response.ok) {
-    return {
-      ok: false,
-      status: response.status,
-      statusText: response.statusText,
-      text: null
-    };
-  }
-
-  return {
-    ok: true,
-    status: response.status,
-    statusText: response.statusText,
-    text: await response.text()
-  };
-}
-
-async function fetchViaJinaSearch(url: string): Promise<{
-  ok: boolean;
-  status: number;
-  statusText: string;
-  text: string | null;
-}> {
-  const searchUrl = buildJinaSearchUrl(url);
-
-  const response = await fetch(searchUrl, {
-    headers: JINA_HEADERS,
-    cache: 'no-store',
-    redirect: 'follow'
-  });
-
-  if (!response.ok) {
-    return {
-      ok: false,
-      status: response.status,
-      statusText: response.statusText,
-      text: null
-    };
-  }
-
-  return {
-    ok: true,
-    status: response.status,
-    statusText: response.statusText,
-    text: await response.text()
-  };
-}
-
-function extractPriceFromHtml(html: string): ScrapeResult {
-  const regex = extractWithRegex(html);
-
-  if (regex !== null) return { ...regex, source: `html:${regex.source}` };
-
-  const selected = extractWithSelectors(cheerio.load(html));
-
-  if (selected !== null) return selected;
-
-  const jsonLd = extractFromJsonLd(cheerio.load(html));
-
-  if (jsonLd !== null) return jsonLd;
-
-  return {
-    price: null,
-    condition: null,
-    source: 'html-none',
-    error: 'Prezzo non trovato nell’HTML della pagina.'
-  };
-}
-
-function extractPriceFromText(text: string, source: string): ScrapeResult {
-  const result = extractWithRegex(text);
-
-  if (result !== null) {
-    return {
-      price: result.price,
-      condition: result.condition ?? null,
-      source: `${source}:${result.source}`,
-      error: null
-    };
-  }
-
-  return {
-    price: null,
-    condition: null,
-    source: `${source}-none`,
-    error: `Prezzo non trovato nel fallback ${source}.`
+    price: candidate.price,
+    condition: candidate.condition,
+    status: 'ok',
+    message: candidate.condition
+      ? `Prezzo trovato: ${candidate.price.toFixed(2)} €, condizione ${candidate.condition}.`
+      : `Prezzo trovato: ${candidate.price.toFixed(2)} €, condizione non trovata.`
   };
 }
 
 export async function scrapePrice(url: string): Promise<ScrapeResult> {
-  try {
-    const direct = await fetchDirectHtml(url);
+  const trimmedUrl = String(url || '').trim();
 
-    if (direct.ok && direct.text) {
-      const directResult = extractPriceFromHtml(direct.text);
-
-      if (directResult.price !== null) {
-        return directResult;
-      }
-    }
-
-    const reader = await fetchViaJinaReader(url);
-
-    if (reader.ok && reader.text) {
-      const readerResult = extractPriceFromText(reader.text, 'jina-reader');
-
-      if (readerResult.price !== null) {
-        return readerResult;
-      }
-    }
-
-    const search = await fetchViaJinaSearch(url);
-
-    if (search.ok && search.text) {
-      const searchResult = extractPriceFromText(search.text, 'jina-search');
-
-      if (searchResult.price !== null) {
-        return searchResult;
-      }
-    }
-
-    if (direct.status === 403) {
-      return {
-        price: null,
-        condition: null,
-        source: 'http-403-all-fallbacks-failed',
-        error:
-          'HTTP 403 Forbidden dal sito originale. Ho provato anche Jina Reader e Jina Search, ma non ho trovato un prezzo leggibile.'
-      };
-    }
-
+  if (!trimmedUrl) {
     return {
       price: null,
       condition: null,
-      source: 'all-fallbacks-failed',
-      error: `Prezzo non trovato. HTTP diretto: ${direct.status} ${direct.statusText}. Reader e Search non hanno trovato prezzi validi.`
-    };
-  } catch (error) {
-    const message =
-      error instanceof Error
-        ? error.message
-        : 'Errore sconosciuto durante scraping';
-
-    return {
-      price: null,
-      condition: null,
-      source: 'exception',
-      error: message
+      status: 'not_found',
+      message: 'URL mancante.'
     };
   }
+
+  const store = getStoreFromUrl(trimmedUrl);
+
+  try {
+    const html = await fetchText(trimmedUrl);
+    const candidates = extractCandidatesFromHtml(html, store);
+    const best = pickBestCandidate(candidates);
+
+    if (best) {
+      return resultFromCandidate(best, 'direct');
+    }
+  } catch (error) {
+    const directMessage =
+      error instanceof Error ? error.message : 'errore diretto sconosciuto';
+
+    try {
+      const readerText = await fetchViaJinaReader(trimmedUrl);
+      const candidates = extractCandidatesFromText(readerText, store);
+      const best = pickBestCandidate(candidates);
+
+      if (best) {
+        return resultFromCandidate(best, `jina-reader dopo ${directMessage}`);
+      }
+    } catch (readerError) {
+      const readerMessage =
+        readerError instanceof Error
+          ? readerError.message
+          : 'errore Jina Reader sconosciuto';
+
+      try {
+        const searchText = await fetchViaJinaSearch(trimmedUrl);
+        const candidates = extractCandidatesFromText(searchText, store);
+        const best = pickBestCandidate(candidates);
+
+        if (best) {
+          return resultFromCandidate(best, `jina-search dopo ${readerMessage}`);
+        }
+      } catch {
+        return {
+          price: null,
+          condition: null,
+          status: 'error',
+          message: `Errore scraping: direct=${directMessage}; reader=${readerMessage}`
+        };
+      }
+    }
+
+    return {
+      price: null,
+      condition: null,
+      status: 'not_found',
+      message: `Prezzo non trovato dopo fallback. Direct: ${directMessage}`
+    };
+  }
+
+  try {
+    const readerText = await fetchViaJinaReader(trimmedUrl);
+    const candidates = extractCandidatesFromText(readerText, store);
+    const best = pickBestCandidate(candidates);
+
+    if (best) {
+      return resultFromCandidate(best, 'jina-reader');
+    }
+  } catch {
+    // Continua verso not_found.
+  }
+
+  return {
+    price: null,
+    condition: null,
+    status: 'not_found',
+    message: 'Prezzo non trovato.'
+  };
 }

@@ -1,49 +1,85 @@
 import { createClient } from '@supabase/supabase-js';
 import { env } from '@/lib/env';
 import { scrapePrice } from '@/lib/scraper';
-import { sendPriceAlert } from '@/lib/email';
-import type { Monitor, Settings } from '@/lib/types';
+import { sendTargetSummaryEmail, type TargetEmailOffer } from '@/lib/email';
 
-export type RunMonitorOptions = {
-  monitorId?: string;
-  onlyActive?: boolean;
-};
-
-type SettingsWithLegacyEmail = Settings & {
-  alert_email?: string | null;
-};
-
-type MonitorRunStatus = 'ok' | 'below_target' | 'error';
-
-type SiteCheck = {
-  site: string;
-  price: number | null;
-  target: number | null;
-  condition: string | null;
-  error: string | null;
-  source: string | null;
-  isBelowTarget: boolean;
-  skipped: boolean;
-};
-
-type MonitorRunDetail = {
+type MonitorRow = {
   id: string;
+  genre: string;
+  type: 'CD' | 'LP';
   artist: string;
   album: string;
-  status: MonitorRunStatus;
-  price: number | null;
-  error: string | null;
-  alertSent: boolean;
+  edition: string | null;
+  ean_code: string | null;
+  release_year: number | null;
+  country: string | null;
+
+  site: string | null;
+  url: string | null;
+  target_price: number | null;
+  current_price: number | null;
+
+  medimops_url: string | null;
+  medimops_target_price: number | null;
+  medimops_current_price: number | null;
+  medimops_condition: string | null;
+
+  momox_url: string | null;
+  momox_target_price: number | null;
+  momox_current_price: number | null;
+  momox_condition: string | null;
+
+  amazon_asin: string | null;
+  amazon_target_price: number | null;
+  amazon_fr_current_price: number | null;
+  amazon_de_current_price: number | null;
+  amazon_it_current_price: number | null;
+
+  alert_email: string | null;
+  is_active: boolean;
+  alert_sent: boolean;
+
+  last_checked_at: string | null;
+  last_status: 'ok' | 'below_target' | 'error' | null;
+  last_error: string | null;
+
+  created_at?: string | null;
+  updated_at?: string | null;
+};
+
+type SiteName = 'Medimops' | 'Momox';
+
+type SiteCheck = {
+  site: SiteName;
+  url: string | null;
+  targetPrice: number | null;
+  previousPrice: number | null;
+  previousCondition: string | null;
+  currentPrice: number | null;
+  condition: string | null;
+  status: 'ok' | 'not_found' | 'error' | 'skipped';
   message: string;
 };
 
-export type MonitorRunSummary = {
+export type MonitorDetail = {
+  id: string;
+  artist: string;
+  album: string;
+  status: 'checked' | 'skipped' | 'error';
+  message: string;
+};
+
+export type MonitorSummary = {
   total: number;
   checked: number;
   alertsSent: number;
   errors: number;
-  details: MonitorRunDetail[];
-  results: MonitorRunDetail[];
+  details: MonitorDetail[];
+};
+
+export type RunMonitorOptions = {
+  monitorId?: string;
+  onlyActive?: boolean;
 };
 
 function getSupabaseAdmin() {
@@ -54,171 +90,314 @@ function getSupabaseAdmin() {
   });
 }
 
-function getGlobalAlertEmail(settings: SettingsWithLegacyEmail | null): string {
+function normalizeCondition(value: string | null | undefined): string | null {
+  const condition = String(value || '').trim().toUpperCase();
+
+  if (!condition) return null;
+
+  if (condition === 'NM') return 'NM';
+  if (condition === 'EX') return 'EX';
+  if (condition === 'VG') return 'VG';
+  if (condition === 'G') return 'G';
+
+  return null;
+}
+
+function isTargetCondition(value: string | null | undefined): boolean {
+  const condition = normalizeCondition(value);
+
+  return condition === 'NM' || condition === 'EX';
+}
+
+function isInTarget(
+  currentPrice: number | null,
+  targetPrice: number | null,
+  condition: string | null
+): boolean {
   return (
-    settings?.global_alert_email ||
-    settings?.alert_email ||
-    env.defaultAlertEmail()
+    currentPrice !== null &&
+    targetPrice !== null &&
+    currentPrice <= targetPrice &&
+    isTargetCondition(condition)
   );
 }
 
-function getMonitorAlertEmail(
-  monitor: Monitor,
-  globalAlertEmail: string
-): string {
-  return monitor.alert_email || globalAlertEmail;
+function getMonitorMode(): 'all' | 'single' {
+  const value = String(process.env.MONITOR_MODE || 'all').trim();
+
+  if (value === 'single') return 'single';
+
+  return 'all';
 }
 
-function hasConfiguredSite(url: string | null, target: number | null): boolean {
-  return Boolean(url && target && target > 0);
+function shouldSendSummaryEmail(): boolean {
+  return getMonitorMode() !== 'single';
+}
+
+function getDefaultAlertEmail(): string {
+  return String(process.env.DEFAULT_ALERT_EMAIL || '').trim();
+}
+
+function getRecipientEmail(monitor: MonitorRow): string {
+  return String(monitor.alert_email || '').trim() || getDefaultAlertEmail();
+}
+
+function getPrimaryLegacySite(monitor: MonitorRow): {
+  site: string;
+  url: string;
+  targetPrice: number | null;
+  currentPrice: number | null;
+} {
+  if (monitor.medimops_url) {
+    return {
+      site: 'Medimops',
+      url: monitor.medimops_url,
+      targetPrice: monitor.medimops_target_price,
+      currentPrice: monitor.medimops_current_price
+    };
+  }
+
+  if (monitor.momox_url) {
+    return {
+      site: 'Momox',
+      url: monitor.momox_url,
+      targetPrice: monitor.momox_target_price,
+      currentPrice: monitor.momox_current_price
+    };
+  }
+
+  return {
+    site: monitor.site || 'Medimops',
+    url: monitor.url || '',
+    targetPrice: monitor.target_price,
+    currentPrice: monitor.current_price
+  };
 }
 
 async function checkStoreSite(
-  site: 'Medimops' | 'Momox',
-  url: string | null,
-  target: number | null
+  monitor: MonitorRow,
+  site: SiteName
 ): Promise<SiteCheck> {
-  if (!hasConfiguredSite(url, target)) {
+  const url = site === 'Medimops' ? monitor.medimops_url : monitor.momox_url;
+  const targetPrice =
+    site === 'Medimops'
+      ? monitor.medimops_target_price
+      : monitor.momox_target_price;
+  const previousPrice =
+    site === 'Medimops'
+      ? monitor.medimops_current_price
+      : monitor.momox_current_price;
+  const previousCondition =
+    site === 'Medimops'
+      ? monitor.medimops_condition
+      : monitor.momox_condition;
+
+  if (!url || !url.trim()) {
     return {
       site,
-      price: null,
-      target,
-      condition: null,
-      error: null,
-      source: null,
-      isBelowTarget: false,
-      skipped: true
+      url,
+      targetPrice,
+      previousPrice,
+      previousCondition,
+      currentPrice: previousPrice,
+      condition: previousCondition,
+      status: 'skipped',
+      message: `${site}: URL mancante.`
     };
   }
 
   try {
-    const result = await scrapePrice(url as string);
-    const price = result.price;
-    const isBelowTarget =
-      price !== null && target !== null && price <= target;
+    const result = await scrapePrice(url);
+
+    if (result.status === 'ok') {
+      return {
+        site,
+        url,
+        targetPrice,
+        previousPrice,
+        previousCondition,
+        currentPrice: result.price,
+        condition: normalizeCondition(result.condition),
+        status: 'ok',
+        message: result.message
+      };
+    }
+
+    if (result.status === 'not_found') {
+      return {
+        site,
+        url,
+        targetPrice,
+        previousPrice,
+        previousCondition,
+        currentPrice: previousPrice,
+        condition: previousCondition,
+        status: 'not_found',
+        message: result.message
+      };
+    }
 
     return {
       site,
-      price,
-      target,
-      condition: result.condition || null,
-      error: result.error,
-      source: result.source,
-      isBelowTarget,
-      skipped: false
+      url,
+      targetPrice,
+      previousPrice,
+      previousCondition,
+      currentPrice: previousPrice,
+      condition: previousCondition,
+      status: 'error',
+      message: result.message
     };
   } catch (error) {
-    const message =
-      error instanceof Error ? error.message : 'Errore scraping sconosciuto';
-
     return {
       site,
-      price: null,
-      target,
-      condition: null,
-      error: message,
-      source: `${site}:exception`,
-      isBelowTarget: false,
-      skipped: false
+      url,
+      targetPrice,
+      previousPrice,
+      previousCondition,
+      currentPrice: previousPrice,
+      condition: previousCondition,
+      status: 'error',
+      message: error instanceof Error ? error.message : 'Errore scraping sconosciuto.'
     };
   }
 }
 
-function buildMessage(checks: SiteCheck[]) {
+function getNextPrice(check: SiteCheck): number | null {
+  if (check.status === 'skipped') return check.previousPrice;
+  if (check.currentPrice === null) return check.previousPrice;
+
+  return check.currentPrice;
+}
+
+function getNextCondition(check: SiteCheck): string | null {
+  if (check.status === 'skipped') return check.previousCondition;
+  if (check.currentPrice === null) return check.previousCondition;
+
+  return normalizeCondition(check.condition);
+}
+
+function buildCheckMessage(checks: SiteCheck[]): string {
   return checks
-    .filter((check) => !check.skipped)
     .map((check) => {
-      const conditionPart = check.condition
-        ? `, condizione ${check.condition}`
-        : '';
+      const priceText =
+        check.currentPrice === null ? 'prezzo non disponibile' : `${check.currentPrice} €`;
+      const targetText =
+        check.targetPrice === null ? 'target non impostato' : `target ${check.targetPrice} €`;
+      const conditionText = check.condition
+        ? `condizione ${check.condition}`
+        : 'condizione non disponibile';
 
-      if (check.price === null) {
-        if (check.error) {
-          return `${check.site}: errore ${check.error}; fonte ${check.source || '-'}`;
-        }
-
-        return `${check.site}: nessuna offerta valida; fonte ${check.source || '-'}`;
+      if (check.status === 'skipped') {
+        return `${check.site}: saltato, URL mancante.`;
       }
 
-      return `${check.site}: prezzo ${check.price}${conditionPart}, target ${check.target}; fonte ${check.source || '-'}`;
+      return `${check.site}: ${priceText}, ${targetText}, ${conditionText}, stato ${check.status}. ${check.message}`;
     })
     .join(' | ');
 }
 
-function buildDetailMessage(checks: SiteCheck[]) {
-  return checks
-    .filter((check) => {
-      if (check.skipped) return false;
-
-      return check.price === null && Boolean(check.error);
-    })
-    .map((check) => {
-      return `${check.site}: ${check.error || 'prezzo non trovato'}; fonte ${check.source || '-'}`;
-    })
-    .join(' || ');
+function hasAnyUsefulCheck(checks: SiteCheck[]): boolean {
+  return checks.some((check) => check.status !== 'skipped');
 }
 
-function hasAnyRealError(checks: SiteCheck[]) {
-  return checks.some(
-    (check) => !check.skipped && check.price === null && Boolean(check.error)
-  );
+function hasAnyError(checks: SiteCheck[]): boolean {
+  return checks.some((check) => check.status === 'error');
 }
 
-function getLowestPrice(checks: SiteCheck[]): number | null {
-  const prices = checks
-    .map((check) => check.price)
-    .filter((price): price is number => price !== null);
+function getLastStatus(checks: SiteCheck[]): 'ok' | 'below_target' | 'error' {
+  const medimops = checks.find((check) => check.site === 'Medimops');
+  const momox = checks.find((check) => check.site === 'Momox');
 
-  if (prices.length === 0) return null;
+  const medimopsInTarget = medimops
+    ? isInTarget(
+        getNextPrice(medimops),
+        medimops.targetPrice,
+        getNextCondition(medimops)
+      )
+    : false;
 
-  return Math.min(...prices);
+  const momoxInTarget = momox
+    ? isInTarget(getNextPrice(momox), momox.targetPrice, getNextCondition(momox))
+    : false;
+
+  if (medimopsInTarget || momoxInTarget) return 'below_target';
+  if (hasAnyError(checks)) return 'error';
+
+  return 'ok';
 }
 
-function mergeSources(checks: SiteCheck[]) {
-  return checks
-    .filter((check) => !check.skipped && (check.source || check.error))
-    .map((check) => {
-      const conditionPart = check.condition
-        ? `; condizione ${check.condition}`
-        : '';
+function buildTargetOffers(monitor: MonitorRow, checks: SiteCheck[]): TargetEmailOffer[] {
+  const offers: TargetEmailOffer[] = [];
 
-      return `${check.site}: ${check.source || check.error || 'nessuna fonte'}${conditionPart}`;
-    })
-    .join(' | ');
+  checks.forEach((check) => {
+    const price = getNextPrice(check);
+    const condition = getNextCondition(check);
+
+    if (!isInTarget(price, check.targetPrice, condition)) return;
+    if (!check.url) return;
+    if (price === null || condition === null) return;
+
+    offers.push({
+      type: monitor.type,
+      channel: check.site,
+      artist: monitor.artist,
+      title: monitor.album,
+      price,
+      condition,
+      url: check.url,
+      recipient: getRecipientEmail(monitor)
+    });
+  });
+
+  return offers;
 }
 
-function getNextCondition(
-  previousCondition: string | null,
-  check: SiteCheck
-): string | null {
-  if (check.skipped) {
-    return previousCondition || null;
-  }
+function sortTargetOffers(offers: TargetEmailOffer[]): TargetEmailOffer[] {
+  const channelRank: Record<SiteName, number> = {
+    Medimops: 1,
+    Momox: 2
+  };
 
-  if (check.price === null) {
-    return previousCondition || null;
-  }
+  return [...offers].sort((a, b) => {
+    const channelCompare = channelRank[a.channel] - channelRank[b.channel];
 
-  return check.condition || null;
+    if (channelCompare !== 0) return channelCompare;
+
+    const artistCompare = a.artist.localeCompare(b.artist, 'it', {
+      sensitivity: 'base'
+    });
+
+    if (artistCompare !== 0) return artistCompare;
+
+    return a.title.localeCompare(b.title, 'it', {
+      sensitivity: 'base'
+    });
+  });
 }
 
-export async function runMonitor(
-  options: RunMonitorOptions = {}
-): Promise<MonitorRunSummary> {
+function groupOffersByRecipient(
+  offers: TargetEmailOffer[]
+): Record<string, TargetEmailOffer[]> {
+  return offers.reduce<Record<string, TargetEmailOffer[]>>((accumulator, offer) => {
+    const recipient = offer.recipient.trim();
+
+    if (!recipient) return accumulator;
+
+    if (!accumulator[recipient]) {
+      accumulator[recipient] = [];
+    }
+
+    accumulator[recipient].push(offer);
+
+    return accumulator;
+  }, {});
+}
+
+async function getMonitorRows(options: RunMonitorOptions): Promise<MonitorRow[]> {
   const supabase = getSupabaseAdmin();
 
-  const settingsResult = await supabase
-    .from('settings')
-    .select('*')
-    .eq('id', 1)
-    .maybeSingle<SettingsWithLegacyEmail>();
-
-  const globalEmail = getGlobalAlertEmail(settingsResult.data || null);
-
-  let query = supabase
-    .from('monitors')
-    .select('*')
-    .order('artist', { ascending: true });
+  let query = supabase.from('monitors').select('*');
 
   if (options.monitorId) {
     query = query.eq('id', options.monitorId);
@@ -228,159 +407,145 @@ export async function runMonitor(
     query = query.eq('is_active', true);
   }
 
-  const { data: monitors, error } = await query.returns<Monitor[]>();
+  query = query.order('artist', { ascending: true });
+  query = query.order('release_year', { ascending: true, nullsFirst: false });
+  query = query.order('album', { ascending: true });
+  query = query.order('country', { ascending: true, nullsFirst: false });
+
+  const { data, error } = await query;
 
   if (error) {
     throw new Error(error.message);
   }
 
-  const monitorsToCheck = monitors || [];
-  const details: MonitorRunDetail[] = [];
+  return (data || []) as MonitorRow[];
+}
 
-  let alertsSent = 0;
-  let errors = 0;
+async function updateMonitorAfterChecks(
+  monitor: MonitorRow,
+  checks: SiteCheck[]
+): Promise<void> {
+  const supabase = getSupabaseAdmin();
+
+  const medimops = checks.find((check) => check.site === 'Medimops');
+  const momox = checks.find((check) => check.site === 'Momox');
+
+  const primary = getPrimaryLegacySite(monitor);
+  const legacyCurrentPrice =
+    primary.site === 'Medimops'
+      ? medimops
+        ? getNextPrice(medimops)
+        : primary.currentPrice
+      : momox
+        ? getNextPrice(momox)
+        : primary.currentPrice;
+
+  const lastStatus = getLastStatus(checks);
+  const now = new Date().toISOString();
+  const message = buildCheckMessage(checks);
+
+  const { error } = await supabase
+    .from('monitors')
+    .update({
+      site: primary.site,
+      url: primary.url,
+      target_price: primary.targetPrice,
+      current_price: legacyCurrentPrice,
+
+      medimops_current_price: medimops
+        ? getNextPrice(medimops)
+        : monitor.medimops_current_price,
+      medimops_condition: medimops
+        ? getNextCondition(medimops)
+        : monitor.medimops_condition,
+
+      momox_current_price: momox ? getNextPrice(momox) : monitor.momox_current_price,
+      momox_condition: momox ? getNextCondition(momox) : monitor.momox_condition,
+
+      last_checked_at: now,
+      last_status: lastStatus,
+      last_error: lastStatus === 'error' ? message : null,
+      alert_sent: lastStatus === 'below_target'
+    })
+    .eq('id', monitor.id);
+
+  if (error) {
+    throw new Error(error.message);
+  }
+}
+
+async function sendSummaryEmails(offers: TargetEmailOffer[]): Promise<number> {
+  if (!shouldSendSummaryEmail()) return 0;
+  if (offers.length === 0) return 0;
+
+  const sortedOffers = sortTargetOffers(offers);
+  const grouped = groupOffersByRecipient(sortedOffers);
+  const recipients = Object.keys(grouped);
+
+  let sent = 0;
+
+  for (const recipient of recipients) {
+    const recipientOffers = grouped[recipient];
+
+    if (!recipientOffers || recipientOffers.length === 0) continue;
+
+    await sendTargetSummaryEmail({
+      to: recipient,
+      offers: recipientOffers
+    });
+
+    sent += 1;
+  }
+
+  return sent;
+}
+
+export async function runMonitor(
+  options: RunMonitorOptions = {}
+): Promise<MonitorSummary> {
+  const monitors = await getMonitorRows(options);
+  const details: MonitorDetail[] = [];
+  const allTargetOffers: TargetEmailOffer[] = [];
+
   let checked = 0;
+  let errors = 0;
 
-  for (const monitor of monitorsToCheck) {
-    const checkedAt = new Date().toISOString();
-
+  for (const monitor of monitors) {
     try {
-      const medimopsCheck = await checkStoreSite(
-        'Medimops',
-        monitor.medimops_url,
-        monitor.medimops_target_price
-      );
+      const checks = await Promise.all([
+        checkStoreSite(monitor, 'Medimops'),
+        checkStoreSite(monitor, 'Momox')
+      ]);
 
-      const momoxCheck = await checkStoreSite(
-        'Momox',
-        monitor.momox_url,
-        monitor.momox_target_price
-      );
-
-      const checks = [medimopsCheck, momoxCheck];
-
-      const configuredChecks = checks.filter((check) => !check.skipped);
-
-      if (configuredChecks.length === 0) {
+      if (!hasAnyUsefulCheck(checks)) {
         details.push({
           id: monitor.id,
           artist: monitor.artist,
           album: monitor.album,
-          status: 'ok',
-          price: null,
-          error: null,
-          alertSent: false,
-          message: 'Medimops/Momox non configurati: monitor saltato'
+          status: 'skipped',
+          message: 'Nessun URL Medimops/Momox presente.'
         });
 
         continue;
       }
 
+      await updateMonitorAfterChecks(monitor, checks);
+
       checked += 1;
 
-      const realErrorChecks = configuredChecks.filter(
-        (check) => check.price === null && Boolean(check.error)
-      );
-
-      const belowTargetChecks = configuredChecks.filter(
-        (check) => check.isBelowTarget
-      );
-
-      const hasAnyPrice = configuredChecks.some((check) => check.price !== null);
-      const hasAnyBelowTarget = belowTargetChecks.length > 0;
-      const hasRealError = hasAnyRealError(checks);
-      const hasAllRealErrors =
-        configuredChecks.length > 0 &&
-        realErrorChecks.length === configuredChecks.length;
-
-      const nextStatus: MonitorRunStatus = hasAllRealErrors
-        ? 'error'
-        : hasAnyBelowTarget
-          ? 'below_target'
-          : 'ok';
-
-      if (hasRealError) {
+      if (hasAnyError(checks)) {
         errors += 1;
       }
 
-      const lowestPrice = getLowestPrice(checks);
-      const alertEmail = getMonitorAlertEmail(monitor, globalEmail);
-
-      let nextAlertSent = monitor.alert_sent;
-      let alertSentNow = false;
-
-      const nextMedimopsCondition = getNextCondition(
-        monitor.medimops_condition,
-        medimopsCheck
-      );
-
-      const nextMomoxCondition = getNextCondition(
-        monitor.momox_condition,
-        momoxCheck
-      );
-
-      const monitorForEmail: Monitor = {
-        ...monitor,
-        medimops_current_price: medimopsCheck.price,
-        medimops_condition: nextMedimopsCondition,
-        momox_current_price: momoxCheck.price,
-        momox_condition: nextMomoxCondition,
-        current_price: lowestPrice
-      };
-
-      if (hasAnyBelowTarget && !monitor.alert_sent && alertEmail) {
-        await sendPriceAlert({
-          to: alertEmail,
-          monitor: monitorForEmail,
-          price: lowestPrice || 0,
-          source: mergeSources(checks),
-          triggeredSites: belowTargetChecks.map((check) => check.site)
-        });
-
-        nextAlertSent = true;
-        alertSentNow = true;
-        alertsSent += 1;
-      } else if (!hasAnyBelowTarget && monitor.alert_sent && hasAnyPrice) {
-        nextAlertSent = false;
-      }
-
-      const fullMessage = buildMessage(checks);
-      const detailMessage = buildDetailMessage(checks) || null;
-
-      await supabase.from('price_checks').insert({
-        monitor_id: monitor.id,
-        checked_at: checkedAt,
-        price: lowestPrice,
-        status: nextStatus,
-        error_message: detailMessage,
-        source: mergeSources(checks)
-      });
-
-      await supabase
-        .from('monitors')
-        .update({
-          medimops_current_price: medimopsCheck.price,
-          medimops_condition: nextMedimopsCondition,
-          momox_current_price: momoxCheck.price,
-          momox_condition: nextMomoxCondition,
-          current_price: lowestPrice,
-          last_checked_at: checkedAt,
-          last_status: nextStatus,
-          last_error: detailMessage,
-          alert_sent: nextAlertSent,
-          updated_at: checkedAt
-        })
-        .eq('id', monitor.id);
+      const targetOffers = buildTargetOffers(monitor, checks);
+      allTargetOffers.push(...targetOffers);
 
       details.push({
         id: monitor.id,
         artist: monitor.artist,
         album: monitor.album,
-        status: nextStatus,
-        price: lowestPrice,
-        error: detailMessage,
-        alertSent: alertSentNow,
-        message: fullMessage
+        status: hasAnyError(checks) ? 'error' : 'checked',
+        message: buildCheckMessage(checks)
       });
     } catch (error) {
       errors += 1;
@@ -388,46 +553,40 @@ export async function runMonitor(
       const message =
         error instanceof Error
           ? error.message
-          : 'Errore sconosciuto durante controllo';
-
-      await supabase.from('price_checks').insert({
-        monitor_id: monitor.id,
-        checked_at: checkedAt,
-        price: null,
-        status: 'error',
-        error_message: message,
-        source: 'record-exception'
-      });
-
-      await supabase
-        .from('monitors')
-        .update({
-          last_checked_at: checkedAt,
-          last_status: 'error',
-          last_error: message,
-          updated_at: checkedAt
-        })
-        .eq('id', monitor.id);
+          : 'Errore sconosciuto durante controllo monitor.';
 
       details.push({
         id: monitor.id,
         artist: monitor.artist,
         album: monitor.album,
         status: 'error',
-        price: null,
-        error: message,
-        alertSent: false,
         message
       });
+
+      try {
+        const supabase = getSupabaseAdmin();
+
+        await supabase
+          .from('monitors')
+          .update({
+            last_checked_at: new Date().toISOString(),
+            last_status: 'error',
+            last_error: message
+          })
+          .eq('id', monitor.id);
+      } catch {
+        // Evita che un errore nel salvataggio dello stato blocchi tutto il run.
+      }
     }
   }
 
+  const alertsSent = await sendSummaryEmails(allTargetOffers);
+
   return {
-    total: monitorsToCheck.length,
+    total: monitors.length,
     checked,
     alertsSent,
     errors,
-    details,
-    results: details
+    details
   };
 }
