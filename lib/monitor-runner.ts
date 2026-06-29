@@ -532,10 +532,6 @@ export async function runMonitor(
         checkStoreSite(monitor, 'Momox')
       ]);
 
-      for (const check of checks) {
-        console.log(
-      }
-
       if (!hasAnyUsefulCheck(checks)) {
         details.push({
           id: monitor.id,
