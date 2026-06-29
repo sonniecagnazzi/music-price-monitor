@@ -111,7 +111,14 @@ function normalizeCondition(value: string, store: StoreName): string | null {
 
   const nearMintSignals =
     store === 'Medimops'
-      ? ['wie neu', 'zustand wie neu', 'artikelzustand wie neu']
+      ? [
+          'wie neu',
+          'zustand wie neu',
+          'artikelzustand wie neu',
+          'neuwertig',
+          'neuwertiger zustand',
+          'artikelzustand neuwertig'
+        ]
       : ['comme neuf', 'etat comme neuf', 'article comme neuf'];
 
   if (nearMintSignals.some((signal) => text.includes(signal))) {
@@ -179,7 +186,7 @@ function normalizeCondition(value: string, store: StoreName): string | null {
 }
 
 function conditionScore(condition: string | null): number {
-  if (condition === 'NM') return 50;
+  if (condition === 'NM') return 120;
   if (condition === 'EX') return 40;
   if (condition === 'VG') return 20;
   if (condition === 'G') return 10;
@@ -319,6 +326,7 @@ function extractCandidatesFromHtml(html: string, store: StoreName): Candidate[] 
           node.parent().text(),
           node.closest('section').text(),
           node.closest('article').text(),
+          node.closest('main').text(),
           node.closest('div').text()
         ].join(' ')
       );
@@ -336,7 +344,7 @@ function extractCandidatesFromHtml(html: string, store: StoreName): Candidate[] 
 
   const visibleText = extractVisibleText($);
   const visiblePrice = parsePrice(visibleText);
-  const visibleCondition = normalizeCondition(visibleText, store);
+  const visibleCondition = null;
 
   if (visiblePrice !== null) {
     candidates.push({
@@ -378,13 +386,27 @@ function extractCandidatesFromText(text: string, store: StoreName): Candidate[] 
     if (priceInLine === null) continue;
 
     const context = [
+      lines[index - 10] || '',
+      lines[index - 9] || '',
+      lines[index - 8] || '',
+      lines[index - 7] || '',
+      lines[index - 6] || '',
+      lines[index - 5] || '',
+      lines[index - 4] || '',
       lines[index - 3] || '',
       lines[index - 2] || '',
       lines[index - 1] || '',
       line,
       lines[index + 1] || '',
       lines[index + 2] || '',
-      lines[index + 3] || ''
+      lines[index + 3] || '',
+      lines[index + 4] || '',
+      lines[index + 5] || '',
+      lines[index + 6] || '',
+      lines[index + 7] || '',
+      lines[index + 8] || '',
+      lines[index + 9] || '',
+      lines[index + 10] || ''
     ].join(' ');
 
     const localCondition = normalizeCondition(context, store);
