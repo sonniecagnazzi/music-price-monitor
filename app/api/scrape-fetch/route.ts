@@ -33,13 +33,14 @@ function buildBrowserLikeHeaders(url: string): Record<string, string> {
 function isAllowedUrl(value: string): boolean {
   try {
     const url = new URL(value);
+    const hostname = url.hostname.toLowerCase();
 
     return (
       url.protocol === 'https:' &&
-      (url.hostname === 'www.medimops.de' ||
-        url.hostname === 'medimops.de' ||
-        url.hostname === 'www.momox-shop.fr' ||
-        url.hostname === 'momox-shop.fr')
+      (hostname === 'www.medimops.de' ||
+        hostname === 'medimops.de' ||
+        hostname === 'www.momox-shop.fr' ||
+        hostname === 'momox-shop.fr')
     );
   } catch {
     return false;
@@ -81,21 +82,52 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const response = await fetch(url, {
-      method: 'GET',
-      redirect: 'follow',
-      cache: 'no-store',
-      headers: buildBrowserLikeHeaders(url)
-    });
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 8000);
 
-    const text = await response.text();
+    try {
+      const response = await fetch(url, {
+        method: 'GET',
+        redirect: 'follow',
+        cache: 'no-store',
+        headers: buildBrowserLikeHeaders(url),
+        signal: controller.signal
+      });
 
-    return NextResponse.json({
-      ok: response.ok,
-      status: response.status,
-      statusText: response.statusText,
-      text: text.slice(0, 600000)
-    });
+      const contentType = response.headers.get('content-type') || '';
+      const normalizedContentType = contentType.toLowerCase();
+
+      if (
+        contentType &&
+        !normalizedContentType.includes('text/html') &&
+        !normalizedContentType.includes('application/xhtml+xml')
+      ) {
+        return NextResponse.json(
+          {
+            ok: false,
+            error: 'Content-Type non supportato.',
+            status: response.status,
+            contentType
+          },
+          {
+            status: 415
+          }
+        );
+      }
+
+      const text = await response.text();
+
+      return NextResponse.json({
+        ok: response.ok,
+        status: response.status,
+        statusText: response.statusText,
+        finalUrl: response.url,
+        contentType,
+        text: text.slice(0, 600000)
+      });
+    } finally {
+      clearTimeout(timeout);
+    }
   } catch (error) {
     return NextResponse.json(
       {
