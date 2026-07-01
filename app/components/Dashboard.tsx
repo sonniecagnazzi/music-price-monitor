@@ -1715,20 +1715,13 @@ export default function Dashboard() {
                               {openActionMenuId === monitor.id && (
                                 <div
                                   className="absolute right-0 z-40 mt-2 w-44 overflow-hidden rounded-2xl border border-slate-200 bg-white py-1 shadow-xl"
-                                  onMouseLeave={() => setOpenActionMenuId(null)}
                                 >
                                   <button
                                     type="button"
                                     className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm font-bold text-[#2B403E] hover:bg-slate-50"
-                                    onMouseDown={(event) => {
-                                      event.preventDefault();
-                                      event.stopPropagation();
+                                    onClick={() => {
                                       setDetailPopupMonitor(monitor);
                                       setOpenActionMenuId(null);
-                                    }}
-                                    onClick={(event) => {
-                                      event.preventDefault();
-                                      event.stopPropagation();
                                     }}
                                   >
                                     <span aria-hidden="true">ⓘ</span>
