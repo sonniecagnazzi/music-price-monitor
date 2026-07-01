@@ -1697,6 +1697,16 @@ export default function Dashboard() {
                               <CartIcon />
                             </button>
 
+                            <button
+                              type="button"
+                              className="inline-flex h-8 w-8 items-center justify-center rounded-xl border border-emerald-100 bg-white text-emerald-700 hover:bg-emerald-50"
+                              onClick={() => setDetailPopupMonitor(monitor)}
+                              title="Debug dettaglio"
+                              aria-label="Debug dettaglio"
+                            >
+                              ⓘ
+                            </button>
+
                             <div className="relative">
                               <button
                                 type="button"
