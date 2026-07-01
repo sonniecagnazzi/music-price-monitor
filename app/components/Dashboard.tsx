@@ -1720,9 +1720,15 @@ export default function Dashboard() {
                                   <button
                                     type="button"
                                     className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm font-bold text-[#2B403E] hover:bg-slate-50"
-                                    onClick={() => {
+                                    onMouseDown={(event) => {
+                                      event.preventDefault();
+                                      event.stopPropagation();
                                       setDetailPopupMonitor(monitor);
                                       setOpenActionMenuId(null);
+                                    }}
+                                    onClick={(event) => {
+                                      event.preventDefault();
+                                      event.stopPropagation();
                                     }}
                                   >
                                     <span aria-hidden="true">ⓘ</span>
