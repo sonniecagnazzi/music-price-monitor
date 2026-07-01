@@ -758,7 +758,6 @@ export default function Dashboard() {
   const [monitors, setMonitors] = useState<Monitor[]>([]);
   const [bestPopupMonitor, setBestPopupMonitor] = useState<Monitor | null>(null);
   const [detailPopupMonitor, setDetailPopupMonitor] = useState<Monitor | null>(null);
-  const [openActionMenuId, setOpenActionMenuId] = useState<string | null>(null);
   const [form, setForm] = useState<FormState>(emptyForm);
   const [filters, setFilters] = useState<Record<string, string>>({});
   const [multiFilters, setMultiFilters] =
@@ -804,12 +803,11 @@ export default function Dashboard() {
   }, [bestPopupMonitor]);
 
   useEffect(() => {
-    if (!detailPopupMonitor && !openActionMenuId) return;
+    if (!detailPopupMonitor) return;
 
     function handleDashboardPopupKeyDown(event: KeyboardEvent) {
       if (event.key === 'Escape') {
         setDetailPopupMonitor(null);
-        setOpenActionMenuId(null);
       }
     }
 
@@ -818,7 +816,7 @@ export default function Dashboard() {
     return () => {
       window.removeEventListener('keydown', handleDashboardPopupKeyDown);
     };
-  }, [detailPopupMonitor, openActionMenuId]);
+  }, [detailPopupMonitor]);
 
   async function loadData() {
     const monitorsResponse = await fetch('/api/monitors');
@@ -1697,74 +1695,54 @@ export default function Dashboard() {
                               <CartIcon />
                             </button>
 
-                            <button
-                              type="button"
-                              className="inline-flex h-8 w-8 items-center justify-center rounded-xl border border-emerald-100 bg-white text-emerald-700 hover:bg-emerald-50"
-                              onClick={() => setDetailPopupMonitor(monitor)}
-                              title="Debug dettaglio"
-                              aria-label="Debug dettaglio"
-                            >
-                              ⓘ
-                            </button>
-
-                            <div className="relative">
-                              <button
-                                type="button"
-                                className="inline-flex h-8 w-8 items-center justify-center rounded-xl border border-slate-200 bg-white text-lg font-black text-[#2B403E] hover:bg-slate-50"
-                                onClick={() =>
-                                  setOpenActionMenuId(
-                                    openActionMenuId === monitor.id ? null : monitor.id
-                                  )
-                                }
+                            <details className="relative">
+                              <summary
+                                className="inline-flex h-8 w-8 cursor-pointer list-none items-center justify-center rounded-xl border border-slate-200 bg-white text-lg font-black text-[#2B403E] hover:bg-slate-50 [&::-webkit-details-marker]:hidden"
                                 title="Altre azioni"
                                 aria-label="Altre azioni"
                               >
                                 ⋯
-                              </button>
+                              </summary>
 
-                              {openActionMenuId === monitor.id && (
-                                <div
-                                  className="absolute right-0 z-40 mt-2 w-44 overflow-hidden rounded-2xl border border-slate-200 bg-white py-1 shadow-xl"
+                              <div className="absolute right-0 z-40 mt-2 w-44 overflow-hidden rounded-2xl border border-slate-200 bg-white py-1 shadow-xl">
+                                <button
+                                  type="button"
+                                  className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm font-bold text-[#2B403E] hover:bg-slate-50"
+                                  onClick={(event) => {
+                                    event.currentTarget.closest('details')?.removeAttribute('open');
+                                    setDetailPopupMonitor(monitor);
+                                  }}
                                 >
-                                  <button
-                                    type="button"
-                                    className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm font-bold text-[#2B403E] hover:bg-slate-50"
-                                    onClick={() => {
-                                      setDetailPopupMonitor(monitor);
-                                      setOpenActionMenuId(null);
-                                    }}
-                                  >
-                                    <span aria-hidden="true">ⓘ</span>
-                                    Vedi dettaglio
-                                  </button>
+                                  <span aria-hidden="true">ⓘ</span>
+                                  Vedi dettaglio
+                                </button>
 
-                                  <button
-                                    type="button"
-                                    className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm font-bold text-[#2B403E] hover:bg-slate-50"
-                                    onClick={() => {
-                                      editMonitor(monitor);
-                                      setOpenActionMenuId(null);
-                                    }}
-                                  >
-                                    <EditIcon />
-                                    Modifica
-                                  </button>
+                                <button
+                                  type="button"
+                                  className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm font-bold text-[#2B403E] hover:bg-slate-50"
+                                  onClick={(event) => {
+                                    event.currentTarget.closest('details')?.removeAttribute('open');
+                                    editMonitor(monitor);
+                                  }}
+                                >
+                                  <EditIcon />
+                                  Modifica
+                                </button>
 
-                                  <button
-                                    type="button"
-                                    className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm font-bold text-red-600 hover:bg-red-50 disabled:opacity-50"
-                                    disabled={busy}
-                                    onClick={() => {
-                                      setOpenActionMenuId(null);
-                                      deleteMonitor(monitor.id);
-                                    }}
-                                  >
-                                    <TrashIcon />
-                                    Cancella
-                                  </button>
-                                </div>
-                              )}
-                            </div>
+                                <button
+                                  type="button"
+                                  className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm font-bold text-red-600 hover:bg-red-50 disabled:opacity-50"
+                                  disabled={busy}
+                                  onClick={(event) => {
+                                    event.currentTarget.closest('details')?.removeAttribute('open');
+                                    deleteMonitor(monitor.id);
+                                  }}
+                                >
+                                  <TrashIcon />
+                                  Cancella
+                                </button>
+                              </div>
+                            </details>
                           </div>
                         </td>
 
