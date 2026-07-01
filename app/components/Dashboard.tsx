@@ -758,6 +758,7 @@ export default function Dashboard() {
   const [monitors, setMonitors] = useState<Monitor[]>([]);
   const [bestPopupMonitor, setBestPopupMonitor] = useState<Monitor | null>(null);
   const [detailPopupMonitor, setDetailPopupMonitor] = useState<Monitor | null>(null);
+  const [actionMenuMonitor, setActionMenuMonitor] = useState<Monitor | null>(null);
   const [form, setForm] = useState<FormState>(emptyForm);
   const [filters, setFilters] = useState<Record<string, string>>({});
   const [multiFilters, setMultiFilters] =
@@ -803,11 +804,12 @@ export default function Dashboard() {
   }, [bestPopupMonitor]);
 
   useEffect(() => {
-    if (!detailPopupMonitor) return;
+    if (!detailPopupMonitor && !actionMenuMonitor) return;
 
     function handleDashboardPopupKeyDown(event: KeyboardEvent) {
       if (event.key === 'Escape') {
         setDetailPopupMonitor(null);
+        setActionMenuMonitor(null);
       }
     }
 
@@ -816,7 +818,7 @@ export default function Dashboard() {
     return () => {
       window.removeEventListener('keydown', handleDashboardPopupKeyDown);
     };
-  }, [detailPopupMonitor]);
+  }, [detailPopupMonitor, actionMenuMonitor]);
 
   async function loadData() {
     const monitorsResponse = await fetch('/api/monitors');
@@ -1695,54 +1697,15 @@ export default function Dashboard() {
                               <CartIcon />
                             </button>
 
-                            <details className="relative">
-                              <summary
-                                className="inline-flex h-8 w-8 cursor-pointer list-none items-center justify-center rounded-xl border border-slate-200 bg-white text-lg font-black text-[#2B403E] hover:bg-slate-50 [&::-webkit-details-marker]:hidden"
-                                title="Altre azioni"
-                                aria-label="Altre azioni"
-                              >
-                                ⋯
-                              </summary>
-
-                              <div className="absolute right-0 z-40 mt-2 w-44 overflow-hidden rounded-2xl border border-slate-200 bg-white py-1 shadow-xl">
-                                <button
-                                  type="button"
-                                  className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm font-bold text-[#2B403E] hover:bg-slate-50"
-                                  onClick={(event) => {
-                                    event.currentTarget.closest('details')?.removeAttribute('open');
-                                    setDetailPopupMonitor(monitor);
-                                  }}
-                                >
-                                  <span aria-hidden="true">ⓘ</span>
-                                  Vedi dettaglio
-                                </button>
-
-                                <button
-                                  type="button"
-                                  className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm font-bold text-[#2B403E] hover:bg-slate-50"
-                                  onClick={(event) => {
-                                    event.currentTarget.closest('details')?.removeAttribute('open');
-                                    editMonitor(monitor);
-                                  }}
-                                >
-                                  <EditIcon />
-                                  Modifica
-                                </button>
-
-                                <button
-                                  type="button"
-                                  className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm font-bold text-red-600 hover:bg-red-50 disabled:opacity-50"
-                                  disabled={busy}
-                                  onClick={(event) => {
-                                    event.currentTarget.closest('details')?.removeAttribute('open');
-                                    deleteMonitor(monitor.id);
-                                  }}
-                                >
-                                  <TrashIcon />
-                                  Cancella
-                                </button>
-                              </div>
-                            </details>
+                            <button
+                              type="button"
+                              className="inline-flex h-8 w-8 items-center justify-center rounded-xl border border-slate-200 bg-white text-lg font-black text-[#2B403E] hover:bg-slate-50"
+                              onClick={() => setActionMenuMonitor(monitor)}
+                              title="Altre azioni"
+                              aria-label="Altre azioni"
+                            >
+                              ⋯
+                            </button>
                           </div>
                         </td>
 
@@ -1886,6 +1849,80 @@ export default function Dashboard() {
                 <div className="mt-4 rounded-2xl bg-orange-50 p-3 text-sm font-semibold text-orange-900">
                   Campi obbligatori: Genere, Tipo, Artista, Album, EAN, Target,
                   URL Medimops. URL Momox viene generato automaticamente da URL Medimops.
+                </div>
+              </div>
+            </div>
+          )}
+
+          {actionMenuMonitor && (
+            <div
+              className="fixed inset-0 z-50 flex items-center justify-center bg-[#12201f]/35 p-4"
+              onClick={() => setActionMenuMonitor(null)}
+            >
+              <div
+                className="w-full max-w-xs rounded-3xl bg-white p-4 shadow-2xl"
+                onClick={(event) => event.stopPropagation()}
+              >
+                <div className="mb-3 flex items-start justify-between gap-4">
+                  <div>
+                    <div className="text-xs font-black uppercase tracking-[0.22em] text-[#24bfbf]">
+                      Azioni monitor
+                    </div>
+                    <div className="mt-1 text-sm font-black text-[#12201f]">
+                      {actionMenuMonitor.artist}
+                    </div>
+                    <div className="text-xs font-semibold text-[#2b403e]/70">
+                      {actionMenuMonitor.album}
+                    </div>
+                  </div>
+
+                  <button
+                    type="button"
+                    className="rounded-full border border-[#2b403e]/10 px-3 py-1 text-lg font-black text-[#2b403e] hover:bg-[#f2f2f2]"
+                    onClick={() => setActionMenuMonitor(null)}
+                    aria-label="Chiudi"
+                  >
+                    ×
+                  </button>
+                </div>
+
+                <div className="space-y-2">
+                  <button
+                    type="button"
+                    className="flex w-full items-center gap-3 rounded-2xl px-3 py-3 text-left text-sm font-black text-[#2B403E] hover:bg-slate-50"
+                    onClick={() => {
+                      setDetailPopupMonitor(actionMenuMonitor);
+                      setActionMenuMonitor(null);
+                    }}
+                  >
+                    <span aria-hidden="true">ⓘ</span>
+                    Vedi dettaglio
+                  </button>
+
+                  <button
+                    type="button"
+                    className="flex w-full items-center gap-3 rounded-2xl px-3 py-3 text-left text-sm font-black text-[#2B403E] hover:bg-slate-50"
+                    onClick={() => {
+                      editMonitor(actionMenuMonitor);
+                      setActionMenuMonitor(null);
+                    }}
+                  >
+                    <EditIcon />
+                    Modifica
+                  </button>
+
+                  <button
+                    type="button"
+                    className="flex w-full items-center gap-3 rounded-2xl px-3 py-3 text-left text-sm font-black text-red-600 hover:bg-red-50 disabled:opacity-50"
+                    disabled={busy}
+                    onClick={() => {
+                      deleteMonitor(actionMenuMonitor.id);
+                      setActionMenuMonitor(null);
+                    }}
+                  >
+                    <TrashIcon />
+                    Cancella
+                  </button>
                 </div>
               </div>
             </div>
