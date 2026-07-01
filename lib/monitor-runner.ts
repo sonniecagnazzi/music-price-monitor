@@ -18,6 +18,8 @@ type MonitorRow = {
   url: string | null;
   target_price: number | null;
   current_price: number | null;
+  lowest_best_price: number | null;
+  lowest_best_price_at: string | null;
 
   medimops_url: string | null;
   medimops_target_price: number | null;
@@ -436,6 +438,17 @@ async function getMonitorRows(options: RunMonitorOptions): Promise<MonitorRow[]>
   return (data || []) as MonitorRow[];
 }
 
+function getLowestCandidateBestPrice(values: Array<number | null | undefined>): number | null {
+  const prices = values.filter(
+    (value): value is number =>
+      typeof value === 'number' && Number.isFinite(value)
+  );
+
+  if (prices.length === 0) return null;
+
+  return Math.min(...prices);
+}
+
 async function updateMonitorAfterChecks(
   monitor: MonitorRow,
   checks: SiteCheck[]
@@ -459,6 +472,24 @@ async function updateMonitorAfterChecks(
   const now = new Date().toISOString();
   const message = buildCheckMessage(checks);
 
+  const nextBestPrice = getLowestCandidateBestPrice([
+    medimops ? getNextPrice(medimops) : monitor.medimops_current_price,
+    momox ? getNextPrice(momox) : monitor.momox_current_price
+  ]);
+
+  const shouldUpdateLowestBest =
+    nextBestPrice !== null &&
+    (monitor.lowest_best_price === null ||
+      nextBestPrice < monitor.lowest_best_price);
+
+  const nextLowestBestPrice = shouldUpdateLowestBest
+    ? nextBestPrice
+    : monitor.lowest_best_price;
+
+  const nextLowestBestPriceAt = shouldUpdateLowestBest
+    ? now
+    : monitor.lowest_best_price_at;
+
   const { error } = await supabase
     .from('monitors')
     .update({
@@ -466,6 +497,8 @@ async function updateMonitorAfterChecks(
       url: primary.url,
       target_price: primary.targetPrice,
       current_price: legacyCurrentPrice,
+      lowest_best_price: nextLowestBestPrice,
+      lowest_best_price_at: nextLowestBestPriceAt,
 
       medimops_current_price: medimops
         ? getNextPrice(medimops)

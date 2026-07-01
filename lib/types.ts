@@ -29,6 +29,8 @@ export type Monitor = {
   url: string;
   target_price: number;
   current_price: number | null;
+  lowest_best_price: number | null;
+  lowest_best_price_at: string | null;
 
   medimops_url: string | null;
   medimops_target_price: number | null;
