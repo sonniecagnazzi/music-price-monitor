@@ -67,21 +67,46 @@ function getStatusClass(monitor: Monitor): string {
   return 'bg-slate-100 text-slate-600';
 }
 
-function Box({
+function MiniBox({
   label,
   children,
-  wide = false
+  className = ''
 }: {
   label: string;
   children: ReactNode;
-  wide?: boolean;
+  className?: string;
 }) {
   return (
-    <div className={`rounded-2xl bg-[#f2f2f2] p-3 ${wide ? 'md:col-span-3' : ''}`}>
-      <div className="text-xs font-black uppercase text-[#2b403e]/50">
+    <div className={`rounded-xl bg-[#f2f2f2] px-3 py-2 ${className}`}>
+      <div className="text-[10px] font-black uppercase tracking-[0.12em] text-[#2b403e]/50">
         {label}
       </div>
-      <div className="mt-1 break-words font-black text-[#12201f]">
+      <div className="mt-0.5 truncate text-sm font-black text-[#12201f]">
+        {children || '—'}
+      </div>
+    </div>
+  );
+}
+
+function MetricBox({
+  label,
+  children,
+  tone = 'default'
+}: {
+  label: string;
+  children: ReactNode;
+  tone?: 'default' | 'green';
+}) {
+  return (
+    <div className="rounded-xl border border-slate-200 px-3 py-2">
+      <div className="text-[10px] font-black uppercase tracking-[0.12em] text-[#2b403e]/50">
+        {label}
+      </div>
+      <div
+        className={`mt-0.5 text-base font-black ${
+          tone === 'green' ? 'text-[#1fbf92]' : 'text-[#12201f]'
+        }`}
+      >
         {children || '—'}
       </div>
     </div>
@@ -104,40 +129,34 @@ function StoreBox({
   target: number | null | undefined;
 }) {
   return (
-    <div className="rounded-3xl border border-slate-200 p-4">
-      <h4 className={`text-sm font-black uppercase tracking-[0.18em] ${accentClassName}`}>
+    <div className="rounded-2xl border border-slate-200 p-3">
+      <div className={`text-xs font-black uppercase tracking-[0.18em] ${accentClassName}`}>
         {title}
-      </h4>
+      </div>
 
-      <div className="mt-3 space-y-2 text-sm">
-        <div className="flex justify-between gap-4">
-          <span className="font-bold text-[#2b403e]/60">€</span>
-          <span className="font-black text-[#12201f]">{formatEuro(price)}</span>
-        </div>
+      <div className="mt-2 grid grid-cols-2 gap-x-4 gap-y-1 text-sm">
+        <div className="font-bold text-[#2b403e]/55">€</div>
+        <div className="text-right font-black text-[#12201f]">{formatEuro(price)}</div>
 
-        <div className="flex justify-between gap-4">
-          <span className="font-bold text-[#2b403e]/60">Condition</span>
-          <span className="font-black text-[#12201f]">{condition || '—'}</span>
-        </div>
+        <div className="font-bold text-[#2b403e]/55">Condition</div>
+        <div className="text-right font-black text-[#12201f]">{condition || '—'}</div>
 
-        <div className="flex justify-between gap-4">
-          <span className="font-bold text-[#2b403e]/60">Target</span>
-          <span className="font-black text-[#12201f]">{formatEuro(target)}</span>
-        </div>
+        <div className="font-bold text-[#2b403e]/55">Target</div>
+        <div className="text-right font-black text-[#12201f]">{formatEuro(target)}</div>
 
-        <div>
-          <div className="font-bold text-[#2b403e]/60">URL</div>
+        <div className="font-bold text-[#2b403e]/55">URL</div>
+        <div className="text-right">
           {url ? (
             <a
-              className="mt-1 block break-all text-xs font-bold text-[#168c95] underline"
+              className="font-black text-[#168c95] underline"
               href={url}
               target="_blank"
               rel="noreferrer"
             >
-              {url}
+              Apri scheda
             </a>
           ) : (
-            <div className="mt-1 text-sm font-bold text-slate-400">—</div>
+            <span className="font-black text-slate-400">—</span>
           )}
         </div>
       </div>
@@ -150,29 +169,35 @@ export function MonitorDetailModal({ monitor, onClose }: Props) {
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-[#12201f]/35 p-4"
+      className="fixed inset-0 z-50 flex items-center justify-center bg-[#12201f]/35 p-3"
       onClick={onClose}
     >
       <div
-        className="max-h-[88vh] w-full max-w-3xl overflow-y-auto rounded-3xl bg-white p-5 shadow-2xl"
+        className="max-h-[92vh] w-full max-w-5xl overflow-y-auto rounded-3xl bg-white p-4 shadow-2xl"
         onClick={(event) => event.stopPropagation()}
       >
         <div className="flex items-start justify-between gap-4">
-          <div>
+          <div className="min-w-0">
             <div className="text-xs font-black uppercase tracking-[0.22em] text-[#24bfbf]">
               Dettaglio monitor
             </div>
-            <h3 className="mt-1 text-xl font-black text-[#12201f]">
-              {monitor.artist}
-            </h3>
-            <p className="text-sm font-semibold text-[#2b403e]/70">
-              {monitor.album}
-            </p>
+            <div className="mt-1 flex flex-wrap items-center gap-2">
+              <span className="rounded-full bg-cyan-50 px-2.5 py-1 text-xs font-black text-[#168c95]">
+                {monitor.type}
+              </span>
+              <h3 className="truncate text-xl font-black text-[#12201f]">
+                {monitor.artist}
+              </h3>
+              <span className="text-sm font-bold text-[#2b403e]/50">—</span>
+              <p className="truncate text-base font-bold text-[#2b403e]/70">
+                {monitor.album}
+              </p>
+            </div>
           </div>
 
           <button
             type="button"
-            className="rounded-full border border-[#2b403e]/10 px-3 py-1 text-lg font-black text-[#2b403e] hover:bg-[#f2f2f2]"
+            className="h-10 w-10 shrink-0 rounded-full border border-[#2b403e]/10 text-xl font-black text-[#2b403e] hover:bg-[#f2f2f2]"
             onClick={onClose}
             aria-label="Chiudi"
           >
@@ -180,37 +205,38 @@ export function MonitorDetailModal({ monitor, onClose }: Props) {
           </button>
         </div>
 
-        <div className="mt-5 grid gap-3 md:grid-cols-3">
-          <Box label="Tipo">{monitor.type}</Box>
-          <Box label="Artista">{monitor.artist}</Box>
-          <Box label="Album" wide>
-            {monitor.album}
-          </Box>
-          <Box label="EAN">{monitor.ean_code || '—'}</Box>
-          <Box label="Label">{monitor.edition || '—'}</Box>
-          <Box label="Anno / Country">
-            {monitor.release_year || '—'} / {monitor.country || '—'}
-          </Box>
+        <div className="mt-4 grid gap-2 md:grid-cols-6">
+          <MiniBox label="EAN">{monitor.ean_code || '—'}</MiniBox>
+          <MiniBox label="Label" className="md:col-span-2">
+            {monitor.edition || '—'}
+          </MiniBox>
+          <MiniBox label="Anno">{monitor.release_year || '—'}</MiniBox>
+          <MiniBox label="Country">{monitor.country || '—'}</MiniBox>
+          <MiniBox label="Attivo">{monitor.is_active ? 'Sì' : 'No'}</MiniBox>
         </div>
 
-        <div className="mt-4 grid gap-3 md:grid-cols-4">
-          <div className="rounded-2xl border border-slate-200 p-3">
-            <div className="text-xs font-black uppercase text-[#2b403e]/50">
+        <div className="mt-3 grid gap-2 md:grid-cols-4">
+          <div className="rounded-xl border border-slate-200 px-3 py-2">
+            <div className="text-[10px] font-black uppercase tracking-[0.12em] text-[#2b403e]/50">
               Stato
             </div>
-            <div className="mt-2">
+            <div className="mt-1">
               <span className={`inline-flex rounded-full px-2.5 py-1 text-xs font-black ${getStatusClass(monitor)}`}>
                 {getStatusLabel(monitor)}
               </span>
             </div>
           </div>
 
-          <Box label="Best attuale">{formatEuro(getBestPrice(monitor))}</Box>
-          <Box label="Lowest storico">{formatEuro(monitor.lowest_best_price)}</Box>
-          <Box label="Data lowest">{formatDateTime(monitor.lowest_best_price_at)}</Box>
+          <MetricBox label="Best attuale">{formatEuro(getBestPrice(monitor))}</MetricBox>
+          <MetricBox label="Lowest storico" tone="green">
+            {formatEuro(monitor.lowest_best_price)}
+          </MetricBox>
+          <MetricBox label="Data lowest">
+            {formatDateTime(monitor.lowest_best_price_at)}
+          </MetricBox>
         </div>
 
-        <div className="mt-5 grid gap-4 md:grid-cols-2">
+        <div className="mt-3 grid gap-3 md:grid-cols-2">
           <StoreBox
             title="Medimops"
             accentClassName="text-[#24bfbf]"
@@ -230,20 +256,23 @@ export function MonitorDetailModal({ monitor, onClose }: Props) {
           />
         </div>
 
-        <div className="mt-5 rounded-2xl bg-[#f2f2f2] p-4">
-          <div className="text-xs font-black uppercase text-[#2b403e]/50">
-            Ultimo rilievo
-          </div>
-
-          <div className="mt-1 text-sm font-black text-[#12201f]">
-            {formatDateTime(monitor.last_checked_at)}
-          </div>
-
-          {monitor.last_error && (
-            <div className="mt-3 rounded-xl bg-white p-3 text-xs font-semibold text-red-700">
-              {monitor.last_error}
+        <div className="mt-3 rounded-xl bg-[#f2f2f2] px-3 py-2">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <div>
+              <div className="text-[10px] font-black uppercase tracking-[0.12em] text-[#2b403e]/50">
+                Ultimo rilievo
+              </div>
+              <div className="text-sm font-black text-[#12201f]">
+                {formatDateTime(monitor.last_checked_at)}
+              </div>
             </div>
-          )}
+
+            {monitor.last_error && (
+              <div className="max-w-2xl rounded-lg bg-white px-3 py-2 text-xs font-semibold text-red-700">
+                {monitor.last_error}
+              </div>
+            )}
+          </div>
         </div>
       </div>
     </div>
