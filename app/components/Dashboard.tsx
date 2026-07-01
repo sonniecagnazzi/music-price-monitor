@@ -1,5 +1,6 @@
 'use client';
 
+import { MonitorDetailModal } from './MonitorDetailModal';
 import Link from 'next/link';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import type {
@@ -756,6 +757,8 @@ function NavItem({
 export default function Dashboard() {
   const [monitors, setMonitors] = useState<Monitor[]>([]);
   const [bestPopupMonitor, setBestPopupMonitor] = useState<Monitor | null>(null);
+  const [detailPopupMonitor, setDetailPopupMonitor] = useState<Monitor | null>(null);
+  const [openActionMenuId, setOpenActionMenuId] = useState<string | null>(null);
   const [form, setForm] = useState<FormState>(emptyForm);
   const [filters, setFilters] = useState<Record<string, string>>({});
   const [multiFilters, setMultiFilters] =
@@ -799,6 +802,23 @@ export default function Dashboard() {
       window.removeEventListener('keydown', handleLowestPopupKeyDown);
     };
   }, [bestPopupMonitor]);
+
+  useEffect(() => {
+    if (!detailPopupMonitor && !openActionMenuId) return;
+
+    function handleDashboardPopupKeyDown(event: KeyboardEvent) {
+      if (event.key === 'Escape') {
+        setDetailPopupMonitor(null);
+        setOpenActionMenuId(null);
+      }
+    }
+
+    window.addEventListener('keydown', handleDashboardPopupKeyDown);
+
+    return () => {
+      window.removeEventListener('keydown', handleDashboardPopupKeyDown);
+    };
+  }, [detailPopupMonitor, openActionMenuId]);
 
   async function loadData() {
     const monitorsResponse = await fetch('/api/monitors');
@@ -1611,7 +1631,7 @@ export default function Dashboard() {
             </div>
 
             <div className="mpm-scrollbar overflow-x-auto">
-              <table className="min-w-[1850px] border-collapse text-sm">
+              <table className="min-w-[1450px] border-collapse text-sm">
                 <thead>
                   <tr className="bg-white text-left">
                     <th className="whitespace-nowrap border-b border-slate-200 px-3 py-3">
@@ -1623,9 +1643,6 @@ export default function Dashboard() {
                       />
                     </th>
                     <SortableHeader label="Azioni" activeSortKey={sortKey} sortAsc={sortAsc} onDoubleClick={handleHeaderDoubleClick} />
-                    <SortableHeader label="Stato" sortKey="status" activeSortKey={sortKey} sortAsc={sortAsc} onDoubleClick={handleHeaderDoubleClick} />
-                    <SortableHeader label="URL" sortKey="has_url" activeSortKey={sortKey} sortAsc={sortAsc} onDoubleClick={handleHeaderDoubleClick} />
-                    <SortableHeader label="Dettaglio" activeSortKey={sortKey} sortAsc={sortAsc} onDoubleClick={handleHeaderDoubleClick} />
                     <SortableHeader label="Attivo" sortKey="is_active" activeSortKey={sortKey} sortAsc={sortAsc} onDoubleClick={handleHeaderDoubleClick} />
                     <SortableHeader label="Tipo" sortKey="type" activeSortKey={sortKey} sortAsc={sortAsc} onDoubleClick={handleHeaderDoubleClick} />
                     <SortableHeader label="Artista" sortKey="artist" activeSortKey={sortKey} sortAsc={sortAsc} onDoubleClick={handleHeaderDoubleClick} />
@@ -1640,9 +1657,6 @@ export default function Dashboard() {
                     <SortableHeader label="Label" sortKey="edition" activeSortKey={sortKey} sortAsc={sortAsc} onDoubleClick={handleHeaderDoubleClick} />
                     <SortableHeader label="Anno" sortKey="release_year" activeSortKey={sortKey} sortAsc={sortAsc} onDoubleClick={handleHeaderDoubleClick} />
                     <SortableHeader label="Country" sortKey="country" activeSortKey={sortKey} sortAsc={sortAsc} onDoubleClick={handleHeaderDoubleClick} />
-                    <SortableHeader label="Medimops T" sortKey="medimops_target_price" activeSortKey={sortKey} sortAsc={sortAsc} onDoubleClick={handleHeaderDoubleClick} />
-                    <SortableHeader label="Momox T" sortKey="momox_target_price" activeSortKey={sortKey} sortAsc={sortAsc} onDoubleClick={handleHeaderDoubleClick} />
-                    <SortableHeader label="Genere" sortKey="genre" activeSortKey={sortKey} sortAsc={sortAsc} onDoubleClick={handleHeaderDoubleClick} />
                   </tr>
                 </thead>
 
@@ -1664,6 +1678,16 @@ export default function Dashboard() {
                         <td className="px-3 py-3">
                           <div className="flex items-center justify-start gap-1.5">
                             <button
+                              className="inline-flex h-8 w-8 items-center justify-center rounded-xl border border-cyan-100 bg-white text-[#24BFBF] hover:bg-cyan-50 disabled:opacity-50"
+                              disabled={busy}
+                              onClick={() => checkOne(monitor.id)}
+                              title="Controlla ora con GitHub Actions"
+                              aria-label="Controlla ora con GitHub Actions"
+                            >
+                              <CheckIcon />
+                            </button>
+
+                            <button
                               className="inline-flex h-8 w-8 items-center justify-center rounded-xl border border-slate-200 bg-white text-[#2B403E] hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-40"
                               disabled={alreadyInCart}
                               onClick={() => addMonitorToCart(monitor)}
@@ -1673,40 +1697,68 @@ export default function Dashboard() {
                               <CartIcon />
                             </button>
 
-                            <button
-                              className="inline-flex h-8 w-8 items-center justify-center rounded-xl border border-slate-200 bg-white text-[#2B403E] hover:bg-slate-50"
-                              onClick={() => editMonitor(monitor)}
-                              title="Modifica"
-                              aria-label="Modifica"
-                            >
-                              <EditIcon />
-                            </button>
+                            <div className="relative">
+                              <button
+                                type="button"
+                                className="inline-flex h-8 w-8 items-center justify-center rounded-xl border border-slate-200 bg-white text-lg font-black text-[#2B403E] hover:bg-slate-50"
+                                onClick={() =>
+                                  setOpenActionMenuId(
+                                    openActionMenuId === monitor.id ? null : monitor.id
+                                  )
+                                }
+                                title="Altre azioni"
+                                aria-label="Altre azioni"
+                              >
+                                ⋯
+                              </button>
 
-                            <button
-                              className="inline-flex h-8 w-8 items-center justify-center rounded-xl border border-red-100 bg-white text-red-600 hover:bg-red-50 disabled:opacity-50"
-                              disabled={busy}
-                              onClick={() => deleteMonitor(monitor.id)}
-                              title="Elimina"
-                              aria-label="Elimina"
-                            >
-                              <TrashIcon />
-                            </button>
+                              {openActionMenuId === monitor.id && (
+                                <div
+                                  className="absolute right-0 z-40 mt-2 w-44 overflow-hidden rounded-2xl border border-slate-200 bg-white py-1 shadow-xl"
+                                  onMouseLeave={() => setOpenActionMenuId(null)}
+                                >
+                                  <button
+                                    type="button"
+                                    className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm font-bold text-[#2B403E] hover:bg-slate-50"
+                                    onClick={() => {
+                                      setDetailPopupMonitor(monitor);
+                                      setOpenActionMenuId(null);
+                                    }}
+                                  >
+                                    <span aria-hidden="true">ⓘ</span>
+                                    Vedi dettaglio
+                                  </button>
 
-                            <button
-                              className="inline-flex h-8 w-8 items-center justify-center rounded-xl border border-cyan-100 bg-white text-[#24BFBF] hover:bg-cyan-50 disabled:opacity-50"
-                              disabled={busy}
-                              onClick={() => checkOne(monitor.id)}
-                              title="Controlla ora con GitHub Actions"
-                              aria-label="Controlla ora con GitHub Actions"
-                            >
-                              <CheckIcon />
-                            </button>
+                                  <button
+                                    type="button"
+                                    className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm font-bold text-[#2B403E] hover:bg-slate-50"
+                                    onClick={() => {
+                                      editMonitor(monitor);
+                                      setOpenActionMenuId(null);
+                                    }}
+                                  >
+                                    <EditIcon />
+                                    Modifica
+                                  </button>
+
+                                  <button
+                                    type="button"
+                                    className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm font-bold text-red-600 hover:bg-red-50 disabled:opacity-50"
+                                    disabled={busy}
+                                    onClick={() => {
+                                      setOpenActionMenuId(null);
+                                      deleteMonitor(monitor.id);
+                                    }}
+                                  >
+                                    <TrashIcon />
+                                    Cancella
+                                  </button>
+                                </div>
+                              )}
+                            </div>
                           </div>
                         </td>
 
-                        <td className="px-3 py-3"><StatusBadge monitor={monitor} /></td>
-                        <td className="px-3 py-3"><UrlStatusCell monitor={monitor} /></td>
-                        <td className="px-3 py-3"><DetailCell value={monitor.last_error} /></td>
                         <td className="px-3 py-3">
                           <span className={`inline-flex h-6 w-10 items-center rounded-full p-1 ${monitor.is_active ? 'bg-[#24BFBF]' : 'bg-slate-200'}`}>
                             <span className={`h-4 w-4 rounded-full bg-white shadow ${monitor.is_active ? 'ml-4' : ''}`} />
@@ -1851,6 +1903,11 @@ export default function Dashboard() {
               </div>
             </div>
           )}
+
+          <MonitorDetailModal
+            monitor={detailPopupMonitor}
+            onClose={() => setDetailPopupMonitor(null)}
+          />
 
           {bestPopupMonitor && (
             <div
