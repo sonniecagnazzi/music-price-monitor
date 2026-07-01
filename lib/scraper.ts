@@ -370,42 +370,150 @@ async function fetchText(url: string): Promise<string> {
   return body;
 }
 
-async function fetchViaJinaReader(url: string): Promise<string> {
-  const normalizedUrl = url.replace(/^https?:\/\//, '');
-  const readerUrl = `https://r.jina.ai/http://${normalizedUrl}`;
+function isLikelyBlockedReaderText(text: string): boolean {
+  const normalized = normalizeForSearch(text);
 
-  const response = await fetch(readerUrl, {
-    headers: {
-      accept: 'text/plain,text/markdown,*/*',
-      'user-agent': USER_AGENT
-    },
-    signal: timeoutSignal(REQUEST_TIMEOUT_MS)
-  });
-
-  if (!response.ok) {
-    throw new Error(`Jina Reader HTTP ${response.status}`);
-  }
-
-  return response.text();
+  return (
+    normalized.includes('attention required') ||
+    normalized.includes('just a moment') ||
+    normalized.includes('cloudflare') ||
+    normalized.includes('target url returned error 403') ||
+    normalized.includes('requiring captcha') ||
+    normalized.includes('captcha')
+  );
 }
 
+async function fetchViaJinaReader(url: string): Promise<string> {
+  const normalizedUrl = url.trim().replace(/^https?:\/\//i, '');
 
+  const readerUrls = [
+    `https://r.jina.ai/http://${normalizedUrl}`,
+    `https://r.jina.ai/http://https://${normalizedUrl}`,
+    `https://r.jina.ai/http://http://${normalizedUrl}`
+  ];
+
+  const visited = new Set<string>();
+  const errors: string[] = [];
+  let bestBlockedText = '';
+
+  for (const readerUrl of readerUrls) {
+    if (visited.has(readerUrl)) continue;
+
+    visited.add(readerUrl);
+
+    try {
+      const response = await fetch(readerUrl, {
+        headers: {
+          accept: 'text/plain,text/markdown,*/*',
+          'user-agent': USER_AGENT
+        },
+        signal: timeoutSignal(REQUEST_TIMEOUT_MS)
+      });
+
+      if (!response.ok) {
+        errors.push(`${readerUrl}: HTTP ${response.status}`);
+        continue;
+      }
+
+      const text = await response.text();
+
+      if (!text.trim()) {
+        errors.push(`${readerUrl}: vuoto`);
+        continue;
+      }
+
+      if (!isLikelyBlockedReaderText(text)) {
+        return text;
+      }
+
+      if (text.length > bestBlockedText.length) {
+        bestBlockedText = text;
+      }
+
+      errors.push(`${readerUrl}: contenuto bloccato/non utile`);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'errore sconosciuto';
+      errors.push(`${readerUrl}: ${message}`);
+    }
+  }
+
+  if (bestBlockedText) {
+    return bestBlockedText;
+  }
+
+  throw new Error(errors.length > 0 ? errors.join(' | ') : 'Jina Reader non riuscito.');
+}
 
 function buildFallbackUrlVariants(url: string): string[] {
   const trimmedUrl = url.trim();
   const variants = new Set<string>();
 
-  variants.add(trimmedUrl);
-  variants.add(trimmedUrl.toLowerCase());
+  function add(value: string | null | undefined) {
+    const normalized = String(value || '').trim();
 
-  if (trimmedUrl.includes('www.medimops.de')) {
-    variants.add(trimmedUrl.replace('https://www.medimops.de/', 'https://medimops.de/'));
-    variants.add(trimmedUrl.toLowerCase().replace('https://www.medimops.de/', 'https://medimops.de/'));
+    if (normalized) {
+      variants.add(normalized);
+    }
   }
 
-  if (trimmedUrl.includes('www.momox-shop.fr')) {
-    variants.add(trimmedUrl.replace('https://www.momox-shop.fr/', 'https://momox-shop.fr/'));
-    variants.add(trimmedUrl.toLowerCase().replace('https://www.momox-shop.fr/', 'https://momox-shop.fr/'));
+  function addUrl(hostname: string, pathname: string, search: string, hash: string) {
+    const fullPath = `${pathname}${search}${hash}`;
+    const lowerFullPath = `${pathname.toLowerCase()}${search}${hash}`;
+
+    add(`https://${hostname}${fullPath}`);
+    add(`https://${hostname}${lowerFullPath}`);
+    add(`http://${hostname}${fullPath}`);
+    add(`http://${hostname}${lowerFullPath}`);
+  }
+
+  add(trimmedUrl);
+  add(trimmedUrl.toLowerCase());
+
+  try {
+    const parsed = new URL(trimmedUrl);
+    const hostname = parsed.hostname.toLowerCase();
+    const pathname = parsed.pathname || '/';
+    const search = parsed.search || '';
+    const hash = parsed.hash || '';
+
+    if (hostname === 'www.medimops.de' || hostname === 'medimops.de') {
+      addUrl('www.medimops.de', pathname, search, hash);
+      addUrl('medimops.de', pathname, search, hash);
+    } else if (
+      hostname === 'www.momox-shop.fr' ||
+      hostname === 'momox-shop.fr'
+    ) {
+      addUrl('www.momox-shop.fr', pathname, search, hash);
+      addUrl('momox-shop.fr', pathname, search, hash);
+    }
+  } catch {
+    if (trimmedUrl.includes('www.medimops.de')) {
+      add(trimmedUrl.replace('https://www.medimops.de/', 'https://medimops.de/'));
+      add(trimmedUrl.replace('http://www.medimops.de/', 'http://medimops.de/'));
+      add(trimmedUrl.toLowerCase().replace('https://www.medimops.de/', 'https://medimops.de/'));
+      add(trimmedUrl.toLowerCase().replace('http://www.medimops.de/', 'http://medimops.de/'));
+    }
+
+    if (trimmedUrl.includes('medimops.de') && !trimmedUrl.includes('www.medimops.de')) {
+      add(trimmedUrl.replace('https://medimops.de/', 'https://www.medimops.de/'));
+      add(trimmedUrl.replace('http://medimops.de/', 'http://www.medimops.de/'));
+      add(trimmedUrl.toLowerCase().replace('https://medimops.de/', 'https://www.medimops.de/'));
+      add(trimmedUrl.toLowerCase().replace('http://medimops.de/', 'http://www.medimops.de/'));
+    }
+
+    if (trimmedUrl.includes('www.momox-shop.fr')) {
+      add(trimmedUrl.replace('https://www.momox-shop.fr/', 'https://momox-shop.fr/'));
+      add(trimmedUrl.replace('http://www.momox-shop.fr/', 'http://momox-shop.fr/'));
+      add(trimmedUrl.toLowerCase().replace('https://www.momox-shop.fr/', 'https://momox-shop.fr/'));
+      add(trimmedUrl.toLowerCase().replace('http://www.momox-shop.fr/', 'http://momox-shop.fr/'));
+    }
+
+    if (trimmedUrl.includes('momox-shop.fr') && !trimmedUrl.includes('www.momox-shop.fr')) {
+      add(trimmedUrl.replace('https://momox-shop.fr/', 'https://www.momox-shop.fr/'));
+      add(trimmedUrl.replace('http://momox-shop.fr/', 'http://www.momox-shop.fr/'));
+      add(trimmedUrl.toLowerCase().replace('https://momox-shop.fr/', 'https://www.momox-shop.fr/'));
+      add(trimmedUrl.toLowerCase().replace('http://momox-shop.fr/', 'http://www.momox-shop.fr/'));
+    }
   }
 
   return Array.from(variants).filter(Boolean);
