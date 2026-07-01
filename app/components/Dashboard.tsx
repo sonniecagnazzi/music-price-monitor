@@ -446,6 +446,19 @@ function getUrlStatusLabel(monitor: Monitor): 'Con URL' | 'Senza URL' {
   return hasAnyUrl(monitor) ? 'Con URL' : 'Senza URL';
 }
 
+function formatLowestDateTime(value: string | null): string {
+  if (!value) return 'Non disponibile';
+
+  const date = new Date(value);
+
+  if (Number.isNaN(date.getTime())) return 'Non disponibile';
+
+  return new Intl.DateTimeFormat('it-IT', {
+    dateStyle: 'short',
+    timeStyle: 'short'
+  }).format(date);
+}
+
 function getBestPrice(monitor: Monitor): number | null {
   const prices = [monitor.medimops_current_price, monitor.momox_current_price].filter(
     (price): price is number => price !== null
@@ -742,6 +755,7 @@ function NavItem({
 
 export default function Dashboard() {
   const [monitors, setMonitors] = useState<Monitor[]>([]);
+  const [bestPopupMonitor, setBestPopupMonitor] = useState<Monitor | null>(null);
   const [form, setForm] = useState<FormState>(emptyForm);
   const [filters, setFilters] = useState<Record<string, string>>({});
   const [multiFilters, setMultiFilters] =
@@ -769,6 +783,22 @@ export default function Dashboard() {
     setCartIds(items.map((item) => item.id));
     setCartCount(items.length);
   }
+
+  useEffect(() => {
+    if (!bestPopupMonitor) return;
+
+    function handleLowestPopupKeyDown(event: KeyboardEvent) {
+      if (event.key === 'Escape') {
+        setBestPopupMonitor(null);
+      }
+    }
+
+    window.addEventListener('keydown', handleLowestPopupKeyDown);
+
+    return () => {
+      window.removeEventListener('keydown', handleLowestPopupKeyDown);
+    };
+  }, [bestPopupMonitor]);
 
   async function loadData() {
     const monitorsResponse = await fetch('/api/monitors');
@@ -1689,7 +1719,16 @@ export default function Dashboard() {
                         </td>
                         <td className="px-3 py-3 font-bold text-[#12201f]">{monitor.artist}</td>
                         <td className="px-3 py-3"><AlbumCell value={monitor.album} /></td>
-                        <td className="px-3 py-3 font-black text-[#12201f]">{formatEuro(bestPrice)}</td>
+                        <td className="px-3 py-3 font-black text-[#12201f]">
+                          <button
+                            type="button"
+                            className="rounded-lg px-2 py-1 text-left font-black text-[#12201f] underline decoration-[#24bfbf]/40 underline-offset-4 hover:bg-[#24bfbf]/10"
+                            onClick={() => setBestPopupMonitor(monitor)}
+                            title="Mostra lowest storico"
+                          >
+                            {formatEuro(bestPrice)}
+                          </button>
+                        </td>
 
                         <td className="px-3 py-3">
                           <LinkedPrice
@@ -1808,6 +1847,70 @@ export default function Dashboard() {
                 <div className="mt-4 rounded-2xl bg-orange-50 p-3 text-sm font-semibold text-orange-900">
                   Campi obbligatori: Genere, Tipo, Artista, Album, EAN, Target,
                   URL Medimops. URL Momox viene generato automaticamente da URL Medimops.
+                </div>
+              </div>
+            </div>
+          )}
+
+          {bestPopupMonitor && (
+            <div
+              className="fixed inset-0 z-50 flex items-center justify-center bg-[#12201f]/35 p-4"
+              onClick={() => setBestPopupMonitor(null)}
+            >
+              <div
+                className="w-full max-w-sm rounded-3xl bg-white p-5 shadow-2xl"
+                onClick={(event) => event.stopPropagation()}
+              >
+                <div className="flex items-start justify-between gap-4">
+                  <div>
+                    <div className="text-xs font-black uppercase tracking-[0.22em] text-[#24bfbf]">
+                      Storico Best€
+                    </div>
+                    <h3 className="mt-1 text-lg font-black text-[#12201f]">
+                      {bestPopupMonitor.artist}
+                    </h3>
+                    <p className="text-sm font-semibold text-[#2b403e]/70">
+                      {bestPopupMonitor.album}
+                    </p>
+                  </div>
+
+                  <button
+                    type="button"
+                    className="rounded-full border border-[#2b403e]/10 px-3 py-1 text-lg font-black text-[#2b403e] hover:bg-[#f2f2f2]"
+                    onClick={() => setBestPopupMonitor(null)}
+                    aria-label="Chiudi"
+                  >
+                    ×
+                  </button>
+                </div>
+
+                <div className="mt-5 space-y-3 rounded-2xl bg-[#f2f2f2] p-4">
+                  <div className="flex items-center justify-between gap-4">
+                    <span className="text-sm font-bold text-[#2b403e]/70">
+                      Best attuale
+                    </span>
+                    <span className="text-lg font-black text-[#12201f]">
+                      {formatEuro(getBestPrice(bestPopupMonitor))}
+                    </span>
+                  </div>
+
+                  <div className="flex items-center justify-between gap-4">
+                    <span className="text-sm font-bold text-[#2b403e]/70">
+                      Lowest storico
+                    </span>
+                    <span className="text-lg font-black text-[#1fbf92]">
+                      {formatEuro(bestPopupMonitor.lowest_best_price)}
+                    </span>
+                  </div>
+
+                  <div className="flex items-center justify-between gap-4">
+                    <span className="text-sm font-bold text-[#2b403e]/70">
+                      Data lowest
+                    </span>
+                    <span className="text-sm font-black text-[#12201f]">
+                      {formatLowestDateTime(bestPopupMonitor.lowest_best_price_at)}
+                    </span>
+                  </div>
                 </div>
               </div>
             </div>
