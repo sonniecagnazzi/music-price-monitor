@@ -147,6 +147,9 @@ export async function POST(request: NextRequest) {
         alert_email: parsed.data.alert_email,
         is_active: parsed.data.is_active,
         alert_sent: false,
+        last_status: null,
+        last_error: null,
+        last_checked_at: null,
 
         created_at: now,
         updated_at: now
