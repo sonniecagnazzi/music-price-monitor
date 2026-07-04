@@ -25,6 +25,61 @@ const USER_AGENT =
 
 const REQUEST_TIMEOUT_MS = 30000;
 
+const JINA_429_RETRY_DELAYS_MS = [20000, 25000, 30000, 35000, 40000];
+const JINA_BETWEEN_ATTEMPTS_DELAY_MS = 2500;
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+async function fetchWithJinaRateLimitRetry(
+  url: string,
+  init: RequestInit,
+  label: string
+): Promise<Response> {
+  let lastResponse: Response | null = null;
+
+  for (let attempt = 0; attempt <= JINA_429_RETRY_DELAYS_MS.length; attempt += 1) {
+    const response = await fetch(url, init);
+
+    if (response.status !== 429) {
+      return response;
+    }
+
+    lastResponse = response;
+
+    if (attempt >= JINA_429_RETRY_DELAYS_MS.length) {
+      return response;
+    }
+
+    const delay = JINA_429_RETRY_DELAYS_MS[attempt];
+
+    console.log(
+      `[scraper-rate-limit] ${label} HTTP 429. Attendo ${Math.round(delay / 1000)}s prima del retry ${attempt + 1}/${JINA_429_RETRY_DELAYS_MS.length}.`
+    );
+
+    await sleep(delay);
+  }
+
+  return lastResponse as Response;
+}
+
+function isUnavailableText(value: string): boolean {
+  const normalized = normalizeForSearch(value);
+
+  return (
+    normalized.includes('gerade ausverkauft') ||
+    normalized.includes('actuellement non disponible') ||
+    normalized.includes('non disponible') ||
+    normalized.includes('derzeit nicht verfugbar') ||
+    normalized.includes('nicht verfugbar') ||
+    normalized.includes('sold out') ||
+    normalized.includes('currently unavailable') ||
+    normalized.includes('unavailable')
+  );
+}
+
+
 function timeoutSignal(ms: number): AbortSignal {
   const controller = new AbortController();
 
@@ -402,13 +457,19 @@ async function fetchViaJinaReader(url: string): Promise<string> {
     visited.add(readerUrl);
 
     try {
-      const response = await fetch(readerUrl, {
-        headers: {
-          accept: 'text/plain,text/markdown,*/*',
-          'user-agent': USER_AGENT
+      await sleep(JINA_BETWEEN_ATTEMPTS_DELAY_MS);
+
+      const response = await fetchWithJinaRateLimitRetry(
+        readerUrl,
+        {
+          headers: {
+            accept: 'text/plain,text/markdown,*/*',
+            'user-agent': USER_AGENT
+          },
+          signal: timeoutSignal(REQUEST_TIMEOUT_MS)
         },
-        signal: timeoutSignal(REQUEST_TIMEOUT_MS)
-      });
+        `jina-reader ${readerUrl}`
+      );
 
       if (!response.ok) {
         errors.push(`${readerUrl}: HTTP ${response.status}`);
@@ -539,16 +600,22 @@ async function fetchViaJinaSearch(url: string, store: StoreName): Promise<string
   const query = buildSearchQueryFromUrl(url, store);
   const searchUrl = `https://s.jina.ai/?q=${encodeURIComponent(query)}`;
 
-  const response = await fetch(searchUrl, {
-    method: 'GET',
-    headers: {
-      'user-agent': USER_AGENT,
-      accept: 'text/plain,text/markdown,*/*',
-      'accept-language': store === 'Medimops'
-        ? 'de-DE,de;q=0.9,en-US;q=0.8,en;q=0.7'
-        : 'fr-FR,fr;q=0.9,en-US;q=0.8,en;q=0.7'
-    }
-  });
+  await sleep(JINA_BETWEEN_ATTEMPTS_DELAY_MS);
+
+  const response = await fetchWithJinaRateLimitRetry(
+    searchUrl,
+    {
+      method: 'GET',
+      headers: {
+        'user-agent': USER_AGENT,
+        accept: 'text/plain,text/markdown,*/*',
+        'accept-language': store === 'Medimops'
+          ? 'de-DE,de;q=0.9,en-US;q=0.8,en;q=0.7'
+          : 'fr-FR,fr;q=0.9,en-US;q=0.8,en;q=0.7'
+      }
+    },
+    `jina-search ${searchUrl}`
+  );
 
   const body = await response.text();
 
@@ -684,7 +751,17 @@ async function fetchViaFallbackReaders(url: string, store: StoreName): Promise<s
 
   for (const variant of variants) {
     try {
+      await sleep(JINA_BETWEEN_ATTEMPTS_DELAY_MS);
+
       const text = await fetchViaJinaReader(variant);
+
+      if (isUnavailableText(text)) {
+        console.log(
+          `[scraper-fallback-debug] ${store} jina-reader variant="${variant}" unavailable=yes`
+        );
+        return text;
+      }
+
       const candidates = extractCandidatesFromText(text, store);
       const hasUsefulCandidate = candidates.some(
         (candidate) => candidate.price !== null && candidate.condition !== null
@@ -712,6 +789,11 @@ async function fetchViaFallbackReaders(url: string, store: StoreName): Promise<s
 
   try {
     const searchText = await fetchViaJinaSearch(url, store);
+
+    if (isUnavailableText(searchText)) {
+      return searchText;
+    }
+
     const candidates = extractCandidatesFromText(searchText, store);
     const hasUsefulCandidate = candidates.some(
       (candidate) => candidate.price !== null && candidate.condition !== null
@@ -1054,6 +1136,18 @@ export async function scrapePrice(url: string): Promise<ScrapeResult> {
 
     try {
       const readerText = await fetchViaFallbackReaders(trimmedUrl, store);
+
+      if (isUnavailableText(readerText)) {
+        return {
+          price: null,
+          condition: null,
+          status: 'not_found',
+          message: `${store}: prodotto non disponibile.`,
+          source: 'scraper',
+          error: null
+        };
+      }
+
       const candidates = extractCandidatesFromText(readerText, store);
       logScraperDebug(trimmedUrl, store, 'jina-reader-after-direct-error', candidates, readerText);
       const best = pickBestCandidate(candidates);
@@ -1069,6 +1163,18 @@ export async function scrapePrice(url: string): Promise<ScrapeResult> {
 
       try {
         const searchText = await fetchViaJinaSearch(trimmedUrl, store);
+
+        if (isUnavailableText(searchText)) {
+          return {
+            price: null,
+            condition: null,
+            status: 'not_found',
+            message: `${store}: prodotto non disponibile.`,
+            source: 'scraper',
+            error: null
+          };
+        }
+
         const candidates = extractCandidatesFromText(searchText, store);
         const best = pickBestCandidate(candidates);
 
@@ -1099,6 +1205,18 @@ export async function scrapePrice(url: string): Promise<ScrapeResult> {
 
   try {
     const readerText = await fetchViaFallbackReaders(trimmedUrl, store);
+
+    if (isUnavailableText(readerText)) {
+      return {
+        price: null,
+        condition: null,
+        status: 'not_found',
+        message: `${store}: prodotto non disponibile.`,
+        source: 'scraper',
+        error: null
+      };
+    }
+
     const candidates = extractCandidatesFromText(readerText, store);
     logScraperDebug(trimmedUrl, store, 'jina-reader-after-no-direct-result', candidates, readerText);
     const best = pickBestCandidate(candidates);

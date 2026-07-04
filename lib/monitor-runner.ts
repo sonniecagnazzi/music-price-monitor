@@ -286,7 +286,7 @@ function getNextPrice(check: SiteCheck): number | null {
   if (check.status === 'skipped') return check.previousPrice;
 
   if (check.status !== 'ok') {
-    return null;
+    return check.previousPrice;
   }
 
   return check.currentPrice;
@@ -296,7 +296,7 @@ function getNextCondition(check: SiteCheck): string | null {
   if (check.status === 'skipped') return check.previousCondition;
 
   if (check.status !== 'ok') {
-    return null;
+    return check.previousCondition;
   }
 
   return normalizeCondition(check.condition);
@@ -349,10 +349,12 @@ function getLastStatus(checks: SiteCheck[]): 'ok' | 'below_target' | 'not_found'
       : false;
 
   if (medimopsInTarget || momoxInTarget) return 'below_target';
-  if (hasAnyError(checks)) return 'error';
 
   const hasFreshOk = checks.some((check) => check.status === 'ok');
   const hasNotFound = checks.some((check) => check.status === 'not_found');
+
+  if (hasFreshOk) return 'ok';
+  if (hasAnyError(checks)) return 'error';
 
   if (!hasFreshOk && hasNotFound) return 'not_found';
 
@@ -488,19 +490,21 @@ async function updateMonitorAfterChecks(
   const lastStatus = getLastStatus(checks);
   const now = new Date().toISOString();
   const message = buildCheckMessage(checks);
+  const hasFreshOkCheck = checks.some((check) => check.status === 'ok');
 
   const nextBestPrice = getBestEligiblePrice([
     {
-      price: medimops ? getNextPrice(medimops) : monitor.medimops_current_price,
-      condition: medimops ? getNextCondition(medimops) : monitor.medimops_condition
+      price: medimops && medimops.status === 'ok' ? getNextPrice(medimops) : null,
+      condition: medimops && medimops.status === 'ok' ? getNextCondition(medimops) : null
     },
     {
-      price: momox ? getNextPrice(momox) : monitor.momox_current_price,
-      condition: momox ? getNextCondition(momox) : monitor.momox_condition
+      price: momox && momox.status === 'ok' ? getNextPrice(momox) : null,
+      condition: momox && momox.status === 'ok' ? getNextCondition(momox) : null
     }
   ]);
 
   const shouldUpdateLowestBest =
+    hasFreshOkCheck &&
     nextBestPrice !== null &&
     (monitor.lowest_best_price === null ||
       nextBestPrice < monitor.lowest_best_price);
@@ -533,7 +537,7 @@ async function updateMonitorAfterChecks(
       momox_current_price: momox ? getNextPrice(momox) : monitor.momox_current_price,
       momox_condition: momox ? getNextCondition(momox) : monitor.momox_condition,
 
-      last_checked_at: now,
+      last_checked_at: hasFreshOkCheck ? now : monitor.last_checked_at,
       last_status: lastStatus,
       last_error: lastStatus === 'error' || lastStatus === 'not_found' ? message : null,
       alert_sent: lastStatus === 'below_target'
