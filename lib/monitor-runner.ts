@@ -111,6 +111,23 @@ function isTargetCondition(value: string | null | undefined): boolean {
   return condition === 'NM' || condition === 'EX';
 }
 
+function getBestEligiblePrice(
+  candidates: { price: number | null; condition: string | null }[]
+): number | null {
+  const eligiblePrices = candidates
+    .filter(
+      (candidate): candidate is { price: number; condition: string | null } =>
+        typeof candidate.price === 'number' &&
+        isTargetCondition(candidate.condition)
+    )
+    .map((candidate) => candidate.price);
+
+  if (eligiblePrices.length === 0) return null;
+
+  return Math.min(...eligiblePrices);
+}
+
+
 function isInTarget(
   currentPrice: number | null,
   targetPrice: number | null,
@@ -472,9 +489,15 @@ async function updateMonitorAfterChecks(
   const now = new Date().toISOString();
   const message = buildCheckMessage(checks);
 
-  const nextBestPrice = getLowestCandidateBestPrice([
-    medimops ? getNextPrice(medimops) : monitor.medimops_current_price,
-    momox ? getNextPrice(momox) : monitor.momox_current_price
+  const nextBestPrice = getBestEligiblePrice([
+    {
+      price: medimops ? getNextPrice(medimops) : monitor.medimops_current_price,
+      condition: medimops ? getNextCondition(medimops) : monitor.medimops_condition
+    },
+    {
+      price: momox ? getNextPrice(momox) : monitor.momox_current_price,
+      condition: momox ? getNextCondition(momox) : monitor.momox_condition
+    }
   ]);
 
   const shouldUpdateLowestBest =

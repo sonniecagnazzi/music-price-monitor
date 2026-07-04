@@ -33,14 +33,28 @@ function formatDateTime(value: string | null | undefined): string {
 }
 
 function getBestPrice(monitor: Monitor): number | null {
-  const prices = [
-    monitor.medimops_current_price,
-    monitor.momox_current_price
-  ].filter((value): value is number => typeof value === 'number');
+  const candidates = [
+    {
+      price: monitor.medimops_current_price,
+      condition: monitor.medimops_condition
+    },
+    {
+      price: monitor.momox_current_price,
+      condition: monitor.momox_condition
+    }
+  ];
 
-  if (prices.length === 0) return null;
+  const eligiblePrices = candidates
+    .filter(
+      (candidate): candidate is { price: number; condition: string | null } =>
+        typeof candidate.price === 'number' &&
+        (candidate.condition === 'NM' || candidate.condition === 'EX')
+    )
+    .map((candidate) => candidate.price);
 
-  return Math.min(...prices);
+  if (eligiblePrices.length === 0) return null;
+
+  return Math.min(...eligiblePrices);
 }
 
 function getStatusLabel(monitor: Monitor): string {
