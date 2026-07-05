@@ -1602,7 +1602,7 @@ export default function Dashboard() {
                 </div>
               </div>
 
-              <div className="flex flex-wrap items-center gap-3">
+              <div className="mpm-scrollbar flex items-center gap-3 overflow-x-auto pb-1 [&>*]:shrink-0">
                 <button
                   className="mpm-btn-primary inline-flex h-11 items-center gap-2 rounded-xl px-4 text-sm font-bold disabled:opacity-50"
                   onClick={openNewMonitorModal}
