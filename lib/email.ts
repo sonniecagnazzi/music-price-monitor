@@ -2,10 +2,12 @@ import nodemailer from 'nodemailer';
 import { env } from '@/lib/env';
 
 export type TargetEmailOffer = {
+  id: string;
   type: 'CD' | 'LP';
   channel: 'Medimops' | 'Momox';
   artist: string;
   title: string;
+  country: string | null;
   price: number;
   condition: string;
   url: string;
@@ -57,6 +59,13 @@ function formatEuro(value: number): string {
     style: 'currency',
     currency: 'EUR'
   }).format(value);
+}
+
+function buildCartUrl(id: string): string {
+  const baseUrl = String(process.env.APP_BASE_URL || '').trim().replace(/\/+$/, '');
+  const path = `/cart?add=${encodeURIComponent(id)}`;
+
+  return baseUrl ? `${baseUrl}${path}` : path;
 }
 
 function getChannelColor(channel: 'Medimops' | 'Momox') {
@@ -111,6 +120,12 @@ function buildOfferRows(offers: TargetEmailOffer[]) {
           </td>
 
           <td style="padding: 12px 10px; border-bottom: 1px solid #e5e7eb; white-space: nowrap;">
+            <a href="${escapeHtml(offer.url)}" style="color: #334155; text-decoration: none; display: block; font-weight: 800;">
+              ${escapeHtml(offer.country || '-')}
+            </a>
+          </td>
+
+          <td style="padding: 12px 10px; border-bottom: 1px solid #e5e7eb; white-space: nowrap;">
             <a href="${escapeHtml(offer.url)}" style="color: #159b77; text-decoration: none; display: block; font-weight: 900;">
               ${escapeHtml(formatEuro(offer.price))}
             </a>
@@ -122,6 +137,14 @@ function buildOfferRows(offers: TargetEmailOffer[]) {
                 ${escapeHtml(offer.condition)}
               </span>
             </a>
+          </td>
+
+          <td style="padding: 12px 10px; border-bottom: 1px solid #e5e7eb; text-align: center;">
+            <a
+              href="${escapeHtml(buildCartUrl(offer.id))}"
+              title="Aggiungi al carrello"
+              style="display: inline-block; width: 34px; height: 34px; line-height: 34px; border-radius: 12px; background: #ecfeff; color: #168c95; text-decoration: none; font-size: 18px; font-weight: 900; border: 1px solid #cffafe;"
+            >🛒</a>
           </td>
         </tr>
       `;
@@ -137,9 +160,11 @@ function buildTextSummary(offers: TargetEmailOffer[]) {
         `${offer.type}`,
         `${offer.artist}`,
         `${offer.title}`,
+        `${offer.country || '-'}`,
         `${formatEuro(offer.price)}`,
         `Condizione ${offer.condition}`,
-        `${offer.url}`
+        `${offer.url}`,
+        `Carrello ${buildCartUrl(offer.id)}`
       ].join(' | ');
     })
     .join('\n');
@@ -197,8 +222,10 @@ function buildSummaryHtml(offers: TargetEmailOffer[]) {
                     <th align="left" style="padding: 10px; border-bottom: 2px solid #dbe4e2; color: #64748b; font-size: 12px; text-transform: uppercase; letter-spacing: 0.05em;">Canale</th>
                     <th align="left" style="padding: 10px; border-bottom: 2px solid #dbe4e2; color: #64748b; font-size: 12px; text-transform: uppercase; letter-spacing: 0.05em;">Artista</th>
                     <th align="left" style="padding: 10px; border-bottom: 2px solid #dbe4e2; color: #64748b; font-size: 12px; text-transform: uppercase; letter-spacing: 0.05em;">Titolo</th>
+                    <th align="left" style="padding: 10px; border-bottom: 2px solid #dbe4e2; color: #64748b; font-size: 12px; text-transform: uppercase; letter-spacing: 0.05em;">Country</th>
                     <th align="left" style="padding: 10px; border-bottom: 2px solid #dbe4e2; color: #64748b; font-size: 12px; text-transform: uppercase; letter-spacing: 0.05em;">Prezzo</th>
                     <th align="left" style="padding: 10px; border-bottom: 2px solid #dbe4e2; color: #64748b; font-size: 12px; text-transform: uppercase; letter-spacing: 0.05em;">Condizione</th>
+                    <th align="center" style="padding: 10px; border-bottom: 2px solid #dbe4e2; color: #64748b; font-size: 12px; text-transform: uppercase; letter-spacing: 0.05em;">🛒</th>
                   </tr>
                 </thead>
 
@@ -208,7 +235,7 @@ function buildSummaryHtml(offers: TargetEmailOffer[]) {
               </table>
 
               <p style="margin: 20px 0 0; color: #64748b; font-size: 13px; line-height: 1.5;">
-                Clicca su qualsiasi campo della riga per aprire direttamente la pagina prodotto Medimops o Momox.
+                Clicca su qualsiasi campo della riga per aprire direttamente la pagina prodotto Medimops o Momox. Usa l'icona 🛒 per aggiungere il disco al carrello dell'app.
               </p>
             </div>
           </div>

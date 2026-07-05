@@ -1141,7 +1141,7 @@ export async function scrapePrice(url: string): Promise<ScrapeResult> {
         return {
           price: null,
           condition: null,
-          status: 'not_found',
+          status: 'ok',
           message: `${store}: prodotto non disponibile.`,
           source: 'scraper',
           error: null

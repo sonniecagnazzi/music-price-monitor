@@ -375,10 +375,12 @@ function buildTargetOffers(monitor: MonitorRow, checks: SiteCheck[]): TargetEmai
     if (price === null || condition === null) return;
 
     offers.push({
+      id: monitor.id,
       type: monitor.type,
       channel: check.site,
       artist: monitor.artist,
       title: monitor.album,
+      country: monitor.country,
       price,
       condition,
       url: check.url,

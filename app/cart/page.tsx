@@ -5,6 +5,7 @@ import { useEffect, useMemo, useState } from 'react';
 import type { Monitor } from '@/lib/types';
 import { MonitorDetailModal } from '@/app/components/MonitorDetailModal';
 import {
+  addCartItem,
   clearCartItems,
   getCartItems,
   removeCartItem,
@@ -312,6 +313,20 @@ function NavItem({
   );
 }
 
+function monitorToCartItem(monitor: Monitor): CartItem {
+  return {
+    id: monitor.id,
+    type: monitor.type,
+    artist: monitor.artist,
+    album: monitor.album,
+    edition: monitor.edition || null,
+    ean_code: monitor.ean_code || null,
+    medimops_url: monitor.medimops_url || null,
+    medimops_current_price: monitor.medimops_current_price ?? null,
+    is_ignored: false
+  };
+}
+
 function AlbumCell({ value }: { value: string }) {
   const shouldWrap = value.length > 40;
 
@@ -338,6 +353,7 @@ export default function CartPage() {
   const [message, setMessage] = useState('Caricamento carrello...');
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const [detailPopupMonitor, setDetailPopupMonitor] = useState<Monitor | null>(null);
+  const [processedAddId, setProcessedAddId] = useState<string | null>(null);
 
   function refreshItems() {
     setItems(getCartItems({ includeIgnored: true }));
@@ -403,6 +419,30 @@ export default function CartPage() {
 
     return map;
   }, [monitors]);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+
+    const params = new URLSearchParams(window.location.search);
+    const addId = params.get('add');
+
+    if (!addId || processedAddId === addId || monitors.length === 0) return;
+
+    const monitor = monitorById.get(addId);
+
+    setProcessedAddId(addId);
+
+    if (!monitor) {
+      setMessage('Carrello: monitor non trovato.');
+      return;
+    }
+
+    addCartItem(monitorToCartItem(monitor));
+    refreshItems();
+    setMessage(`Aggiunto al carrello: ${monitor.artist} - ${monitor.album}`);
+
+    window.history.replaceState(null, '', '/cart');
+  }, [processedAddId, monitors.length, monitorById]);
 
   const activeStoreConfig =
     STORES.find((store) => store.key === activeStore) || STORES[0];
