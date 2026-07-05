@@ -486,25 +486,26 @@ function getBestPrice(monitor: Monitor): number | null {
 }
 
 function getDisplayStatus(monitor: Monitor): LastStatus | 'never_checked' {
-  const medimopsInTarget = isSiteInTarget(
-    monitor.medimops_current_price,
-    monitor.medimops_target_price
-  );
-
-  const momoxInTarget = isSiteInTarget(
-    monitor.momox_current_price,
-    monitor.momox_target_price
-  );
-
-  if (medimopsInTarget || momoxInTarget) return 'below_target';
-
   return monitor.last_status || 'never_checked';
 }
 
-function sitePriceClass(currentPrice: number | null, targetPrice: number | null) {
-  return isSiteInTarget(currentPrice, targetPrice)
-    ? 'font-bold text-[#1FBF92]'
-    : 'font-semibold text-slate-800';
+function sitePriceClass(
+  currentPrice: number | null,
+  targetPrice: number | null,
+  condition: string | null
+) {
+  const isEligibleCondition = condition === 'NM' || condition === 'EX';
+
+  if (
+    typeof currentPrice === 'number' &&
+    typeof targetPrice === 'number' &&
+    currentPrice <= targetPrice &&
+    isEligibleCondition
+  ) {
+    return 'font-black text-[#1fbf92]';
+  }
+
+  return 'text-slate-700';
 }
 
 function conditionBadge(value: string | null) {
@@ -2061,7 +2062,8 @@ export default function Dashboard() {
                             url={monitor.medimops_url}
                             className={sitePriceClass(
                               monitor.medimops_current_price,
-                              monitor.medimops_target_price
+                              monitor.medimops_target_price,
+                              monitor.medimops_condition
                             )}
                           />
                         </td>
@@ -2074,7 +2076,8 @@ export default function Dashboard() {
                             url={monitor.momox_url}
                             className={sitePriceClass(
                               monitor.momox_current_price,
-                              monitor.momox_target_price
+                              monitor.momox_target_price,
+                              monitor.momox_condition
                             )}
                           />
                         </td>
