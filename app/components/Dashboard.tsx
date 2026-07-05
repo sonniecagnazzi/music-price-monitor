@@ -796,6 +796,7 @@ export default function Dashboard() {
   const [openMultiFilter, setOpenMultiFilter] =
     useState<MultiFilterKey | null>(null);
   const [currentPage, setCurrentPage] = useState(1);
+  const [isDeleteMenuOpen, setIsDeleteMenuOpen] = useState(false);
 
   const csvInputRef = useRef<HTMLInputElement | null>(null);
 
@@ -1602,76 +1603,132 @@ export default function Dashboard() {
                 </div>
               </div>
 
-              <div className="mpm-scrollbar flex items-center gap-3 overflow-x-auto pb-1 [&>*]:shrink-0">
+              <div className="flex flex-nowrap items-center justify-end gap-2">
                 <button
-                  className="mpm-btn-primary inline-flex h-11 items-center gap-2 rounded-xl px-4 text-sm font-bold disabled:opacity-50"
+                  type="button"
+                  className="mpm-btn-primary inline-flex h-11 w-11 items-center justify-center rounded-xl text-xl font-black disabled:opacity-50"
                   onClick={openNewMonitorModal}
+                  title="Nuovo record"
+                  aria-label="Nuovo record"
                 >
-                  <span className="text-lg leading-none">+</span>
-                  Nuovo record
+                  +
                 </button>
 
                 <button
-                  className="inline-flex h-11 items-center gap-2 rounded-xl border border-slate-200 bg-white px-4 text-sm font-bold text-slate-700 shadow-sm hover:bg-slate-50 disabled:opacity-50"
+                  type="button"
+                  className="inline-flex h-11 w-11 items-center justify-center rounded-xl border border-slate-200 bg-white text-slate-700 shadow-sm hover:bg-slate-50 disabled:opacity-50"
                   disabled={busy}
                   onClick={() => setIsImportOpen(true)}
+                  title="Import CSV"
+                  aria-label="Import CSV"
                 >
                   <ImportIcon />
-                  Import CSV
                 </button>
 
                 <button
-                  className="mpm-btn-green inline-flex h-11 items-center gap-2 rounded-xl px-4 text-sm font-bold disabled:opacity-50"
+                  type="button"
+                  className="inline-flex h-11 w-11 items-center justify-center rounded-xl border border-slate-200 bg-white text-lg font-black text-slate-700 shadow-sm hover:bg-slate-50 disabled:opacity-50"
+                  disabled={busy}
+                  onClick={refreshDatagrid}
+                  title="Aggiorna datagrid"
+                  aria-label="Aggiorna datagrid"
+                >
+                  ↻
+                </button>
+
+                <button
+                  type="button"
+                  className="relative inline-flex h-11 w-11 items-center justify-center rounded-xl bg-[#1fbf92] text-white shadow-sm hover:brightness-105 disabled:opacity-50"
                   disabled={busy || selectedIds.length === 0}
                   onClick={applyQuickTarget}
+                  title={selectedIds.length > 0 ? `Quick Target (${selectedIds.length})` : 'Quick Target'}
+                  aria-label={selectedIds.length > 0 ? `Quick Target (${selectedIds.length})` : 'Quick Target'}
                 >
                   <TargetIcon />
-                  Quick Target
-                  {selectedIds.length > 0 ? ` (${selectedIds.length})` : ''}
+                  {selectedIds.length > 0 ? (
+                    <span className="absolute -right-2 -top-2 rounded-full bg-white px-1.5 py-0.5 text-[10px] font-black text-[#1fbf92] shadow">
+                      {selectedIds.length}
+                    </span>
+                  ) : null}
                 </button>
 
                 <button
-                  className="inline-flex h-11 items-center gap-2 rounded-xl border border-cyan-100 bg-white px-4 text-sm font-bold text-[#168c95] shadow-sm hover:bg-cyan-50 disabled:opacity-50"
+                  type="button"
+                  className="relative inline-flex h-11 w-11 items-center justify-center rounded-xl border border-cyan-100 bg-white text-[#168c95] shadow-sm hover:bg-cyan-50 disabled:opacity-50"
                   disabled={busy || selectedIds.length === 0}
                   onClick={addSelectedToCart}
+                  title={selectedIds.length > 0 ? `Aggiungi selezionati al carrello (${selectedIds.length})` : 'Aggiungi selezionati al carrello'}
+                  aria-label={selectedIds.length > 0 ? `Aggiungi selezionati al carrello (${selectedIds.length})` : 'Aggiungi selezionati al carrello'}
                 >
                   <CartIcon />
-                  Aggiungi selezionati
-                  {selectedIds.length > 0 ? ` (${selectedIds.length})` : ''}
+                  <span className="absolute bottom-1 right-1 text-xs font-black leading-none">+</span>
+                  {selectedIds.length > 0 ? (
+                    <span className="absolute -right-2 -top-2 rounded-full bg-[#24BFBF] px-1.5 py-0.5 text-[10px] font-black text-white shadow">
+                      {selectedIds.length}
+                    </span>
+                  ) : null}
                 </button>
 
-                <button
-                  className="inline-flex h-11 items-center gap-2 rounded-xl border border-red-100 bg-white px-4 text-sm font-bold text-red-600 shadow-sm hover:bg-red-50 disabled:opacity-50"
-                  disabled={busy || selectedIds.length === 0}
-                  onClick={deleteSelectedMonitors}
-                >
-                  <TrashIcon />
-                  Elimina selezionati
-                  {selectedIds.length > 0 ? ` (${selectedIds.length})` : ''}
-                </button>
+                <div className="relative">
+                  <button
+                    type="button"
+                    className="inline-flex h-11 w-11 items-center justify-center rounded-xl border border-red-100 bg-white text-red-600 shadow-sm hover:bg-red-50 disabled:opacity-50"
+                    disabled={busy || monitors.length === 0}
+                    onClick={() => setIsDeleteMenuOpen(!isDeleteMenuOpen)}
+                    title="Elimina"
+                    aria-label="Elimina"
+                  >
+                    <TrashIcon />
+                  </button>
+
+                  {isDeleteMenuOpen ? (
+                    <div className="absolute right-0 top-12 z-40 w-56 rounded-2xl border border-slate-200 bg-white p-2 shadow-2xl">
+                      <button
+                        type="button"
+                        className="flex w-full items-center gap-3 rounded-xl px-3 py-2 text-left text-sm font-black text-red-600 hover:bg-red-50 disabled:opacity-40"
+                        disabled={busy || selectedIds.length === 0}
+                        onClick={() => {
+                          setIsDeleteMenuOpen(false);
+                          deleteSelectedMonitors();
+                        }}
+                      >
+                        <TrashIcon />
+                        Elimina selezionati
+                        {selectedIds.length > 0 ? ` (${selectedIds.length})` : ''}
+                      </button>
+
+                      <button
+                        type="button"
+                        className="mt-1 flex w-full items-center gap-3 rounded-xl px-3 py-2 text-left text-sm font-black text-red-700 hover:bg-red-50 disabled:opacity-40"
+                        disabled={busy || monitors.length === 0}
+                        onClick={() => {
+                          setIsDeleteMenuOpen(false);
+                          deleteAllMonitors();
+                        }}
+                      >
+                        <TrashIcon />
+                        Elimina tutti
+                      </button>
+                    </div>
+                  ) : null}
+                </div>
 
                 <button
-                  className="inline-flex h-11 items-center gap-2 rounded-xl border border-red-200 bg-red-50 px-4 text-sm font-black text-red-700 shadow-sm hover:bg-red-100 disabled:opacity-50"
-                  disabled={busy || monitors.length === 0}
-                  onClick={deleteAllMonitors}
-                >
-                  <TrashIcon />
-                  Elimina tutti
-                </button>
-
-                <button
-                  className="mpm-btn-orange inline-flex h-11 items-center gap-2 rounded-xl px-4 text-sm font-bold disabled:opacity-50"
+                  type="button"
+                  className="mpm-btn-orange inline-flex h-11 w-11 items-center justify-center rounded-xl disabled:opacity-50"
                   disabled={busy || filtered.length === 0}
                   onClick={checkVisibleRows}
+                  title="Controlla tutto"
+                  aria-label="Controlla tutto"
                 >
                   <CheckIcon />
-                  Controlla tutto
                 </button>
 
                 <Link
                   href="/cart"
-                  className="relative inline-flex h-11 w-12 items-center justify-center rounded-xl border border-slate-200 bg-white text-slate-700 shadow-sm hover:bg-slate-50"
+                  className="relative inline-flex h-11 w-11 items-center justify-center rounded-xl border border-slate-200 bg-white text-slate-700 shadow-sm hover:bg-slate-50"
                   title="Carrello"
+                  aria-label="Carrello"
                 >
                   <CartIcon />
                   {cartCount > 0 ? (
