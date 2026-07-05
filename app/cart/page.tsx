@@ -3,6 +3,7 @@
 import Link from 'next/link';
 import { useEffect, useMemo, useState } from 'react';
 import type { Monitor } from '@/lib/types';
+import { MonitorDetailModal } from '@/app/components/MonitorDetailModal';
 import {
   clearCartItems,
   getCartItems,
@@ -294,6 +295,7 @@ export default function CartPage() {
   const [discountValue, setDiscountValue] = useState('');
   const [message, setMessage] = useState('Caricamento carrello...');
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
+  const [detailPopupMonitor, setDetailPopupMonitor] = useState<Monitor | null>(null);
 
   function refreshItems() {
     setItems(getCartItems({ includeIgnored: true }));
@@ -315,6 +317,22 @@ export default function CartPage() {
 
     setMonitors(json.data || []);
   }
+
+  useEffect(() => {
+    if (!detailPopupMonitor) return;
+
+    function handleDetailKeyDown(event: KeyboardEvent) {
+      if (event.key === 'Escape') {
+        setDetailPopupMonitor(null);
+      }
+    }
+
+    window.addEventListener('keydown', handleDetailKeyDown);
+
+    return () => {
+      window.removeEventListener('keydown', handleDetailKeyDown);
+    };
+  }, [detailPopupMonitor]);
 
   useEffect(() => {
     refreshItems();
@@ -357,6 +375,7 @@ export default function CartPage() {
         type: monitor?.type || item.type,
         artist: monitor?.artist || item.artist,
         album: monitor?.album || item.album,
+        country: monitor?.country ?? null,
         edition: monitor?.edition ?? item.edition ?? null,
         ean_code: monitor?.ean_code ?? item.ean_code ?? null,
         price:
@@ -445,6 +464,7 @@ export default function CartPage() {
       'Stato',
       'Artista',
       'Titolo',
+      'Country',
       'EAN',
       'Label',
       `Prezzo ${activeStoreConfig.label}`,
@@ -461,6 +481,7 @@ export default function CartPage() {
         row.is_ignored ? 'Ignorato' : 'Attivo',
         row.artist,
         row.album,
+        row.country || '',
         row.ean_code || '',
         row.edition || '',
         row.price ?? '',
@@ -713,14 +734,15 @@ export default function CartPage() {
               </div>
             </div>
 
-            <div className="mpm-scrollbar overflow-x-auto">
+            <div className="mpm-scrollbar max-h-[calc(100vh-360px)] overflow-auto">
               <table className="min-w-[1450px] border-collapse text-sm">
-                <thead>
+                <thead className="[&_th]:sticky [&_th]:top-0 [&_th]:z-20 [&_th]:bg-white">
                   <tr className="bg-white text-left">
                     <th className="whitespace-nowrap border-b border-slate-200 px-3 py-3 text-xs font-bold uppercase tracking-wide text-slate-500">Stato</th>
                     <th className="whitespace-nowrap border-b border-slate-200 px-3 py-3 text-xs font-bold uppercase tracking-wide text-slate-500">Azioni</th>
                     <th className="whitespace-nowrap border-b border-slate-200 px-3 py-3 text-xs font-bold uppercase tracking-wide text-slate-500">Artista</th>
                     <th className="whitespace-nowrap border-b border-slate-200 px-3 py-3 text-xs font-bold uppercase tracking-wide text-slate-500">Titolo</th>
+                    <th className="whitespace-nowrap border-b border-slate-200 px-3 py-3 text-xs font-bold uppercase tracking-wide text-slate-500">Country</th>
                     <th className="whitespace-nowrap border-b border-slate-200 px-3 py-3 text-xs font-bold uppercase tracking-wide text-slate-500">EAN</th>
                     <th className="whitespace-nowrap border-b border-slate-200 px-3 py-3 text-xs font-bold uppercase tracking-wide text-slate-500">Label</th>
                     <th className="whitespace-nowrap border-b border-slate-200 px-3 py-3 text-xs font-bold uppercase tracking-wide text-slate-500">Prezzo {activeStoreConfig.label}</th>
@@ -755,6 +777,15 @@ export default function CartPage() {
                       <td className="px-3 py-3">
                         <div className="flex flex-wrap gap-2">
                           <button
+                            className="rounded-xl border border-slate-200 bg-white px-3 py-1.5 text-xs font-bold text-slate-700 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-40"
+                            disabled={!row.monitor}
+                            onClick={() => row.monitor && setDetailPopupMonitor(row.monitor)}
+                            title={row.monitor ? 'Vedi dettaglio' : 'Dettaglio non disponibile'}
+                          >
+                            Dettaglio
+                          </button>
+
+                          <button
                             className="rounded-xl border border-slate-200 bg-white px-3 py-1.5 text-xs font-bold text-slate-700 hover:bg-slate-50"
                             onClick={() => toggleIgnored(row.cartItem.id)}
                           >
@@ -773,6 +804,7 @@ export default function CartPage() {
 
                       <td className="px-3 py-3 font-bold text-[#12201f]">{row.artist}</td>
                       <td className="px-3 py-3"><AlbumCell value={row.album} /></td>
+                      <td className="px-3 py-3 text-slate-600">{row.country || '-'}</td>
                       <td className="px-3 py-3 text-slate-600">{row.ean_code || '-'}</td>
                       <td className="px-3 py-3 text-slate-600">{row.edition || '-'}</td>
 
@@ -801,7 +833,7 @@ export default function CartPage() {
 
                   {rows.length === 0 && (
                     <tr>
-                      <td className="p-8 text-center text-slate-500" colSpan={12}>
+                      <td className="p-8 text-center text-slate-500" colSpan={13}>
                         Carrello vuoto.
                       </td>
                     </tr>
@@ -812,6 +844,11 @@ export default function CartPage() {
           </section>
         </div>
       </main>
+
+      <MonitorDetailModal
+        monitor={detailPopupMonitor}
+        onClose={() => setDetailPopupMonitor(null)}
+      />
     </div>
   );
 }
