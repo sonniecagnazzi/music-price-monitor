@@ -769,6 +769,9 @@ function NavItem({
   return <button type="button" className="w-full text-left" onClick={onClick}>{content}</button>;
 }
 
+const DASHBOARD_FILTER_STORAGE_KEY = 'music-price-monitor-dashboard-filters-v1';
+const DASHBOARD_PAGE_SIZE = 50;
+
 export default function Dashboard() {
   const [monitors, setMonitors] = useState<Monitor[]>([]);
   const [bestPopupMonitor, setBestPopupMonitor] = useState<Monitor | null>(null);
@@ -792,6 +795,7 @@ export default function Dashboard() {
   const [filtersOpen, setFiltersOpen] = useState(false);
   const [openMultiFilter, setOpenMultiFilter] =
     useState<MultiFilterKey | null>(null);
+  const [currentPage, setCurrentPage] = useState(1);
 
   const csvInputRef = useRef<HTMLInputElement | null>(null);
 
@@ -801,6 +805,57 @@ export default function Dashboard() {
     setCartIds(items.map((item) => item.id));
     setCartCount(items.length);
   }
+
+  useEffect(() => {
+    try {
+      const raw = window.localStorage.getItem(DASHBOARD_FILTER_STORAGE_KEY);
+
+      if (!raw) return;
+
+      const saved = JSON.parse(raw) as {
+        filters?: Record<string, string>;
+        multiFilters?: MultiFilters;
+        sortKey?: SortKey | null;
+        sortAsc?: boolean;
+        filtersOpen?: boolean;
+      };
+
+      if (saved.filters) setFilters(saved.filters);
+      if (saved.multiFilters) setMultiFilters(saved.multiFilters);
+      if (saved.sortKey !== undefined) setSortKey(saved.sortKey);
+      if (typeof saved.sortAsc === 'boolean') setSortAsc(saved.sortAsc);
+      if (typeof saved.filtersOpen === 'boolean') setFiltersOpen(saved.filtersOpen);
+    } catch {
+      // Se il salvataggio locale è corrotto, lo ignoriamo.
+    }
+  }, []);
+
+  useEffect(() => {
+    try {
+      window.localStorage.setItem(
+        DASHBOARD_FILTER_STORAGE_KEY,
+        JSON.stringify({
+          filters,
+          multiFilters,
+          sortKey,
+          sortAsc,
+          filtersOpen
+        })
+      );
+    } catch {
+      // LocalStorage non disponibile: nessun blocco della dashboard.
+    }
+  }, [filters, multiFilters, sortKey, sortAsc, filtersOpen]);
+
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [filters, multiFilters, sortKey, sortAsc]);
+
+  useEffect(() => {
+    if (currentPage < 1) {
+      setCurrentPage(1);
+    }
+  }, [currentPage]);
 
   useEffect(() => {
     if (!bestPopupMonitor) return;
@@ -890,6 +945,132 @@ export default function Dashboard() {
     addCartItem(monitorToCartItem(monitor));
     refreshCartState();
     setMessage(`Aggiunto al carrello: ${monitor.artist} - ${monitor.album}`);
+  }
+
+  function addSelectedToCart() {
+    if (selectedIds.length === 0) {
+      setMessage('Carrello: seleziona almeno una riga.');
+      return;
+    }
+
+    const selectedMonitors = monitors.filter((monitor) =>
+      selectedIds.includes(monitor.id)
+    );
+
+    let added = 0;
+    let skipped = 0;
+
+    selectedMonitors.forEach((monitor) => {
+      if (cartIds.includes(monitor.id)) {
+        skipped += 1;
+        return;
+      }
+
+      addCartItem(monitorToCartItem(monitor));
+      added += 1;
+    });
+
+    refreshCartState();
+
+    setMessage(
+      `Carrello aggiornato: ${added} aggiunti${skipped > 0 ? `, ${skipped} già presenti` : ''}.`
+    );
+  }
+
+  async function refreshDatagrid() {
+    setBusy(true);
+    setMessage('Aggiornamento datagrid...');
+
+    try {
+      await loadData();
+      refreshCartState();
+      setMessage('Datagrid aggiornato. Filtri mantenuti.');
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : 'Errore aggiornamento datagrid.');
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function deleteSelectedMonitors() {
+    if (selectedIds.length === 0) {
+      setMessage('Elimina selezionati: seleziona almeno una riga.');
+      return;
+    }
+
+    const confirmed = confirm(
+      `Eliminare definitivamente ${selectedIds.length} record selezionati?`
+    );
+
+    if (!confirmed) return;
+
+    setBusy(true);
+    setMessage('Eliminazione selezionati in corso...');
+
+    try {
+      for (const id of selectedIds) {
+        const response = await fetch(`/api/monitors/${id}`, {
+          method: 'DELETE'
+        });
+
+        const json = (await response.json()) as { error?: string };
+
+        if (!response.ok) {
+          throw new Error(json.error || `Errore eliminazione record ${id}`);
+        }
+      }
+
+      await loadData();
+      setSelectedIds([]);
+      refreshCartState();
+      setMessage('Record selezionati eliminati.');
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : 'Errore eliminazione selezionati.');
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function deleteAllMonitors() {
+    if (monitors.length === 0) {
+      setMessage('Nessun record da eliminare.');
+      return;
+    }
+
+    const confirmation = window.prompt(
+      `Questa azione elimina definitivamente TUTTI i ${monitors.length} record della dashboard. Scrivi ELIMINA per confermare.`
+    );
+
+    if (confirmation !== 'ELIMINA') {
+      setMessage('Elimina tutti annullato.');
+      return;
+    }
+
+    setBusy(true);
+    setMessage('Eliminazione di tutti i record in corso...');
+
+    try {
+      for (const monitor of monitors) {
+        const response = await fetch(`/api/monitors/${monitor.id}`, {
+          method: 'DELETE'
+        });
+
+        const json = (await response.json()) as { error?: string };
+
+        if (!response.ok) {
+          throw new Error(json.error || `Errore eliminazione record ${monitor.id}`);
+        }
+      }
+
+      await loadData();
+      setSelectedIds([]);
+      refreshCartState();
+      setMessage('Tutti i record sono stati eliminati.');
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : 'Errore elimina tutti.');
+    } finally {
+      setBusy(false);
+    }
   }
 
   function updateMedimopsUrl(value: string) {
@@ -1074,9 +1255,20 @@ export default function Dashboard() {
     });
   }, [monitors, filters, multiFilters, sortKey, sortAsc]);
 
-  const filteredIds = filtered.map((monitor) => monitor.id);
+  const totalPages = Math.max(1, Math.ceil(filtered.length / DASHBOARD_PAGE_SIZE));
+  const safeCurrentPage = Math.min(currentPage, totalPages);
+  const pageStartIndex = (safeCurrentPage - 1) * DASHBOARD_PAGE_SIZE;
+  const paginated = filtered.slice(pageStartIndex, pageStartIndex + DASHBOARD_PAGE_SIZE);
+
+  useEffect(() => {
+    if (currentPage > totalPages) {
+      setCurrentPage(totalPages);
+    }
+  }, [currentPage, totalPages]);
+
+  const visiblePageIds = paginated.map((monitor) => monitor.id);
   const allVisibleSelected =
-    filteredIds.length > 0 && filteredIds.every((id) => selectedIds.includes(id));
+    visiblePageIds.length > 0 && visiblePageIds.every((id) => selectedIds.includes(id));
 
   function toggleSelected(id: string) {
     if (selectedIds.includes(id)) {
@@ -1090,12 +1282,12 @@ export default function Dashboard() {
   function toggleAllVisible() {
     if (allVisibleSelected) {
       setSelectedIds(
-        selectedIds.filter((selectedId) => !filteredIds.includes(selectedId))
+        selectedIds.filter((selectedId) => !visiblePageIds.includes(selectedId))
       );
       return;
     }
 
-    setSelectedIds(Array.from(new Set([...selectedIds, ...filteredIds])));
+    setSelectedIds(Array.from(new Set([...selectedIds, ...visiblePageIds])));
   }
 
   function openNewMonitorModal() {
@@ -1439,6 +1631,35 @@ export default function Dashboard() {
                 </button>
 
                 <button
+                  className="inline-flex h-11 items-center gap-2 rounded-xl border border-cyan-100 bg-white px-4 text-sm font-bold text-[#168c95] shadow-sm hover:bg-cyan-50 disabled:opacity-50"
+                  disabled={busy || selectedIds.length === 0}
+                  onClick={addSelectedToCart}
+                >
+                  <CartIcon />
+                  Aggiungi selezionati
+                  {selectedIds.length > 0 ? ` (${selectedIds.length})` : ''}
+                </button>
+
+                <button
+                  className="inline-flex h-11 items-center gap-2 rounded-xl border border-red-100 bg-white px-4 text-sm font-bold text-red-600 shadow-sm hover:bg-red-50 disabled:opacity-50"
+                  disabled={busy || selectedIds.length === 0}
+                  onClick={deleteSelectedMonitors}
+                >
+                  <TrashIcon />
+                  Elimina selezionati
+                  {selectedIds.length > 0 ? ` (${selectedIds.length})` : ''}
+                </button>
+
+                <button
+                  className="inline-flex h-11 items-center gap-2 rounded-xl border border-red-200 bg-red-50 px-4 text-sm font-black text-red-700 shadow-sm hover:bg-red-100 disabled:opacity-50"
+                  disabled={busy || monitors.length === 0}
+                  onClick={deleteAllMonitors}
+                >
+                  <TrashIcon />
+                  Elimina tutti
+                </button>
+
+                <button
                   className="mpm-btn-orange inline-flex h-11 items-center gap-2 rounded-xl px-4 text-sm font-bold disabled:opacity-50"
                   disabled={busy || filtered.length === 0}
                   onClick={checkVisibleRows}
@@ -1636,18 +1857,47 @@ export default function Dashboard() {
           )}
 
           <section className="mpm-card overflow-hidden rounded-3xl">
-            <div className="flex flex-col gap-2 border-b border-slate-200 px-5 py-3 md:flex-row md:items-center md:justify-between">
+            <div className="flex flex-col gap-3 border-b border-slate-200 px-5 py-3 xl:flex-row xl:items-center xl:justify-between">
               <div>
                 <h2 className="text-xl font-black text-[#12201f]">Monitor</h2>
                 <p className="text-sm font-medium text-slate-500">
-                  Record visibili: {filtered.length} • Ordinamento default: Artista, Anno, Titolo, Country
+                  Record visibili: {filtered.length} • Pagina {safeCurrentPage}/{totalPages} • 50 record per pagina
                 </p>
+              </div>
+
+              <div className="flex flex-wrap items-center gap-2">
+                <button
+                  type="button"
+                  className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm font-bold text-slate-700 hover:bg-slate-50 disabled:opacity-50"
+                  disabled={busy}
+                  onClick={refreshDatagrid}
+                >
+                  Aggiorna datagrid
+                </button>
+
+                <button
+                  type="button"
+                  className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm font-bold text-slate-700 hover:bg-slate-50 disabled:opacity-50"
+                  disabled={safeCurrentPage <= 1}
+                  onClick={() => setCurrentPage((page) => Math.max(1, page - 1))}
+                >
+                  Precedente
+                </button>
+
+                <button
+                  type="button"
+                  className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm font-bold text-slate-700 hover:bg-slate-50 disabled:opacity-50"
+                  disabled={safeCurrentPage >= totalPages}
+                  onClick={() => setCurrentPage((page) => Math.min(totalPages, page + 1))}
+                >
+                  Successiva
+                </button>
               </div>
             </div>
 
-            <div className="mpm-scrollbar overflow-x-auto">
+            <div className="mpm-scrollbar max-h-[calc(100vh-355px)] overflow-auto">
               <table className="min-w-[1450px] border-collapse text-sm">
-                <thead>
+                <thead className="[&_th]:sticky [&_th]:top-0 [&_th]:z-20 [&_th]:bg-white">
                   <tr className="bg-white text-left">
                     <th className="whitespace-nowrap border-b border-slate-200 px-3 py-3">
                       <input
@@ -1662,6 +1912,7 @@ export default function Dashboard() {
                     <SortableHeader label="Tipo" sortKey="type" activeSortKey={sortKey} sortAsc={sortAsc} onDoubleClick={handleHeaderDoubleClick} />
                     <SortableHeader label="Artista" sortKey="artist" activeSortKey={sortKey} sortAsc={sortAsc} onDoubleClick={handleHeaderDoubleClick} />
                     <SortableHeader label="Album" sortKey="album" activeSortKey={sortKey} sortAsc={sortAsc} onDoubleClick={handleHeaderDoubleClick} />
+                    <SortableHeader label="Country" sortKey="country" activeSortKey={sortKey} sortAsc={sortAsc} onDoubleClick={handleHeaderDoubleClick} />
                     <SortableHeader label="Best€" sortKey="best_price" activeSortKey={sortKey} sortAsc={sortAsc} onDoubleClick={handleHeaderDoubleClick} />
                     <SortableHeader label="Medimops €" sortKey="medimops_current_price" activeSortKey={sortKey} sortAsc={sortAsc} onDoubleClick={handleHeaderDoubleClick} />
                     <SortableHeader label="Medimops Cond." sortKey="medimops_condition" activeSortKey={sortKey} sortAsc={sortAsc} onDoubleClick={handleHeaderDoubleClick} />
@@ -1671,12 +1922,11 @@ export default function Dashboard() {
                     <SortableHeader label="EAN" sortKey="ean_code" activeSortKey={sortKey} sortAsc={sortAsc} onDoubleClick={handleHeaderDoubleClick} />
                     <SortableHeader label="Label" sortKey="edition" activeSortKey={sortKey} sortAsc={sortAsc} onDoubleClick={handleHeaderDoubleClick} />
                     <SortableHeader label="Anno" sortKey="release_year" activeSortKey={sortKey} sortAsc={sortAsc} onDoubleClick={handleHeaderDoubleClick} />
-                    <SortableHeader label="Country" sortKey="country" activeSortKey={sortKey} sortAsc={sortAsc} onDoubleClick={handleHeaderDoubleClick} />
                   </tr>
                 </thead>
 
                 <tbody>
-                  {filtered.map((monitor) => {
+                  {paginated.map((monitor) => {
                     const bestPrice = getBestPrice(monitor);
                     const alreadyInCart = cartIds.includes(monitor.id);
 
@@ -1736,6 +1986,7 @@ export default function Dashboard() {
                         </td>
                         <td className="px-3 py-3 font-bold text-[#12201f]">{monitor.artist}</td>
                         <td className="px-3 py-3"><AlbumCell value={monitor.album} /></td>
+                        <td className="px-3 py-3 text-slate-600">{monitor.country || '-'}</td>
                         <td className="px-3 py-3 font-black text-[#12201f]">
                           <button
                             type="button"
@@ -1776,7 +2027,6 @@ export default function Dashboard() {
                         <td className="px-3 py-3 text-slate-600">{monitor.ean_code || '-'}</td>
                         <td className="px-3 py-3 text-slate-600">{monitor.edition || '-'}</td>
                         <td className="px-3 py-3 text-slate-600">{monitor.release_year || '-'}</td>
-                        <td className="px-3 py-3 text-slate-600">{monitor.country || '-'}</td>
                         <td className="px-3 py-3 text-slate-500">{formatEuro(monitor.medimops_target_price)}</td>
                         <td className="px-3 py-3 text-slate-500">{formatEuro(monitor.momox_target_price)}</td>
                         <td className="px-3 py-3 text-slate-600">{monitor.genre}</td>
@@ -2092,6 +2342,21 @@ export default function Dashboard() {
                       </label>
 
                       <label className="text-sm font-bold text-slate-700">
+                        Country
+                        <input
+                          maxLength={3}
+                          className="mt-1 w-full rounded-xl border border-slate-200 p-2 uppercase outline-none focus:border-[#24BFBF]"
+                          value={form.country}
+                          onChange={(event) =>
+                            setForm({
+                              ...form,
+                              country: event.target.value.toUpperCase().slice(0, 3)
+                            })
+                          }
+                        />
+                      </label>
+
+                      <label className="text-sm font-bold text-slate-700">
                         Label
                         <input
                           className="mt-1 w-full rounded-xl border border-slate-200 p-2 outline-none focus:border-[#24BFBF]"
@@ -2128,20 +2393,6 @@ export default function Dashboard() {
                         />
                       </label>
 
-                      <label className="text-sm font-bold text-slate-700">
-                        Country
-                        <input
-                          maxLength={3}
-                          className="mt-1 w-full rounded-xl border border-slate-200 p-2 uppercase outline-none focus:border-[#24BFBF]"
-                          value={form.country}
-                          onChange={(event) =>
-                            setForm({
-                              ...form,
-                              country: event.target.value.toUpperCase().slice(0, 3)
-                            })
-                          }
-                        />
-                      </label>
                     </div>
                   </div>
 
