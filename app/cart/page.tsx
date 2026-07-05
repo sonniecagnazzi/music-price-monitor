@@ -152,6 +152,48 @@ function TrashIcon() {
   );
 }
 
+
+function EyeIcon() {
+  return (
+    <svg aria-hidden="true" className="h-4 w-4" viewBox="0 0 24 24" fill="none">
+      <path
+        d="M2 12s3.5-6 10-6 10 6 10 6-3.5 6-10 6-10-6-10-6Z"
+        stroke="currentColor"
+        strokeWidth="1.8"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+      <circle cx="12" cy="12" r="3" stroke="currentColor" strokeWidth="1.8" />
+    </svg>
+  );
+}
+
+function PauseIcon() {
+  return (
+    <svg aria-hidden="true" className="h-4 w-4" viewBox="0 0 24 24" fill="none">
+      <path
+        d="M9 5v14M15 5v14"
+        stroke="currentColor"
+        strokeWidth="2"
+        strokeLinecap="round"
+      />
+    </svg>
+  );
+}
+
+function PlayIcon() {
+  return (
+    <svg aria-hidden="true" className="h-4 w-4" viewBox="0 0 24 24" fill="none">
+      <path
+        d="M8 6.5v11l9-5.5-9-5.5Z"
+        stroke="currentColor"
+        strokeWidth="1.8"
+        strokeLinejoin="round"
+      />
+    </svg>
+  );
+}
+
 function DownloadIcon() {
   return (
     <svg aria-hidden="true" className="h-4 w-4" viewBox="0 0 24 24" fill="none">
@@ -775,29 +817,36 @@ export default function CartPage() {
                       </td>
 
                       <td className="px-3 py-3">
-                        <div className="flex flex-wrap gap-2">
+                        <div className="flex items-center gap-2 whitespace-nowrap">
                           <button
-                            className="rounded-xl border border-slate-200 bg-white px-3 py-1.5 text-xs font-bold text-slate-700 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-40"
+                            type="button"
+                            className="inline-flex h-10 w-10 items-center justify-center rounded-xl border border-slate-200 bg-white text-slate-700 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-40"
                             disabled={!row.monitor}
                             onClick={() => row.monitor && setDetailPopupMonitor(row.monitor)}
                             title={row.monitor ? 'Vedi dettaglio' : 'Dettaglio non disponibile'}
+                            aria-label={row.monitor ? 'Vedi dettaglio' : 'Dettaglio non disponibile'}
                           >
-                            Dettaglio
+                            <EyeIcon />
                           </button>
 
                           <button
-                            className="rounded-xl border border-slate-200 bg-white px-3 py-1.5 text-xs font-bold text-slate-700 hover:bg-slate-50"
+                            type="button"
+                            className="inline-flex h-10 w-10 items-center justify-center rounded-xl border border-slate-200 bg-white text-slate-700 hover:bg-slate-50"
                             onClick={() => toggleIgnored(row.cartItem.id)}
+                            title={row.is_ignored ? 'Riattiva' : 'Ignora'}
+                            aria-label={row.is_ignored ? 'Riattiva' : 'Ignora'}
                           >
-                            {row.is_ignored ? 'Riattiva' : 'Ignora'}
+                            {row.is_ignored ? <PlayIcon /> : <PauseIcon />}
                           </button>
 
                           <button
-                            className="inline-flex items-center gap-1 rounded-xl border border-red-100 bg-white px-3 py-1.5 text-xs font-bold text-red-700 hover:bg-red-50"
+                            type="button"
+                            className="inline-flex h-10 w-10 items-center justify-center rounded-xl border border-red-100 bg-white text-red-700 hover:bg-red-50"
                             onClick={() => removeItem(row.cartItem.id)}
+                            title="Rimuovi"
+                            aria-label="Rimuovi"
                           >
                             <TrashIcon />
-                            Rimuovi
                           </button>
                         </div>
                       </td>
