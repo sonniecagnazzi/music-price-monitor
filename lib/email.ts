@@ -68,6 +68,56 @@ function buildCartUrl(id: string): string {
   return baseUrl ? `${baseUrl}${path}` : path;
 }
 
+function getConditionEmailColors(condition: string) {
+  const normalized = condition.toUpperCase();
+
+  if (normalized === 'M') {
+    return {
+      background: '#047857',
+      color: '#ffffff',
+      border: '#047857'
+    };
+  }
+
+  if (normalized === 'NM') {
+    return {
+      background: '#bbf7d0',
+      color: '#064e3b',
+      border: '#34d399'
+    };
+  }
+
+  if (normalized === 'EX') {
+    return {
+      background: '#ecfdf5',
+      color: '#047857',
+      border: '#a7f3d0'
+    };
+  }
+
+  if (normalized === 'VG') {
+    return {
+      background: '#ffffff',
+      color: '#020617',
+      border: '#cbd5e1'
+    };
+  }
+
+  if (normalized === 'G') {
+    return {
+      background: '#fee2e2',
+      color: '#991b1b',
+      border: '#fecaca'
+    };
+  }
+
+  return {
+    background: '#f1f5f9',
+    color: '#334155',
+    border: '#e2e8f0'
+  };
+}
+
 function getChannelColor(channel: 'Medimops' | 'Momox') {
   if (channel === 'Medimops') {
     return {
@@ -88,6 +138,7 @@ function buildOfferRows(offers: TargetEmailOffer[]) {
   return offers
     .map((offer) => {
       const colors = getChannelColor(offer.channel);
+      const conditionColors = getConditionEmailColors(offer.condition);
 
       return `
         <tr>
@@ -133,7 +184,7 @@ function buildOfferRows(offers: TargetEmailOffer[]) {
 
           <td style="padding: 12px 10px; border-bottom: 1px solid #e5e7eb;">
             <a href="${escapeHtml(offer.url)}" style="color: #12201f; text-decoration: none; display: block;">
-              <span style="display: inline-block; padding: 4px 10px; border-radius: 999px; background: #ecfdf5; color: #159b77; border: 1px solid #d1fae5; font-size: 12px; font-weight: 900;">
+              <span style="display: inline-block; padding: 4px 10px; border-radius: 999px; background: ${conditionColors.background}; color: ${conditionColors.color}; border: 1px solid ${conditionColors.border}; font-size: 12px; font-weight: 900;">
                 ${escapeHtml(offer.condition)}
               </span>
             </a>

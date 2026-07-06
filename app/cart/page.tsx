@@ -234,19 +234,27 @@ function normalizeNumber(value: string): number {
 }
 
 function conditionBadge(value: string | null) {
-  if (!value) return <span className="text-slate-400">-</span>;
+  if (!value) {
+    return <span className="text-slate-400">-</span>;
+  }
+
+  const normalized = value.toUpperCase();
 
   const cls =
-    value === 'EX'
-      ? 'bg-emerald-50 text-[#159b77] ring-emerald-100'
-      : value === 'VG'
-        ? 'bg-cyan-50 text-[#168c95] ring-cyan-100'
-        : value === 'G'
-          ? 'bg-orange-50 text-[#d97825] ring-orange-100'
-          : 'bg-slate-100 text-slate-700 ring-slate-200';
+    normalized === 'M'
+      ? 'border-emerald-700 bg-emerald-700 text-white'
+      : normalized === 'NM'
+        ? 'border-emerald-400 bg-emerald-200 text-emerald-950'
+        : normalized === 'EX'
+          ? 'border-emerald-200 bg-emerald-50 text-emerald-700'
+          : normalized === 'VG'
+            ? 'border-slate-300 bg-white text-slate-950'
+            : normalized === 'G'
+              ? 'border-red-200 bg-red-100 text-red-800'
+              : 'border-slate-200 bg-slate-100 text-slate-700';
 
   return (
-    <span className={`rounded-full px-2.5 py-1 text-xs font-bold ring-1 ${cls}`}>
+    <span className={`inline-flex rounded-full border px-2.5 py-1 text-xs font-black ${cls}`}>
       {value}
     </span>
   );
