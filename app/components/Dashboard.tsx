@@ -486,6 +486,41 @@ function getBestPrice(monitor: Monitor): number | null {
   return Math.min(...eligiblePrices);
 }
 
+function lowestPriceClass(monitor: Monitor): string {
+  const lowestPrice = monitor.lowest_best_price;
+
+  if (typeof lowestPrice !== 'number' || !Number.isFinite(lowestPrice)) {
+    return 'text-slate-700';
+  }
+
+  const targets = [
+    monitor.medimops_target_price,
+    monitor.momox_target_price
+  ].filter(
+    (value): value is number =>
+      typeof value === 'number' && Number.isFinite(value)
+  );
+
+  const isInTarget = targets.some((target) => lowestPrice <= target);
+
+  if (!isInTarget) {
+    return 'text-slate-950';
+  }
+
+  const bestPrice = getBestPrice(monitor);
+  const isAlsoCurrentBest =
+    typeof bestPrice === 'number' &&
+    Number.isFinite(bestPrice) &&
+    Math.abs(bestPrice - lowestPrice) < 0.005;
+
+  if (isAlsoCurrentBest) {
+    return 'text-amber-600 drop-shadow-[0_1px_0_rgba(255,255,255,0.85)]';
+  }
+
+  return 'text-[#1fbf92]';
+}
+
+
 function getDisplayStatus(monitor: Monitor): LastStatus | 'never_checked' {
   return monitor.last_status || 'never_checked';
 }
@@ -2139,7 +2174,7 @@ export default function Dashboard() {
                             {formatEuro(bestPrice)}
                           </button>
                         </td>
-                        <td className="px-3 py-3 font-black text-[#1fbf92]">
+                        <td className={`px-3 py-3 font-black ${lowestPriceClass(monitor)}`}>
                           {formatEuro(monitor.lowest_best_price)}
                         </td>
 
