@@ -35,7 +35,8 @@ type SortKey =
   | 'release_year'
   | 'country'
   | 'medimops_target_price'
-  | 'momox_target_price';
+  | 'momox_target_price'
+  | 'lowest_best_price';
 
 type MultiFilterKey =
   | 'status'
@@ -568,6 +569,9 @@ function compareDefaultOrder(a: Monitor, b: Monitor): number {
 
 function compareValues(a: Monitor, b: Monitor, key: SortKey): number {
   if (key === 'best_price') return compareNullableNumbers(getBestPrice(a), getBestPrice(b));
+  if (key === 'lowest_best_price') {
+    return compareNullableNumbers(a.lowest_best_price, b.lowest_best_price);
+  }
 
   if (key === 'status') {
     return statusLabels[getDisplayStatus(a)].localeCompare(
@@ -1954,7 +1958,7 @@ export default function Dashboard() {
             </div>
 
             <div className="mpm-scrollbar max-h-[calc(100vh-355px)] overflow-auto">
-              <table className="min-w-[1450px] border-collapse text-sm">
+              <table className="min-w-[1600px] border-collapse text-sm">
                 <thead className="[&_th]:sticky [&_th]:top-0 [&_th]:z-20 [&_th]:bg-white">
                   <tr className="bg-white text-left">
                     <th className="whitespace-nowrap border-b border-slate-200 px-3 py-3">
@@ -1966,16 +1970,16 @@ export default function Dashboard() {
                       />
                     </th>
                     <SortableHeader label="Azioni" activeSortKey={sortKey} sortAsc={sortAsc} onDoubleClick={handleHeaderDoubleClick} />
-                    <SortableHeader label="Attivo" sortKey="is_active" activeSortKey={sortKey} sortAsc={sortAsc} onDoubleClick={handleHeaderDoubleClick} />
                     <SortableHeader label="Tipo" sortKey="type" activeSortKey={sortKey} sortAsc={sortAsc} onDoubleClick={handleHeaderDoubleClick} />
                     <SortableHeader label="Artista" sortKey="artist" activeSortKey={sortKey} sortAsc={sortAsc} onDoubleClick={handleHeaderDoubleClick} />
                     <SortableHeader label="Album" sortKey="album" activeSortKey={sortKey} sortAsc={sortAsc} onDoubleClick={handleHeaderDoubleClick} />
-                    <SortableHeader label="Country" sortKey="country" activeSortKey={sortKey} sortAsc={sortAsc} onDoubleClick={handleHeaderDoubleClick} />
-                    <SortableHeader label="Best€" sortKey="best_price" activeSortKey={sortKey} sortAsc={sortAsc} onDoubleClick={handleHeaderDoubleClick} />
-                    <SortableHeader label="Medimops €" sortKey="medimops_current_price" activeSortKey={sortKey} sortAsc={sortAsc} onDoubleClick={handleHeaderDoubleClick} />
-                    <SortableHeader label="Medimops Cond." sortKey="medimops_condition" activeSortKey={sortKey} sortAsc={sortAsc} onDoubleClick={handleHeaderDoubleClick} />
-                    <SortableHeader label="Momox €" sortKey="momox_current_price" activeSortKey={sortKey} sortAsc={sortAsc} onDoubleClick={handleHeaderDoubleClick} />
-                    <SortableHeader label="Momox Cond." sortKey="momox_condition" activeSortKey={sortKey} sortAsc={sortAsc} onDoubleClick={handleHeaderDoubleClick} />
+                    <SortableHeader label="CNT" sortKey="country" activeSortKey={sortKey} sortAsc={sortAsc} onDoubleClick={handleHeaderDoubleClick} />
+                    <SortableHeader label="B€" sortKey="best_price" activeSortKey={sortKey} sortAsc={sortAsc} onDoubleClick={handleHeaderDoubleClick} />
+                    <SortableHeader label="L€" sortKey="lowest_best_price" activeSortKey={sortKey} sortAsc={sortAsc} onDoubleClick={handleHeaderDoubleClick} />
+                    <SortableHeader label="Me€" sortKey="medimops_current_price" activeSortKey={sortKey} sortAsc={sortAsc} onDoubleClick={handleHeaderDoubleClick} />
+                    <SortableHeader label="MeCon" sortKey="medimops_condition" activeSortKey={sortKey} sortAsc={sortAsc} onDoubleClick={handleHeaderDoubleClick} />
+                    <SortableHeader label="Mo€" sortKey="momox_current_price" activeSortKey={sortKey} sortAsc={sortAsc} onDoubleClick={handleHeaderDoubleClick} />
+                    <SortableHeader label="MoCon" sortKey="momox_condition" activeSortKey={sortKey} sortAsc={sortAsc} onDoubleClick={handleHeaderDoubleClick} />
                     <SortableHeader label="Ultimo Rilievo" sortKey="last_checked_at" activeSortKey={sortKey} sortAsc={sortAsc} onDoubleClick={handleHeaderDoubleClick} />
                     <SortableHeader label="EAN" sortKey="ean_code" activeSortKey={sortKey} sortAsc={sortAsc} onDoubleClick={handleHeaderDoubleClick} />
                     <SortableHeader label="Label" sortKey="edition" activeSortKey={sortKey} sortAsc={sortAsc} onDoubleClick={handleHeaderDoubleClick} />
@@ -2031,12 +2035,6 @@ export default function Dashboard() {
                             </button>
                           </div>
                         </td>
-
-                        <td className="px-3 py-3">
-                          <span className={`inline-flex h-6 w-10 items-center rounded-full p-1 ${monitor.is_active ? 'bg-[#24BFBF]' : 'bg-slate-200'}`}>
-                            <span className={`h-4 w-4 rounded-full bg-white shadow ${monitor.is_active ? 'ml-4' : ''}`} />
-                          </span>
-                        </td>
                         <td className="px-3 py-3">
                           <span className={`rounded-full px-2.5 py-1 text-xs font-black ${monitor.type === 'CD' ? 'bg-cyan-50 text-[#168c95]' : 'bg-orange-50 text-[#d97825]'}`}>
                             {monitor.type}
@@ -2054,6 +2052,9 @@ export default function Dashboard() {
                           >
                             {formatEuro(bestPrice)}
                           </button>
+                        </td>
+                        <td className="px-3 py-3 font-black text-[#1fbf92]">
+                          {formatEuro(monitor.lowest_best_price)}
                         </td>
 
                         <td className="px-3 py-3">
@@ -2085,7 +2086,14 @@ export default function Dashboard() {
                         <td className="px-3 py-3">{conditionBadge(monitor.momox_condition)}</td>
                         <td className="px-3 py-3 text-slate-600">{formatDate(monitor.last_checked_at)}</td>
                         <td className="px-3 py-3 text-slate-600">{monitor.ean_code || '-'}</td>
-                        <td className="px-3 py-3 text-slate-600">{monitor.edition || '-'}</td>
+                        <td className="px-3 py-3 text-slate-600">
+                          <div
+                            className="min-w-[420px] max-w-[520px] whitespace-nowrap truncate"
+                            title={monitor.edition || '-'}
+                          >
+                            {monitor.edition || '-'}
+                          </div>
+                        </td>
                         <td className="px-3 py-3 text-slate-600">{monitor.release_year || '-'}</td>
                         <td className="px-3 py-3 text-slate-500">{formatEuro(monitor.medimops_target_price)}</td>
                         <td className="px-3 py-3 text-slate-500">{formatEuro(monitor.momox_target_price)}</td>
