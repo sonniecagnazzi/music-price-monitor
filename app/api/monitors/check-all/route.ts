@@ -4,16 +4,41 @@ import { dispatchMonitorWorkflow } from '@/lib/github-actions';
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
-export async function POST(_request: NextRequest) {
+export async function POST(request: NextRequest) {
   try {
-    const result = await dispatchMonitorWorkflow({
-      mode: 'all'
-    });
+    let ids: string[] = [];
+
+    try {
+      const body = (await request.json()) as {
+        ids?: unknown;
+      };
+
+      if (Array.isArray(body.ids)) {
+        ids = body.ids
+          .map((id) => String(id || '').trim())
+          .filter(Boolean);
+      }
+    } catch {
+      ids = [];
+    }
+
+    const result = await dispatchMonitorWorkflow(
+      ids.length > 0
+        ? {
+            mode: 'selected',
+            monitorIds: ids
+          }
+        : {
+            mode: 'all'
+          }
+    );
 
     return NextResponse.json({
       ok: true,
       message:
-        'Controllo completo avviato su GitHub Actions. Aggiorna la dashboard tra qualche minuto.',
+        ids.length > 0
+          ? `Controllo selezionati avviato su GitHub Actions (${ids.length} record). Aggiorna la dashboard tra qualche minuto.`
+          : 'Controllo completo avviato su GitHub Actions. Aggiorna la dashboard tra qualche minuto.',
       result
     });
   } catch (error) {

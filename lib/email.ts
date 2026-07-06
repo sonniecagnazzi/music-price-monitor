@@ -8,6 +8,7 @@ export type TargetEmailOffer = {
   artist: string;
   title: string;
   country: string | null;
+  genre: string;
   price: number;
   condition: string;
   url: string;
@@ -17,6 +18,7 @@ export type TargetEmailOffer = {
 type SendTargetSummaryEmailOptions = {
   to: string;
   offers: TargetEmailOffer[];
+  subjectPrefix?: string;
 };
 
 type SendAlertEmailOptions = {
@@ -304,7 +306,9 @@ export async function sendTargetSummaryEmail(options: SendTargetSummaryEmailOpti
   await transporter.sendMail({
     from: getFromEmail(),
     to: options.to,
-    subject: `Music Price Monitor: ${options.offers.length} offerte in target`,
+    subject: options.subjectPrefix
+      ? `Music Price Monitor ${options.subjectPrefix}: ${options.offers.length} offerte in target`
+      : `Music Price Monitor: ${options.offers.length} offerte in target`,
     text: `Offerte in target trovate:\n\n${buildTextSummary(options.offers)}`,
     html: buildSummaryHtml(options.offers)
   });

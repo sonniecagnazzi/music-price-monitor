@@ -81,6 +81,7 @@ export type MonitorSummary = {
 
 export type RunMonitorOptions = {
   monitorId?: string;
+  monitorIds?: string[];
   onlyActive?: boolean;
 };
 
@@ -381,6 +382,7 @@ function buildTargetOffers(monitor: MonitorRow, checks: SiteCheck[]): TargetEmai
       artist: monitor.artist,
       title: monitor.album,
       country: monitor.country,
+      genre: monitor.genre,
       price,
       condition,
       url: check.url,
@@ -439,6 +441,10 @@ async function getMonitorRows(options: RunMonitorOptions): Promise<MonitorRow[]>
 
   if (options.monitorId) {
     query = query.eq('id', options.monitorId);
+  }
+
+  if (options.monitorIds && options.monitorIds.length > 0) {
+    query = query.in('id', options.monitorIds);
   }
 
   if (options.onlyActive) {
@@ -555,24 +561,42 @@ async function sendSummaryEmails(offers: TargetEmailOffer[]): Promise<number> {
   if (!shouldSendSummaryEmail()) return 0;
   if (offers.length === 0) return 0;
 
-  const sortedOffers = sortTargetOffers(offers);
-  const grouped = groupOffersByRecipient(sortedOffers);
-  const recipients = Object.keys(grouped);
+  const standardOffers = offers.filter((offer) => offer.genre !== 'Alt');
+  const altOffers = offers.filter((offer) => offer.genre === 'Alt');
 
   let sent = 0;
 
-  for (const recipient of recipients) {
-    const recipientOffers = grouped[recipient];
+  async function sendGrouped(
+    groupedOffers: TargetEmailOffer[],
+    subjectPrefix?: string
+  ): Promise<number> {
+    if (groupedOffers.length === 0) return 0;
 
-    if (!recipientOffers || recipientOffers.length === 0) continue;
+    const sortedOffers = sortTargetOffers(groupedOffers);
+    const grouped = groupOffersByRecipient(sortedOffers);
+    const recipients = Object.keys(grouped);
 
-    await sendTargetSummaryEmail({
-      to: recipient,
-      offers: recipientOffers
-    });
+    let groupedSent = 0;
 
-    sent += 1;
+    for (const recipient of recipients) {
+      const recipientOffers = grouped[recipient];
+
+      if (!recipientOffers || recipientOffers.length === 0) continue;
+
+      await sendTargetSummaryEmail({
+        to: recipient,
+        offers: recipientOffers,
+        subjectPrefix
+      });
+
+      groupedSent += 1;
+    }
+
+    return groupedSent;
   }
+
+  sent += await sendGrouped(standardOffers);
+  sent += await sendGrouped(altOffers, 'ALT');
 
   return sent;
 }

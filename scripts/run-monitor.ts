@@ -4,17 +4,26 @@ import {
   setMonitorJobRunning
 } from '../lib/monitor-job-status';
 
-function getMonitorMode(): 'all' | 'single' {
+function getMonitorMode(): 'all' | 'single' | 'selected' {
   const value = String(process.env.MONITOR_MODE || 'all').trim();
 
   if (value === 'single') return 'single';
+  if (value === 'selected') return 'selected';
 
   return 'all';
+}
+
+function getSelectedMonitorIds(): string[] {
+  return String(process.env.MONITOR_IDS || '')
+    .split(',')
+    .map((id) => id.trim())
+    .filter(Boolean);
 }
 
 async function main() {
   const mode = getMonitorMode();
   const monitorId = String(process.env.MONITOR_ID || '').trim();
+  const selectedMonitorIds = getSelectedMonitorIds();
 
   console.log(`[monitor] Avvio ${new Date().toISOString()}`);
   console.log(`[monitor] Modalità: ${mode}`);
@@ -51,6 +60,41 @@ async function main() {
 
     await setMonitorJobFinished(
       `Controllo singolo completato. Controllati: ${summary.checked}. Errori: ${summary.errors}. Nessuna mail inviata.`
+    );
+
+    return;
+  }
+
+  if (mode === 'selected') {
+    if (selectedMonitorIds.length === 0) {
+      throw new Error('MONITOR_IDS mancante per modalità selected.');
+    }
+
+    console.log(`[monitor] Monitor selezionati: ${selectedMonitorIds.length}`);
+    console.log('[monitor] Mail riepilogativa abilitata per controllo selezionati.');
+
+    await setMonitorJobRunning(
+      `Controllo selezionati in corso: ${selectedMonitorIds.length} record.`
+    );
+
+    const summary = await runMonitor({
+      monitorIds: selectedMonitorIds,
+      onlyActive: true
+    });
+
+    console.log(`[monitor] Totale: ${summary.total}`);
+    console.log(`[monitor] Controllati: ${summary.checked}`);
+    console.log(`[monitor] Mail riepilogative inviate: ${summary.alertsSent}`);
+    console.log(`[monitor] Errori: ${summary.errors}`);
+
+    for (const detail of summary.details) {
+      console.log(
+        `[monitor] ${detail.status} - ${detail.artist} - ${detail.album}: ${detail.message}`
+      );
+    }
+
+    await setMonitorJobFinished(
+      `Controllo selezionati completato. Controllati: ${summary.checked}. Errori: ${summary.errors}. Mail riepilogative inviate: ${summary.alertsSent}.`
     );
 
     return;

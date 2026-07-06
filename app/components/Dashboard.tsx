@@ -810,6 +810,7 @@ export default function Dashboard() {
     useState<MultiFilterKey | null>(null);
   const [currentPage, setCurrentPage] = useState(1);
   const [isDeleteMenuOpen, setIsDeleteMenuOpen] = useState(false);
+  const [isCheckMenuOpen, setIsCheckMenuOpen] = useState(false);
 
   const csvInputRef = useRef<HTMLInputElement | null>(null);
 
@@ -1486,6 +1487,7 @@ export default function Dashboard() {
 
     if (!confirmed) return;
 
+    setIsCheckMenuOpen(false);
     setBusy(true);
     setMessage('Avvio controllo completo su GitHub Actions...');
 
@@ -1511,6 +1513,54 @@ export default function Dashboard() {
         error instanceof Error
           ? error.message
           : 'Errore durante avvio controllo completo.'
+      );
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function checkSelectedRows() {
+    if (selectedIds.length === 0) {
+      setMessage('Seleziona almeno un record da controllare.');
+      return;
+    }
+
+    const confirmed = confirm(
+      `Vuoi avviare ora un controllo unico GitHub Actions per ${selectedIds.length} record selezionati attivi?`
+    );
+
+    if (!confirmed) return;
+
+    setIsCheckMenuOpen(false);
+    setBusy(true);
+    setMessage(`Avvio controllo selezionati su GitHub Actions (${selectedIds.length})...`);
+
+    try {
+      const response = await fetch('/api/monitors/check-all', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          ids: selectedIds
+        })
+      });
+
+      const json = (await response.json()) as {
+        ok?: boolean;
+        message?: string;
+        error?: string;
+      };
+
+      if (!response.ok) throw new Error(json.error || 'Errore avvio controllo selezionati.');
+
+      setMessage(
+        json.message ||
+          'Controllo selezionati avviato su GitHub Actions. Aggiorna tra qualche minuto.'
+      );
+    } catch (error) {
+      setMessage(
+        error instanceof Error
+          ? error.message
+          : 'Errore durante avvio controllo selezionati.'
       );
     } finally {
       setBusy(false);
@@ -1726,16 +1776,44 @@ export default function Dashboard() {
                   ) : null}
                 </div>
 
-                <button
-                  type="button"
-                  className="mpm-btn-orange inline-flex h-11 w-11 items-center justify-center rounded-xl disabled:opacity-50"
-                  disabled={busy || filtered.length === 0}
-                  onClick={checkVisibleRows}
-                  title="Controlla tutto"
-                  aria-label="Controlla tutto"
-                >
-                  <CheckIcon />
-                </button>
+                <div className="relative">
+                  <button
+                    type="button"
+                    className="mpm-btn-orange inline-flex h-11 w-11 items-center justify-center rounded-xl disabled:opacity-50"
+                    disabled={busy || filtered.length === 0}
+                    onClick={() => {
+                      setIsDeleteMenuOpen(false);
+                      setIsCheckMenuOpen((value) => !value);
+                    }}
+                    title="Controlli"
+                    aria-label="Controlli"
+                  >
+                    <CheckIcon />
+                  </button>
+
+                  {isCheckMenuOpen ? (
+                    <div className="absolute right-0 z-30 mt-2 w-56 overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-xl">
+                      <button
+                        type="button"
+                        className="flex w-full items-center gap-2 px-4 py-3 text-left text-sm font-black text-slate-700 hover:bg-slate-50"
+                        onClick={checkVisibleRows}
+                      >
+                        <CheckIcon />
+                        Controlla tutti
+                      </button>
+
+                      <button
+                        type="button"
+                        className="flex w-full items-center gap-2 px-4 py-3 text-left text-sm font-black text-slate-700 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-40"
+                        disabled={selectedIds.length === 0}
+                        onClick={checkSelectedRows}
+                      >
+                        <CheckIcon />
+                        Controlla selezionati{selectedIds.length > 0 ? ` (${selectedIds.length})` : ''}
+                      </button>
+                    </div>
+                  ) : null}
+                </div>
 
                 <Link
                   href="/cart"

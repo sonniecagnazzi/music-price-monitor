@@ -1,8 +1,9 @@
-type DispatchMode = 'all' | 'single';
+type DispatchMode = 'all' | 'single' | 'selected';
 
 type DispatchOptions = {
   mode: DispatchMode;
   monitorId?: string;
+  monitorIds?: string[];
 };
 
 function getRequiredEnv(name: string): string {
@@ -30,6 +31,10 @@ export async function dispatchMonitorWorkflow(options: DispatchOptions) {
     throw new Error('monitorId obbligatorio per controllo singolo.');
   }
 
+  if (options.mode === 'selected' && (!options.monitorIds || options.monitorIds.length === 0)) {
+    throw new Error('monitorIds obbligatori per controllo selezionati.');
+  }
+
   const response = await fetch(
     `https://api.github.com/repos/${owner}/${repo}/actions/workflows/${workflowFile}/dispatches`,
     {
@@ -44,7 +49,8 @@ export async function dispatchMonitorWorkflow(options: DispatchOptions) {
         ref,
         inputs: {
           mode: options.mode,
-          monitor_id: options.monitorId || ''
+          monitor_id: options.monitorId || '',
+          monitor_ids: options.monitorIds ? options.monitorIds.join(',') : ''
         }
       })
     }
@@ -55,7 +61,8 @@ export async function dispatchMonitorWorkflow(options: DispatchOptions) {
       ok: true,
       ref,
       mode: options.mode,
-      monitorId: options.monitorId || null
+      monitorId: options.monitorId || null,
+      monitorIds: options.monitorIds || []
     };
   }
 
