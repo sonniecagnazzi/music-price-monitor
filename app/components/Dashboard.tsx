@@ -21,6 +21,7 @@ type SortKey =
   | 'is_active'
   | 'has_url'
   | 'genre'
+  | 'country'
   | 'type'
   | 'artist'
   | 'album'
@@ -44,6 +45,7 @@ type MultiFilterKey =
   | 'is_active'
   | 'has_url'
   | 'genre'
+  | 'country'
   | 'medimops_condition'
   | 'momox_condition';
 
@@ -94,6 +96,7 @@ const emptyMultiFilters: MultiFilters = {
   is_active: [],
   has_url: [],
   genre: [],
+  country: [],
   medimops_condition: [],
   momox_condition: []
 };
@@ -106,6 +109,7 @@ const multiFilterOptions: Record<MultiFilterKey, string[]> = {
   is_active: ['Sì', 'No'],
   has_url: ['Con URL', 'Senza URL'],
   genre: [...MONITOR_GENRES],
+  country: [],
   medimops_condition: conditionOptions,
   momox_condition: conditionOptions
 };
@@ -486,39 +490,65 @@ function getBestPrice(monitor: Monitor): number | null {
   return Math.min(...eligiblePrices);
 }
 
-function lowestPriceClass(monitor: Monitor): string {
-  const lowestPrice = monitor.lowest_best_price;
+function isFinitePrice(value: number | null | undefined): value is number {
+  return typeof value === 'number' && Number.isFinite(value);
+}
 
-  if (typeof lowestPrice !== 'number' || !Number.isFinite(lowestPrice)) {
-    return 'text-slate-700';
-  }
+function pricesEqual(a: number | null | undefined, b: number | null | undefined): boolean {
+  return isFinitePrice(a) && isFinitePrice(b) && Math.abs(a - b) < 0.005;
+}
+
+function isPriceInAnyTarget(monitor: Monitor, price: number | null): boolean {
+  if (!isFinitePrice(price)) return false;
 
   const targets = [
     monitor.medimops_target_price,
     monitor.momox_target_price
-  ].filter(
-    (value): value is number =>
-      typeof value === 'number' && Number.isFinite(value)
-  );
+  ].filter(isFinitePrice);
 
-  const isInTarget = targets.some((target) => lowestPrice <= target);
+  return targets.some((target) => price <= target);
+}
 
-  if (!isInTarget) {
+function currentBestPriceClass(monitor: Monitor): string {
+  const bestPrice = getBestPrice(monitor);
+
+  if (!isFinitePrice(bestPrice)) {
     return 'text-slate-950';
   }
 
-  const bestPrice = getBestPrice(monitor);
-  const isAlsoCurrentBest =
-    typeof bestPrice === 'number' &&
-    Number.isFinite(bestPrice) &&
-    Math.abs(bestPrice - lowestPrice) < 0.005;
-
-  if (isAlsoCurrentBest) {
+  if (pricesEqual(bestPrice, monitor.lowest_best_price)) {
     return 'text-amber-600 drop-shadow-[0_1px_0_rgba(255,255,255,0.85)]';
   }
 
-  return 'text-[#1fbf92]';
+  if (isPriceInAnyTarget(monitor, bestPrice)) {
+    return 'text-[#1fbf92]';
+  }
+
+  return 'text-slate-950';
 }
+
+function lowestPriceClass(monitor: Monitor): string {
+  const lowestPrice = monitor.lowest_best_price;
+
+  if (!isFinitePrice(lowestPrice)) {
+    return 'text-slate-950';
+  }
+
+  const isInTarget = isPriceInAnyTarget(monitor, lowestPrice);
+
+  if (isInTarget && pricesEqual(lowestPrice, getBestPrice(monitor))) {
+    return 'text-amber-600 drop-shadow-[0_1px_0_rgba(255,255,255,0.85)]';
+  }
+
+  if (isInTarget) {
+    return 'text-[#1fbf92]';
+  }
+
+  return 'text-slate-950';
+}
+
+
+
 
 
 function getDisplayStatus(monitor: Monitor): LastStatus | 'never_checked' {
@@ -871,7 +901,12 @@ export default function Dashboard() {
       };
 
       if (saved.filters) setFilters(saved.filters);
-      if (saved.multiFilters) setMultiFilters(saved.multiFilters);
+      if (saved.multiFilters) {
+        setMultiFilters({
+          ...emptyMultiFilters,
+          ...saved.multiFilters
+        });
+      }
       if (saved.sortKey !== undefined) setSortKey(saved.sortKey);
       if (typeof saved.sortAsc === 'boolean') setSortAsc(saved.sortAsc);
       if (typeof saved.filtersOpen === 'boolean') setFiltersOpen(saved.filtersOpen);
@@ -974,6 +1009,16 @@ export default function Dashboard() {
   }, []);
 
   const activeFilterCount = countActiveFilters(filters, multiFilters);
+
+  const countryQuickOptions = useMemo(() => {
+    return Array.from(
+      new Set(
+        monitors
+          .map((monitor) => monitor.country || '')
+          .filter(Boolean)
+      )
+    ).sort((a, b) => a.localeCompare(b, 'it', { sensitivity: 'base' }));
+  }, [monitors]);
 
   function handleHeaderDoubleClick(key: SortKey) {
     if (sortKey !== key) {
@@ -1252,6 +1297,10 @@ export default function Dashboard() {
       if (multiFilters.is_active.length > 0 && !multiFilters.is_active.includes(activeLabel)) return false;
       if (multiFilters.has_url.length > 0 && !multiFilters.has_url.includes(urlStatusLabel)) return false;
       if (multiFilters.genre.length > 0 && !multiFilters.genre.includes(monitor.genre)) return false;
+      if (
+        multiFilters.country.length > 0 &&
+        !multiFilters.country.includes(monitor.country || '')
+      ) return false;
       if (
         multiFilters.medimops_condition.length > 0 &&
         !multiFilters.medimops_condition.includes(monitor.medimops_condition || '')
@@ -1917,27 +1966,25 @@ export default function Dashboard() {
               />
 
               <CompactMultiSelectFilter
-                label="Attivo"
-                value={multiFilters.is_active}
-                options={multiFilterOptions.is_active}
-                isOpen={openMultiFilter === 'is_active'}
+                label="Genere"
+                value={multiFilters.genre}
+                options={multiFilterOptions.genre}
+                isOpen={openMultiFilter === 'genre'}
                 onToggle={() =>
-                  setOpenMultiFilter(openMultiFilter === 'is_active' ? null : 'is_active')
+                  setOpenMultiFilter(openMultiFilter === 'genre' ? null : 'genre')
                 }
-                onChange={(value) =>
-                  setMultiFilters({ ...multiFilters, is_active: value })
-                }
+                onChange={(value) => setMultiFilters({ ...multiFilters, genre: value })}
               />
 
               <CompactMultiSelectFilter
-                label="URL"
-                value={multiFilters.has_url}
-                options={multiFilterOptions.has_url}
-                isOpen={openMultiFilter === 'has_url'}
+                label="CNT"
+                value={multiFilters.country}
+                options={countryQuickOptions}
+                isOpen={openMultiFilter === 'country'}
                 onToggle={() =>
-                  setOpenMultiFilter(openMultiFilter === 'has_url' ? null : 'has_url')
+                  setOpenMultiFilter(openMultiFilter === 'country' ? null : 'country')
                 }
-                onChange={(value) => setMultiFilters({ ...multiFilters, has_url: value })}
+                onChange={(value) => setMultiFilters({ ...multiFilters, country: value })}
               />
 
               <button
@@ -2095,8 +2142,8 @@ export default function Dashboard() {
                     <SortableHeader label="Artista" sortKey="artist" activeSortKey={sortKey} sortAsc={sortAsc} onDoubleClick={handleHeaderDoubleClick} />
                     <SortableHeader label="Album" sortKey="album" activeSortKey={sortKey} sortAsc={sortAsc} onDoubleClick={handleHeaderDoubleClick} />
                     <SortableHeader label="CNT" sortKey="country" activeSortKey={sortKey} sortAsc={sortAsc} onDoubleClick={handleHeaderDoubleClick} />
-                    <SortableHeader label="B€" sortKey="best_price" activeSortKey={sortKey} sortAsc={sortAsc} onDoubleClick={handleHeaderDoubleClick} />
-                    <SortableHeader label="Low€" sortKey="lowest_best_price" activeSortKey={sortKey} sortAsc={sortAsc} onDoubleClick={handleHeaderDoubleClick} />
+                    <SortableHeader label="€Now" sortKey="best_price" activeSortKey={sortKey} sortAsc={sortAsc} onDoubleClick={handleHeaderDoubleClick} />
+                    <SortableHeader label="€Lowest" sortKey="lowest_best_price" activeSortKey={sortKey} sortAsc={sortAsc} onDoubleClick={handleHeaderDoubleClick} />
                     <SortableHeader label="Me€" sortKey="medimops_current_price" activeSortKey={sortKey} sortAsc={sortAsc} onDoubleClick={handleHeaderDoubleClick} />
                     <SortableHeader label="MeCon" sortKey="medimops_condition" activeSortKey={sortKey} sortAsc={sortAsc} onDoubleClick={handleHeaderDoubleClick} />
                     <SortableHeader label="Mo€" sortKey="momox_current_price" activeSortKey={sortKey} sortAsc={sortAsc} onDoubleClick={handleHeaderDoubleClick} />

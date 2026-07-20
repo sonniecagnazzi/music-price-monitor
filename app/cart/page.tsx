@@ -548,6 +548,12 @@ export default function CartPage() {
     refreshItems();
   }
 
+  function csvNumber(value: number | null | undefined): string {
+    if (typeof value !== 'number' || !Number.isFinite(value)) return '';
+
+    return value.toFixed(2).replace('.', ',');
+  }
+
   function exportCsv() {
     const header = [
       'Carrello',
@@ -574,12 +580,12 @@ export default function CartPage() {
         row.country || '',
         row.ean_code || '',
         row.edition || '',
-        row.price ?? '',
-        row.finalPrice !== null ? row.finalPrice.toFixed(2) : '',
+        csvNumber(row.price),
+        csvNumber(row.finalPrice),
         row.condition || '',
-        row.rowDiscount ? row.rowDiscount.toFixed(2) : '',
-        row.discountedPrice !== null ? row.discountedPrice.toFixed(2) : '',
-        row.shippingShare ? row.shippingShare.toFixed(2) : ''
+        csvNumber(row.rowDiscount),
+        csvNumber(row.discountedPrice),
+        csvNumber(row.shippingShare)
       ];
     });
 

@@ -63,8 +63,19 @@ function formatEuro(value: number): string {
   }).format(value);
 }
 
+function getAppBaseUrl(): string {
+  return String(process.env.APP_BASE_URL || '').trim().replace(/\/+$/, '');
+}
+
+function buildAppUrl(id: string): string {
+  const baseUrl = getAppBaseUrl();
+  const path = `/?monitor=${encodeURIComponent(id)}`;
+
+  return baseUrl ? `${baseUrl}${path}` : path;
+}
+
 function buildCartUrl(id: string): string {
-  const baseUrl = String(process.env.APP_BASE_URL || '').trim().replace(/\/+$/, '');
+  const baseUrl = getAppBaseUrl();
   const path = `/cart?add=${encodeURIComponent(id)}`;
 
   return baseUrl ? `${baseUrl}${path}` : path;
@@ -145,7 +156,7 @@ function buildOfferRows(offers: TargetEmailOffer[]) {
       return `
         <tr>
           <td style="padding: 12px 10px; border-bottom: 1px solid #e5e7eb;">
-            <a href="${escapeHtml(offer.url)}" style="color: #12201f; text-decoration: none; display: block;">
+            <a href="${escapeHtml(buildAppUrl(offer.id))}" style="color: #12201f; text-decoration: none; display: block;">
               <span style="display: inline-block; min-width: 34px; text-align: center; padding: 4px 8px; border-radius: 999px; background: #f1f5f9; color: #334155; font-size: 12px; font-weight: 800;">
                 ${escapeHtml(offer.type)}
               </span>
@@ -161,19 +172,19 @@ function buildOfferRows(offers: TargetEmailOffer[]) {
           </td>
 
           <td style="padding: 12px 10px; border-bottom: 1px solid #e5e7eb;">
-            <a href="${escapeHtml(offer.url)}" style="color: #12201f; text-decoration: none; display: block; font-weight: 800;">
+            <a href="${escapeHtml(buildAppUrl(offer.id))}" style="color: #12201f; text-decoration: none; display: block; font-weight: 800;">
               ${escapeHtml(offer.artist)}
             </a>
           </td>
 
           <td style="padding: 12px 10px; border-bottom: 1px solid #e5e7eb;">
-            <a href="${escapeHtml(offer.url)}" style="color: #334155; text-decoration: none; display: block;">
+            <a href="${escapeHtml(buildAppUrl(offer.id))}" style="color: #334155; text-decoration: none; display: block;">
               ${escapeHtml(offer.title)}
             </a>
           </td>
 
           <td style="padding: 12px 10px; border-bottom: 1px solid #e5e7eb; white-space: nowrap;">
-            <a href="${escapeHtml(offer.url)}" style="color: #334155; text-decoration: none; display: block; font-weight: 800;">
+            <a href="${escapeHtml(buildAppUrl(offer.id))}" style="color: #334155; text-decoration: none; display: block; font-weight: 800;">
               ${escapeHtml(offer.country || '-')}
             </a>
           </td>
@@ -288,7 +299,7 @@ function buildSummaryHtml(offers: TargetEmailOffer[]) {
               </table>
 
               <p style="margin: 20px 0 0; color: #64748b; font-size: 13px; line-height: 1.5;">
-                Clicca su qualsiasi campo della riga per aprire direttamente la pagina prodotto Medimops o Momox. Usa l'icona 🛒 per aggiungere il disco al carrello dell'app.
+                Artista, titolo e country aprono l'app. Canale, prezzo e condizione aprono la pagina del vendor. Usa l'icona 🛒 per aggiungere il disco al carrello.
               </p>
             </div>
           </div>
