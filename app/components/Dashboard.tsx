@@ -712,7 +712,7 @@ function LinkedPrice({
   url: string | null;
   className: string;
 }) {
-  if (!url || value === null) return <span className={className}>{formatEuro(value)}</span>;
+  if (!url) return <span className={className}>{formatEuro(value)}</span>;
 
   return (
     <a
