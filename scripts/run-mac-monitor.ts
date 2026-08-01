@@ -510,56 +510,99 @@ async function updateMonitorRow(
 }
 
 async function main(): Promise<void> {
-  const monitorId = getArgValue('--single');
+  const singleId = getArgValue('--single');
+  const selectedIdsRaw = getArgValue('--selected');
 
-  if (!monitorId) {
-    console.error('Uso: yarn monitor:mac --single <monitor_id>');
+  const monitorIds = singleId
+    ? [singleId]
+    : selectedIdsRaw
+      ? selectedIdsRaw
+          .split(',')
+          .map((item) => item.trim())
+          .filter(Boolean)
+      : [];
+
+  if (monitorIds.length === 0) {
+    console.error('Uso:');
+    console.error('  yarn monitor:mac --single <monitor_id>');
+    console.error('  yarn monitor:mac --selected <id1,id2,id3>');
     process.exit(1);
   }
 
-  console.log(`[mac-monitor] Avvio controllo singolo: ${monitorId}`);
+  const mode = singleId ? 'single' : 'selected';
 
-  const { data: row, error } = await supabase
+  console.log(`[mac-monitor] Avvio controllo modalità: ${mode}`);
+  console.log(`[mac-monitor] Record richiesti: ${monitorIds.length}`);
+
+  const { data, error } = await supabase
     .from('monitors')
     .select('*')
-    .eq('id', monitorId)
-    .single();
+    .in('id', monitorIds);
 
-  if (error || !row) {
-    throw new Error(`Monitor non trovato o errore Supabase: ${error?.message || 'n/d'}`);
+  if (error) {
+    throw new Error(`Errore lettura Supabase: ${error.message}`);
   }
 
-  const record = row as Record<string, unknown>;
-  const artist = getString(record, 'artist') || 'Artista n/d';
-  const title = getString(record, 'title') || 'Titolo n/d';
+  const rows = (data || []) as Array<Record<string, unknown>>;
 
-  console.log(`[mac-monitor] Record: ${artist} - ${title}`);
+  if (rows.length === 0) {
+    throw new Error('Nessun monitor trovato per gli ID indicati.');
+  }
 
-  const medimopsUrl = getString(record, 'medimops_url');
-  const momoxUrl = getString(record, 'momox_url');
+  if (rows.length !== monitorIds.length) {
+    console.log(`[mac-monitor] ATTENZIONE: richiesti ${monitorIds.length} record, trovati ${rows.length}.`);
+  }
+
+  const rowsById = new Map(rows.map((row) => [String(row.id), row]));
+  const orderedRows = monitorIds
+    .map((id) => rowsById.get(id))
+    .filter((row): row is Record<string, unknown> => Boolean(row));
 
   const rl = createInterface({ input, output });
   const windowId = await openDedicatedChromeWindow();
 
   console.log(`[mac-monitor] Finestra Chrome dedicata: ${windowId}`);
 
+  let completed = 0;
+  let errors = 0;
+
   try {
-    const medimops = await scrapeStoreWithChrome(windowId, rl, 'Medimops', medimopsUrl);
-    const momox = await scrapeStoreWithChrome(windowId, rl, 'Momox', momoxUrl);
+    for (const record of orderedRows) {
+      const id = String(record.id);
+      const artist = getString(record, 'artist') || 'Artista n/d';
+      const title = getString(record, 'title') || 'Titolo n/d';
 
-    console.log('\n[mac-monitor] Risultato:');
-    console.log(`- ${medimops.message}`);
-    console.log(`- ${momox.message}`);
+      console.log('\n============================================================');
+      console.log(`[mac-monitor] ${completed + 1}/${orderedRows.length} - ${artist} - ${title}`);
+      console.log(`[mac-monitor] ID: ${id}`);
 
-    await updateMonitorRow(record, medimops, momox);
+      const medimopsUrl = getString(record, 'medimops_url');
+      const momoxUrl = getString(record, 'momox_url');
+
+      const medimops = await scrapeStoreWithChrome(windowId, rl, 'Medimops', medimopsUrl);
+      const momox = await scrapeStoreWithChrome(windowId, rl, 'Momox', momoxUrl);
+
+      console.log('\n[mac-monitor] Risultato record:');
+      console.log(`- ${medimops.message}`);
+      console.log(`- ${momox.message}`);
+
+      await updateMonitorRow(record, medimops, momox);
+
+      if (medimops.status === 'error' || momox.status === 'error') {
+        errors += 1;
+      }
+
+      completed += 1;
+    }
   } finally {
     rl.close();
     await closeChromeWindow(windowId);
   }
 
-  console.log('[mac-monitor] Fine.');
+  console.log('\n[mac-monitor] Fine.');
+  console.log(`[mac-monitor] Record completati: ${completed}`);
+  console.log(`[mac-monitor] Record con errori: ${errors}`);
 }
-
 main().catch((error) => {
   console.error(error);
   process.exit(1);
