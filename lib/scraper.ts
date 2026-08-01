@@ -23,10 +23,12 @@ type Candidate = {
 const USER_AGENT =
   'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0 Safari/537.36';
 
-const REQUEST_TIMEOUT_MS = 30000;
+const REQUEST_TIMEOUT_MS = 10000;
 
-const JINA_429_RETRY_DELAYS_MS = [20000, 25000, 30000, 35000, 40000];
-const JINA_BETWEEN_ATTEMPTS_DELAY_MS = 2500;
+const JINA_429_RETRY_DELAYS_MS = [5000];
+const JINA_BETWEEN_ATTEMPTS_DELAY_MS = 500;
+const MAX_JINA_READER_VARIANTS_PER_STORE = 2;
+const ENABLE_JINA_SEARCH_FALLBACK = false;
 
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -404,7 +406,8 @@ async function fetchText(url: string): Promise<string> {
   const response = await fetch(url, {
     method: 'GET',
     redirect: 'follow',
-    headers: buildBrowserLikeHeaders(url)
+    headers: buildBrowserLikeHeaders(url),
+    signal: timeoutSignal(REQUEST_TIMEOUT_MS)
   });
 
   const body = await response.text();
@@ -442,9 +445,7 @@ async function fetchViaJinaReader(url: string): Promise<string> {
   const normalizedUrl = url.trim().replace(/^https?:\/\//i, '');
 
   const readerUrls = [
-    `https://r.jina.ai/http://${normalizedUrl}`,
-    `https://r.jina.ai/http://https://${normalizedUrl}`,
-    `https://r.jina.ai/http://http://${normalizedUrl}`
+    `https://r.jina.ai/http://${normalizedUrl}`
   ];
 
   const visited = new Set<string>();
@@ -597,6 +598,10 @@ function buildSearchQueryFromUrl(url: string, store: StoreName): string {
 }
 
 async function fetchViaJinaSearch(url: string, store: StoreName): Promise<string> {
+  if (!ENABLE_JINA_SEARCH_FALLBACK) {
+    throw new Error('Jina Search disabilitato: fallback 401/slow path.');
+  }
+
   const query = buildSearchQueryFromUrl(url, store);
   const searchUrl = `https://s.jina.ai/?q=${encodeURIComponent(query)}`;
 
@@ -747,7 +752,7 @@ async function fetchViaFallbackReaders(url: string, store: StoreName): Promise<s
     errors.push(`internal-app-fetch: ${message}`);
   }
 
-  const variants = buildFallbackUrlVariants(url);
+  const variants = buildFallbackUrlVariants(url).slice(0, MAX_JINA_READER_VARIANTS_PER_STORE);
 
   for (const variant of variants) {
     try {
