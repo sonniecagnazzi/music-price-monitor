@@ -1,4 +1,5 @@
 import { createClient } from '@supabase/supabase-js';
+import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { execFile } from 'node:child_process';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
@@ -63,6 +64,46 @@ if (!SUPABASE_URL || !SUPABASE_SERVICE_ROLE_KEY) {
   process.exit(1);
 }
 
+
+const RUNNER_HOME_MARKER = 'MPM_RUNNER_WINDOW';
+const RUNNER_HOME_TITLE = 'MPM Runner';
+const RUNNER_HOME_HTML = `<!doctype html>
+<html>
+  <head>
+    <title>${RUNNER_HOME_TITLE}</title>
+    <meta charset="utf-8" />
+  </head>
+  <body data-mpm-runner="${RUNNER_HOME_MARKER}" style="font-family: system-ui; padding: 32px;">
+    <h1>Music Price Monitor</h1>
+    <p>Finestra dedicata al Mac runner. Puoi lasciarla su Desktop 2.</p>
+    <p style="opacity: 0.45; font-size: 12px;">${RUNNER_HOME_MARKER}</p>
+  </body>
+</html>`;
+const RUNNER_HOME_URL = `data:text/html;charset=utf-8,${encodeURIComponent(RUNNER_HOME_HTML)}`;
+const RUNNER_WINDOW_ID_FILE = '.mac-runner-window-id';
+let cachedRunnerWindowId: number | null = null;
+
+function asAppleScriptString(value: string): string {
+  return JSON.stringify(value);
+}
+
+function parseChromeWindowId(value: unknown): number | null {
+  const normalized = String(value ?? '').trim();
+
+  if (!normalized) {
+    return null;
+  }
+
+  const parsed = Number(normalized);
+
+  if (!Number.isFinite(parsed) || parsed <= 0) {
+    return null;
+  }
+
+  return parsed;
+}
+
+
 const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, {
   auth: { persistSession: false }
 });
@@ -99,35 +140,178 @@ async function runAppleScript(script: string): Promise<string> {
   return stdout;
 }
 
-async function openDedicatedChromeWindow(): Promise<number> {
-  const script = `
+function readStoredRunnerWindowId(): number | null {
+  if (cachedRunnerWindowId !== null) {
+    return cachedRunnerWindowId;
+  }
+
+  try {
+    if (!existsSync(RUNNER_WINDOW_ID_FILE)) {
+      return null;
+    }
+
+    const value = readFileSync(RUNNER_WINDOW_ID_FILE, 'utf8').trim();
+    const parsed = Number(value);
+
+    if (!Number.isFinite(parsed)) {
+      return null;
+    }
+
+    cachedRunnerWindowId = parsed;
+    return parsed;
+  } catch {
+    return null;
+  }
+}
+
+function saveStoredRunnerWindowId(windowId: number): void {
+  cachedRunnerWindowId = windowId;
+  writeFileSync(RUNNER_WINDOW_ID_FILE, String(windowId));
+}
+
+async function validateChromeWindowId(windowId: number): Promise<number | null> {
+  try {
+    const output = await runAppleScript(`
 tell application "Google Chrome"
-  activate
+  try
+    set targetWindow to window id ${windowId}
+    return id of targetWindow
+  on error
+    return ""
+  end try
+end tell
+`);
+
+    return parseChromeWindowId(output);
+  } catch {
+    return null;
+  }
+}
+
+async function findRunnerWindowByMarker(): Promise<number | null> {
+  const markerTitle = asAppleScriptString(RUNNER_HOME_TITLE);
+  const markerToken = asAppleScriptString(RUNNER_HOME_MARKER);
+  const markerUrl = asAppleScriptString(RUNNER_HOME_URL);
+
+  const output = await runAppleScript(`
+tell application "Google Chrome"
+  repeat with w in windows
+    try
+      repeat with t in tabs of w
+        try
+          set tabTitle to title of t as string
+          set tabUrl to URL of t as string
+
+          if tabTitle is ${markerTitle} or tabUrl contains ${markerToken} then
+            set active tab index of w to index of t
+            return id of w
+          end if
+        end try
+      end repeat
+    end try
+  end repeat
+
+  return ""
+end tell
+`);
+
+  const parsed = parseChromeWindowId(output);
+
+  if (parsed === null) {
+    return null;
+  }
+
+  await runAppleScript(`
+tell application "Google Chrome"
+  tell active tab of window id ${parsed}
+    set URL to ${markerUrl}
+  end tell
+end tell
+`);
+
+  return parsed;
+}
+
+async function createRunnerWindow(): Promise<number> {
+  const markerUrl = asAppleScriptString(RUNNER_HOME_URL);
+
+  const output = await runAppleScript(`
+tell application "Google Chrome"
   set newWindow to make new window
+  set URL of active tab of newWindow to ${markerUrl}
+  delay 1
   return id of newWindow
 end tell
-`;
+`);
 
-  const outputText = await runAppleScript(script);
-  const windowId = Number(outputText.trim());
+  const windowId = parseChromeWindowId(output);
 
-  if (!Number.isFinite(windowId)) {
-    throw new Error(`Impossibile aprire finestra Chrome dedicata. Output: ${outputText}`);
+  if (windowId === null) {
+    throw new Error(`ID finestra Chrome non valido: ${output}`);
   }
 
   return windowId;
 }
 
-async function closeChromeWindow(windowId: number): Promise<void> {
-  const script = `
+async function openDedicatedChromeWindow(): Promise<number> {
+  const storedWindowId = readStoredRunnerWindowId();
+
+  if (storedWindowId !== null) {
+    const validWindowId = await validateChromeWindowId(storedWindowId);
+
+    if (validWindowId !== null) {
+      console.log(`[mac-monitor] Riutilizzo finestra Chrome runner salvata: ${validWindowId}`);
+      saveStoredRunnerWindowId(validWindowId);
+      return validWindowId;
+    }
+
+    console.log('[mac-monitor] Finestra Chrome runner salvata non trovata: ne cerco/creo una nuova.');
+  }
+
+  const foundWindowId = await findRunnerWindowByMarker();
+
+  if (foundWindowId !== null) {
+    console.log(`[mac-monitor] Riutilizzo finestra Chrome runner trovata: ${foundWindowId}`);
+    saveStoredRunnerWindowId(foundWindowId);
+    return foundWindowId;
+  }
+
+  const newWindowId = await createRunnerWindow();
+
+  console.log(`[mac-monitor] Nuova finestra Chrome runner creata: ${newWindowId}`);
+  saveStoredRunnerWindowId(newWindowId);
+
+  return newWindowId;
+}
+
+async function closeChromeWindow(windowId: number | string): Promise<void> {
+  if (process.env.MAC_CHROME_CLOSE === '1') {
+    await runAppleScript(`
 tell application "Google Chrome"
   try
     close window id ${windowId}
   end try
 end tell
-`;
+`);
+    return;
+  }
 
-  await runAppleScript(script);
+  try {
+    const markerUrl = asAppleScriptString(RUNNER_HOME_URL);
+
+    await runAppleScript(`
+tell application "Google Chrome"
+  tell active tab of window id ${windowId}
+    set URL to ${markerUrl}
+  end tell
+end tell
+`);
+    await sleep(500);
+    console.log('[mac-monitor] Finestra Chrome runner lasciata aperta per i prossimi job.');
+  } catch (error) {
+    const message = error instanceof Error ? error.message : 'errore sconosciuto';
+    console.log(`[mac-monitor] Non riesco a riportare la finestra runner alla home: ${message}`);
+  }
 }
 
 async function navigateChromeWindow(windowId: number, url: string): Promise<void> {
@@ -370,7 +554,7 @@ async function scrapeStoreWithChrome(
 
   try {
     await navigateChromeWindow(windowId, url);
-    await sleep(10000);
+    await sleep(4000);
 
     let page = await readChromeWindow(windowId);
 
@@ -559,6 +743,28 @@ async function fetchAllActiveRows(): Promise<Array<Record<string, unknown>>> {
   return rows;
 }
 
+
+function parkChromeRunnerWindow(windowId: number | string): void {
+  if (process.env.MAC_CHROME_PARK !== '1') {
+    return;
+  }
+
+  try {
+    runAppleScript(`
+tell application "Google Chrome"
+  try
+    set bounds of window id ${windowId} to {-1600, 80, -700, 700}
+  end try
+end tell
+`);
+    console.log('[mac-monitor] Finestra Chrome runner parcheggiata fuori schermo.');
+  } catch (error) {
+    const message = error instanceof Error ? error.message : 'errore sconosciuto';
+    console.log(`[mac-monitor] Non riesco a parcheggiare la finestra Chrome, continuo comunque: ${message}`);
+  }
+}
+
+
 async function processRows(orderedRows: Array<Record<string, unknown>>): Promise<{
   completed: number;
   errors: number;
@@ -567,6 +773,7 @@ async function processRows(orderedRows: Array<Record<string, unknown>>): Promise
   const windowId = await openDedicatedChromeWindow();
 
   console.log(`[mac-monitor] Finestra Chrome dedicata: ${windowId}`);
+  parkChromeRunnerWindow(windowId);
 
   let completed = 0;
   let errors = 0;

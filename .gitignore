@@ -3,3 +3,4 @@ node_modules
 .local-browser-profile/
 .scraper-debug/
 .scraper-debug-mac-chrome/
+.mac-runner-window-id
