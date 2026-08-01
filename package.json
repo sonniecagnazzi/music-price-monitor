@@ -13,7 +13,9 @@
     "lint": "next lint",
     "typecheck": "tsc --noEmit",
     "monitor": "tsx scripts/run-monitor.ts",
-    "monitor:mac": "tsx scripts/run-mac-monitor.ts"
+    "monitor:mac": "tsx scripts/run-mac-monitor.ts",
+    "mac-runner": "tsx scripts/run-mac-monitor.ts --watch",
+    "mac-runner:once": "tsx scripts/run-mac-monitor.ts --job-once"
   },
   "dependencies": {
     "@supabase/supabase-js": "2.47.10",

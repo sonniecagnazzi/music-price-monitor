@@ -509,31 +509,11 @@ async function updateMonitorRow(
   console.log('[mac-monitor] Supabase aggiornato.');
 }
 
-async function main(): Promise<void> {
-  const singleId = getArgValue('--single');
-  const selectedIdsRaw = getArgValue('--selected');
+function hasArg(name: string): boolean {
+  return process.argv.slice(2).includes(name);
+}
 
-  const monitorIds = singleId
-    ? [singleId]
-    : selectedIdsRaw
-      ? selectedIdsRaw
-          .split(',')
-          .map((item) => item.trim())
-          .filter(Boolean)
-      : [];
-
-  if (monitorIds.length === 0) {
-    console.error('Uso:');
-    console.error('  yarn monitor:mac --single <monitor_id>');
-    console.error('  yarn monitor:mac --selected <id1,id2,id3>');
-    process.exit(1);
-  }
-
-  const mode = singleId ? 'single' : 'selected';
-
-  console.log(`[mac-monitor] Avvio controllo modalità: ${mode}`);
-  console.log(`[mac-monitor] Record richiesti: ${monitorIds.length}`);
-
+async function fetchRowsByIds(monitorIds: string[]): Promise<Array<Record<string, unknown>>> {
   const { data, error } = await supabase
     .from('monitors')
     .select('*')
@@ -554,10 +534,35 @@ async function main(): Promise<void> {
   }
 
   const rowsById = new Map(rows.map((row) => [String(row.id), row]));
-  const orderedRows = monitorIds
+
+  return monitorIds
     .map((id) => rowsById.get(id))
     .filter((row): row is Record<string, unknown> => Boolean(row));
+}
 
+async function fetchAllActiveRows(): Promise<Array<Record<string, unknown>>> {
+  const { data, error } = await supabase
+    .from('monitors')
+    .select('*');
+
+  if (error) {
+    throw new Error(`Errore lettura Supabase: ${error.message}`);
+  }
+
+  const rows = ((data || []) as Array<Record<string, unknown>>)
+    .filter((row) => row.active !== false);
+
+  if (rows.length === 0) {
+    throw new Error('Nessun monitor attivo trovato.');
+  }
+
+  return rows;
+}
+
+async function processRows(orderedRows: Array<Record<string, unknown>>): Promise<{
+  completed: number;
+  errors: number;
+}> {
   const rl = createInterface({ input, output });
   const windowId = await openDedicatedChromeWindow();
 
@@ -599,9 +604,198 @@ async function main(): Promise<void> {
     await closeChromeWindow(windowId);
   }
 
+  return { completed, errors };
+}
+
+async function runDirectMode(): Promise<void> {
+  const singleId = getArgValue('--single');
+  const selectedIdsRaw = getArgValue('--selected');
+  const allMode = hasArg('--all');
+
+  const monitorIds = singleId
+    ? [singleId]
+    : selectedIdsRaw
+      ? selectedIdsRaw
+          .split(',')
+          .map((item) => item.trim())
+          .filter(Boolean)
+      : [];
+
+  if (!singleId && !selectedIdsRaw && !allMode) {
+    console.error('Uso:');
+    console.error('  yarn monitor:mac --single <monitor_id>');
+    console.error('  yarn monitor:mac --selected <id1,id2,id3>');
+    console.error('  yarn monitor:mac --all');
+    console.error('  yarn mac-runner');
+    console.error('  yarn mac-runner:once');
+    process.exit(1);
+  }
+
+  const mode = allMode ? 'all' : singleId ? 'single' : 'selected';
+
+  console.log(`[mac-monitor] Avvio controllo modalità: ${mode}`);
+
+  const rows = allMode
+    ? await fetchAllActiveRows()
+    : await fetchRowsByIds(monitorIds);
+
+  console.log(`[mac-monitor] Record da controllare: ${rows.length}`);
+
+  const summary = await processRows(rows);
+
   console.log('\n[mac-monitor] Fine.');
-  console.log(`[mac-monitor] Record completati: ${completed}`);
-  console.log(`[mac-monitor] Record con errori: ${errors}`);
+  console.log(`[mac-monitor] Record completati: ${summary.completed}`);
+  console.log(`[mac-monitor] Record con errori: ${summary.errors}`);
+}
+
+function getJobMonitorIds(job: Record<string, unknown>): string[] {
+  const value = job.monitor_ids;
+
+  if (Array.isArray(value)) {
+    return value
+      .map((item) => String(item).trim())
+      .filter(Boolean);
+  }
+
+  if (typeof value === 'string') {
+    return value
+      .split(',')
+      .map((item) => item.trim())
+      .filter(Boolean);
+  }
+
+  return [];
+}
+
+async function processNextPendingJob(): Promise<boolean> {
+  const { data: pendingJob, error: pendingError } = await supabase
+    .from('mac_monitor_jobs')
+    .select('*')
+    .eq('status', 'pending')
+    .order('created_at', { ascending: true })
+    .limit(1)
+    .maybeSingle();
+
+  if (pendingError) {
+    throw new Error(`Errore lettura job pending: ${pendingError.message}`);
+  }
+
+  if (!pendingJob) {
+    return false;
+  }
+
+  const job = pendingJob as Record<string, unknown>;
+  const jobId = String(job.id);
+  const mode = getString(job, 'mode') || 'single';
+  const runnerId = `mac-${process.env.USER || 'user'}-${Date.now()}`;
+  const startedAt = new Date().toISOString();
+
+  console.log('\n============================================================');
+  console.log(`[mac-runner] Job trovato: ${jobId}`);
+  console.log(`[mac-runner] Mode: ${mode}`);
+
+  const { data: claimedJob, error: claimError } = await supabase
+    .from('mac_monitor_jobs')
+    .update({
+      status: 'running',
+      runner_id: runnerId,
+      started_at: startedAt,
+      error_message: null
+    })
+    .eq('id', jobId)
+    .eq('status', 'pending')
+    .select('*')
+    .maybeSingle();
+
+  if (claimError) {
+    throw new Error(`Errore claim job: ${claimError.message}`);
+  }
+
+  if (!claimedJob) {
+    console.log('[mac-runner] Job già preso da un altro runner.');
+    return false;
+  }
+
+  try {
+    const claimed = claimedJob as Record<string, unknown>;
+    const monitorIds = getJobMonitorIds(claimed);
+
+    const rows =
+      mode === 'all'
+        ? await fetchAllActiveRows()
+        : await fetchRowsByIds(monitorIds);
+
+    console.log(`[mac-runner] Record da controllare: ${rows.length}`);
+
+    const summary = await processRows(rows);
+
+    await supabase
+      .from('mac_monitor_jobs')
+      .update({
+        status: 'completed',
+        completed_at: new Date().toISOString(),
+        result_summary: summary,
+        error_message: null
+      })
+      .eq('id', jobId);
+
+    console.log(`[mac-runner] Job completato: ${jobId}`);
+
+    return true;
+  } catch (error) {
+    const message = error instanceof Error ? error.message : 'errore sconosciuto';
+
+    await supabase
+      .from('mac_monitor_jobs')
+      .update({
+        status: 'error',
+        completed_at: new Date().toISOString(),
+        error_message: message
+      })
+      .eq('id', jobId);
+
+    console.error(`[mac-runner] Job in errore: ${message}`);
+
+    throw error;
+  }
+}
+
+async function watchPendingJobs(): Promise<void> {
+  console.log('[mac-runner] Avvio runner locale. Premi Ctrl+C per fermarlo.');
+  console.log('[mac-runner] Controllo job pending ogni 5 secondi.');
+
+  while (true) {
+    try {
+      const processed = await processNextPendingJob();
+
+      if (!processed) {
+        await sleep(5000);
+      }
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'errore sconosciuto';
+      console.error(`[mac-runner] Errore ciclo runner: ${message}`);
+      await sleep(5000);
+    }
+  }
+}
+
+async function main(): Promise<void> {
+  if (hasArg('--job-once')) {
+    const processed = await processNextPendingJob();
+
+    if (!processed) {
+      console.log('[mac-runner] Nessun job pending.');
+    }
+
+    return;
+  }
+
+  if (hasArg('--watch')) {
+    await watchPendingJobs();
+    return;
+  }
+
+  await runDirectMode();
 }
 main().catch((error) => {
   console.error(error);
