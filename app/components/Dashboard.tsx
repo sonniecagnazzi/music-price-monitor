@@ -1529,7 +1529,7 @@ export default function Dashboard() {
 
   async function checkOne(id: string) {
     setBusy(true);
-    setMessage('Avvio controllo singolo su GitHub Actions...');
+    setMessage('Avvio controllo singolo su Mac runner...');
 
     try {
       const response = await fetch(`/api/monitors/${id}/check`, {
@@ -1546,7 +1546,7 @@ export default function Dashboard() {
 
       setMessage(
         json.message ||
-          'Controllo singolo avviato su GitHub Actions. Aggiorna tra 1-2 minuti.'
+          'Controllo singolo avviato su Mac runner. Aggiorna tra 1-2 minuti.'
       );
     } catch (error) {
       setMessage(
@@ -1566,14 +1566,14 @@ export default function Dashboard() {
     }
 
     const confirmed = confirm(
-      'Vuoi avviare ora il controllo GitHub Actions per tutti i monitor attivi?'
+      'Vuoi avviare ora il controllo Mac runner per tutti i monitor attivi?'
     );
 
     if (!confirmed) return;
 
     setIsCheckMenuOpen(false);
     setBusy(true);
-    setMessage('Avvio controllo completo su GitHub Actions...');
+    setMessage('Avvio controllo completo su Mac runner...');
 
     try {
       const response = await fetch('/api/monitors/check-all', {
@@ -1590,7 +1590,7 @@ export default function Dashboard() {
 
       setMessage(
         json.message ||
-          'Controllo completo avviato su GitHub Actions. Aggiorna tra qualche minuto.'
+          'Controllo completo avviato su Mac runner. Aggiorna tra qualche minuto.'
       );
     } catch (error) {
       setMessage(
@@ -1610,14 +1610,14 @@ export default function Dashboard() {
     }
 
     const confirmed = confirm(
-      `Vuoi avviare ora un controllo unico GitHub Actions per ${selectedIds.length} record selezionati attivi?`
+      `Vuoi avviare ora un controllo unico Mac runner per ${selectedIds.length} record selezionati attivi?`
     );
 
     if (!confirmed) return;
 
     setIsCheckMenuOpen(false);
     setBusy(true);
-    setMessage(`Avvio controllo selezionati su GitHub Actions (${selectedIds.length})...`);
+    setMessage(`Avvio controllo selezionati su Mac runner (${selectedIds.length})...`);
 
     try {
       const response = await fetch('/api/monitors/check-all', {
@@ -1638,7 +1638,7 @@ export default function Dashboard() {
 
       setMessage(
         json.message ||
-          'Controllo selezionati avviato su GitHub Actions. Aggiorna tra qualche minuto.'
+          'Controllo selezionati avviato su Mac runner. Aggiorna tra qualche minuto.'
       );
     } catch (error) {
       setMessage(
@@ -2176,8 +2176,8 @@ export default function Dashboard() {
                               className="inline-flex h-8 w-8 items-center justify-center rounded-xl border border-cyan-100 bg-white text-[#24BFBF] hover:bg-cyan-50 disabled:opacity-50"
                               disabled={busy}
                               onClick={() => checkOne(monitor.id)}
-                              title="Controlla ora con GitHub Actions"
-                              aria-label="Controlla ora con GitHub Actions"
+                              title="Controlla ora con Mac runner"
+                              aria-label="Controlla ora con Mac runner"
                             >
                               <CheckIcon />
                             </button>
