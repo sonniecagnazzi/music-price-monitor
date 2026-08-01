@@ -6,6 +6,7 @@ import * as path from 'node:path';
 import { stdin as input, stdout as output } from 'node:process';
 import { createInterface } from 'node:readline/promises';
 import { promisify } from 'node:util';
+import { sendTargetSummaryEmail, type TargetEmailOffer } from '@/lib/email';
 
 const execFileAsync = promisify(execFile);
 
@@ -765,24 +766,183 @@ end tell
 }
 
 
-async function processRows(orderedRows: Array<Record<string, unknown>>): Promise<{
+
+type ProcessRowsSummary = {
   completed: number;
   errors: number;
-}> {
+  targetOffers: TargetEmailOffer[];
+};
+
+function getDefaultRecipient(): string {
+  return String(process.env.DEFAULT_ALERT_EMAIL || '').trim();
+}
+
+function getMonitorDisplayTitle(row: Record<string, unknown>): string {
+  return (
+    getString(row, 'title') ||
+    getString(row, 'album') ||
+    getString(row, 'name') ||
+    'Titolo n/d'
+  );
+}
+
+function getMonitorType(row: Record<string, unknown>): 'CD' | 'LP' {
+  const value = String(getString(row, 'type') || 'CD').toUpperCase();
+
+  return value === 'LP' ? 'LP' : 'CD';
+}
+
+function buildMacTargetOffer(
+  row: Record<string, unknown>,
+  outcome: ScrapeOutcome
+): TargetEmailOffer | null {
+  if (outcome.status !== 'ok') return null;
+  if (outcome.price === null) return null;
+  if (!outcome.condition) return null;
+
+  const isMedimops = outcome.store === 'Medimops';
+
+  const target = getNumber(
+    row,
+    isMedimops ? 'medimops_target_price' : 'momox_target_price'
+  );
+
+  if (!isInTarget(outcome.price, target, outcome.condition)) {
+    return null;
+  }
+
+  const url = getString(row, isMedimops ? 'medimops_url' : 'momox_url');
+
+  if (!url) return null;
+
+  const recipient =
+    getString(row, 'alert_email') ||
+    getString(row, 'recipient') ||
+    getDefaultRecipient();
+
+  if (!recipient) {
+    throw new Error('DEFAULT_ALERT_EMAIL mancante: impossibile inviare riepilogo offerte.');
+  }
+
+  return {
+    id: String(row.id),
+    type: getMonitorType(row),
+    channel: outcome.store,
+    artist: getString(row, 'artist') || 'Artista n/d',
+    title: getMonitorDisplayTitle(row),
+    country: getString(row, 'country'),
+    genre: getString(row, 'genre') || '',
+    price: outcome.price,
+    condition: outcome.condition,
+    url,
+    recipient
+  };
+}
+
+function buildMacTargetOffers(
+  row: Record<string, unknown>,
+  medimops: ScrapeOutcome,
+  momox: ScrapeOutcome
+): TargetEmailOffer[] {
+  return [buildMacTargetOffer(row, medimops), buildMacTargetOffer(row, momox)].filter(
+    (offer): offer is TargetEmailOffer => Boolean(offer)
+  );
+}
+
+function sortMacTargetOffers(offers: TargetEmailOffer[]): TargetEmailOffer[] {
+  const channelOrder: Record<TargetEmailOffer['channel'], number> = {
+    Medimops: 0,
+    Momox: 1
+  };
+
+  return [...offers].sort((left, right) => {
+    const channelDiff = channelOrder[left.channel] - channelOrder[right.channel];
+
+    if (channelDiff !== 0) return channelDiff;
+
+    const artistDiff = left.artist.localeCompare(right.artist, 'it', {
+      sensitivity: 'base'
+    });
+
+    if (artistDiff !== 0) return artistDiff;
+
+    return left.title.localeCompare(right.title, 'it', {
+      sensitivity: 'base'
+    });
+  });
+}
+
+function groupMacOffersByRecipient(
+  offers: TargetEmailOffer[]
+): Record<string, TargetEmailOffer[]> {
+  return offers.reduce<Record<string, TargetEmailOffer[]>>((accumulator, offer) => {
+    accumulator[offer.recipient] = accumulator[offer.recipient] || [];
+    accumulator[offer.recipient].push(offer);
+    return accumulator;
+  }, {});
+}
+
+async function sendMacSummaryEmails(offers: TargetEmailOffer[]): Promise<number> {
+  if (offers.length === 0) return 0;
+
+  const standardOffers = offers.filter((offer) => offer.genre !== 'Alt');
+  const altOffers = offers.filter((offer) => offer.genre === 'Alt');
+
+  let sent = 0;
+
+  async function sendGrouped(
+    groupedOffers: TargetEmailOffer[],
+    subjectPrefix?: string
+  ): Promise<number> {
+    if (groupedOffers.length === 0) return 0;
+
+    const sortedOffers = sortMacTargetOffers(groupedOffers);
+    const grouped = groupMacOffersByRecipient(sortedOffers);
+
+    let groupedSent = 0;
+
+    for (const [recipient, recipientOffers] of Object.entries(grouped)) {
+      if (recipientOffers.length === 0) continue;
+
+      await sendTargetSummaryEmail({
+        to: recipient,
+        offers: recipientOffers,
+        subjectPrefix
+      });
+
+      groupedSent += 1;
+    }
+
+    return groupedSent;
+  }
+
+  sent += await sendGrouped(standardOffers);
+  sent += await sendGrouped(altOffers, 'ALT');
+
+  return sent;
+}
+
+function shouldSendSummaryForMode(mode: string): boolean {
+  return mode === 'selected' || mode === 'all';
+}
+
+async function processRows(
+  orderedRows: Array<Record<string, unknown>>
+): Promise<ProcessRowsSummary> {
   const rl = createInterface({ input, output });
   const windowId = await openDedicatedChromeWindow();
 
   console.log(`[mac-monitor] Finestra Chrome dedicata: ${windowId}`);
-  parkChromeRunnerWindow(windowId);
 
   let completed = 0;
   let errors = 0;
+  const targetOffers: TargetEmailOffer[] = [];
 
   try {
     for (const record of orderedRows) {
       const id = String(record.id);
       const artist = getString(record, 'artist') || 'Artista n/d';
-      const title = getString(record, 'title') || 'Titolo n/d';
+      const title = getMonitorDisplayTitle(record);
 
       console.log('\n============================================================');
       console.log(`[mac-monitor] ${completed + 1}/${orderedRows.length} - ${artist} - ${title}`);
@@ -804,6 +964,13 @@ async function processRows(orderedRows: Array<Record<string, unknown>>): Promise
         errors += 1;
       }
 
+      const rowTargetOffers = buildMacTargetOffers(record, medimops, momox);
+
+      if (rowTargetOffers.length > 0) {
+        console.log(`[mac-monitor] Offerte in target trovate: ${rowTargetOffers.length}`);
+        targetOffers.push(...rowTargetOffers);
+      }
+
       completed += 1;
     }
   } finally {
@@ -811,7 +978,7 @@ async function processRows(orderedRows: Array<Record<string, unknown>>): Promise
     await closeChromeWindow(windowId);
   }
 
-  return { completed, errors };
+  return { completed, errors, targetOffers };
 }
 
 async function runDirectMode(): Promise<void> {
@@ -849,10 +1016,15 @@ async function runDirectMode(): Promise<void> {
   console.log(`[mac-monitor] Record da controllare: ${rows.length}`);
 
   const summary = await processRows(rows);
+  const alertsSent = shouldSendSummaryForMode(mode)
+    ? await sendMacSummaryEmails(summary.targetOffers)
+    : 0;
 
   console.log('\n[mac-monitor] Fine.');
   console.log(`[mac-monitor] Record completati: ${summary.completed}`);
   console.log(`[mac-monitor] Record con errori: ${summary.errors}`);
+  console.log(`[mac-monitor] Offerte in target: ${summary.targetOffers.length}`);
+  console.log(`[mac-monitor] Email riepilogative inviate: ${alertsSent}`);
 }
 
 function getJobMonitorIds(job: Record<string, unknown>): string[] {
@@ -935,18 +1107,30 @@ async function processNextPendingJob(): Promise<boolean> {
     console.log(`[mac-runner] Record da controllare: ${rows.length}`);
 
     const summary = await processRows(rows);
+    const alertsSent = shouldSendSummaryForMode(mode)
+      ? await sendMacSummaryEmails(summary.targetOffers)
+      : 0;
+
+    const resultSummary = {
+      completed: summary.completed,
+      errors: summary.errors,
+      targetOffers: summary.targetOffers.length,
+      alertsSent
+    };
 
     await supabase
       .from('mac_monitor_jobs')
       .update({
         status: 'completed',
         completed_at: new Date().toISOString(),
-        result_summary: summary,
+        result_summary: resultSummary,
         error_message: null
       })
       .eq('id', jobId);
 
     console.log(`[mac-runner] Job completato: ${jobId}`);
+    console.log(`[mac-runner] Offerte in target: ${summary.targetOffers.length}`);
+    console.log(`[mac-runner] Email riepilogative inviate: ${alertsSent}`);
 
     return true;
   } catch (error) {

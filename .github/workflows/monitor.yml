@@ -1,8 +1,8 @@
 name: Music Price Monitor
 
 on:
-  schedule:
-    - cron: '23 */4 * * *'
+  # schedule disabilitato: il controllo automatico ora lo fa il Mac runner
+  # - cron: '23 */4 * * *'
   workflow_dispatch:
     inputs:
       mode:
