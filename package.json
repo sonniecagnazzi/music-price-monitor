@@ -12,7 +12,8 @@
     "start": "next start",
     "lint": "next lint",
     "typecheck": "tsc --noEmit",
-    "monitor": "tsx scripts/run-monitor.ts"
+    "monitor": "tsx scripts/run-monitor.ts",
+    "monitor:mac": "tsx scripts/run-mac-monitor.ts"
   },
   "dependencies": {
     "@supabase/supabase-js": "2.47.10",
