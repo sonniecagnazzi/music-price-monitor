@@ -1,1 +1,7 @@
 node_modules
+.env.local
+node_modules/
+.next/
+tsconfig.tsbuildinfo
+yarn-error.log*
+.DS_Store
