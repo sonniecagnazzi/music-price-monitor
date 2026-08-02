@@ -23,7 +23,5 @@ export const env = {
 
   defaultAlertEmail: () => process.env.DEFAULT_ALERT_EMAIL || '',
 
-  cronSecret: () => required('CRON_SECRET'),
-
   appBaseUrl: () => process.env.APP_BASE_URL || ''
 };

@@ -1,5 +1,5 @@
 import * as cheerio from 'cheerio';
-import { normalizePrice, type ScrapeResult } from '@/lib/scraper';
+import { normalizePrice, type ScrapeResult } from '@/lib/price';
 
 export type AmazonMarketplace = 'FR' | 'DE' | 'IT';
 

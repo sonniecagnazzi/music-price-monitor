@@ -1,6 +1,6 @@
 import { createClient } from '@supabase/supabase-js';
 
-export type TriggerMonitorWorkflowOptions = {
+export type EnqueueMacMonitorJobOptions = {
   mode?: 'all' | 'single' | 'selected';
   monitorId?: string;
   monitorIds?: string[];
@@ -26,7 +26,9 @@ function getSupabaseUrl(): string {
   );
 }
 
-function resolveMode(options: TriggerMonitorWorkflowOptions): MacJobMode {
+function resolveMode(
+  options: EnqueueMacMonitorJobOptions
+): MacJobMode {
   if (options.mode) {
     return options.mode;
   }
@@ -35,54 +37,62 @@ function resolveMode(options: TriggerMonitorWorkflowOptions): MacJobMode {
     return 'single';
   }
 
-  if (options.monitorIds && options.monitorIds.length > 0) {
+  if (options.monitorIds?.length) {
     return 'selected';
   }
 
   return 'all';
 }
 
-function resolveMonitorIds(options: TriggerMonitorWorkflowOptions): string[] {
+function resolveMonitorIds(
+  options: EnqueueMacMonitorJobOptions
+): string[] {
   if (options.monitorId) {
     return [options.monitorId];
   }
 
-  if (options.monitorIds) {
-    return options.monitorIds
-      .map((item) => item.trim())
-      .filter(Boolean);
-  }
-
-  return [];
+  return (options.monitorIds || [])
+    .map((item) => item.trim())
+    .filter(Boolean);
 }
 
-/**
- * Nome legacy mantenuto apposta:
- * prima questa funzione lanciava GitHub Actions.
- * Ora i bottoni della dashboard creano job per il Mac runner locale.
- */
-export async function triggerMonitorWorkflow(options: TriggerMonitorWorkflowOptions = {}) {
+export async function enqueueMacMonitorJob(
+  options: EnqueueMacMonitorJobOptions = {}
+) {
   const supabaseUrl = getSupabaseUrl();
-  const serviceRoleKey = getRequiredEnv('SUPABASE_SERVICE_ROLE_KEY');
+  const serviceRoleKey =
+    getRequiredEnv('SUPABASE_SERVICE_ROLE_KEY');
 
   if (!supabaseUrl) {
-    throw new Error('Missing required env: SUPABASE_URL or NEXT_PUBLIC_SUPABASE_URL');
+    throw new Error(
+      'Missing required env: SUPABASE_URL or NEXT_PUBLIC_SUPABASE_URL'
+    );
   }
 
   const mode = resolveMode(options);
   const monitorIds = resolveMonitorIds(options);
 
   if (mode === 'single' && monitorIds.length !== 1) {
-    throw new Error('Mac job single richiede esattamente un monitor ID.');
+    throw new Error(
+      'Il job single richiede esattamente un monitor ID.'
+    );
   }
 
   if (mode === 'selected' && monitorIds.length === 0) {
-    throw new Error('Mac job selected richiede almeno un monitor ID.');
+    throw new Error(
+      'Il job selected richiede almeno un monitor ID.'
+    );
   }
 
-  const supabase = createClient(supabaseUrl, serviceRoleKey, {
-    auth: { persistSession: false }
-  });
+  const supabase = createClient(
+    supabaseUrl,
+    serviceRoleKey,
+    {
+      auth: {
+        persistSession: false
+      }
+    }
+  );
 
   const { data, error } = await supabase
     .from('mac_monitor_jobs')
@@ -92,11 +102,21 @@ export async function triggerMonitorWorkflow(options: TriggerMonitorWorkflowOpti
       status: 'pending',
       requested_by: 'dashboard'
     })
-    .select('id, mode, monitor_ids, status, created_at')
+    .select(
+      'id, mode, monitor_ids, status, created_at'
+    )
     .single();
 
   if (error) {
-    throw new Error(`Errore creazione Mac job: ${error.message}`);
+    throw new Error(
+      `Errore creazione job Mac: ${error.message}`
+    );
+  }
+
+  if (!data) {
+    throw new Error(
+      'Il job Mac è stato creato senza restituire dati.'
+    );
   }
 
   return {
@@ -109,8 +129,3 @@ export async function triggerMonitorWorkflow(options: TriggerMonitorWorkflowOpti
     createdAt: data.created_at
   };
 }
-
-export const triggerGitHubWorkflow = triggerMonitorWorkflow;
-export const dispatchGitHubWorkflow = triggerMonitorWorkflow;
-
-export const dispatchMonitorWorkflow = triggerMonitorWorkflow;

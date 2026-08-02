@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { dispatchMonitorWorkflow } from '@/lib/github-actions';
+import { enqueueMacMonitorJob } from '@/lib/mac-monitor-jobs';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -22,7 +22,7 @@ export async function POST(request: NextRequest) {
       ids = [];
     }
 
-    const result = await dispatchMonitorWorkflow(
+    const result = await enqueueMacMonitorJob(
       ids.length > 0
         ? {
             mode: 'selected',
@@ -37,24 +37,29 @@ export async function POST(request: NextRequest) {
       ok: true,
       message:
         ids.length > 0
-          ? `Controllo selezionati avviato su GitHub Actions (${ids.length} record). Aggiorna la dashboard tra qualche minuto.`
-          : 'Controllo completo avviato su GitHub Actions. Aggiorna la dashboard tra qualche minuto.',
+          ? `Controllo di ${ids.length} record accodato al Mac runner.`
+          : 'Controllo completo accodato al Mac runner.',
       result
     });
   } catch (error) {
     const message =
       error instanceof Error
         ? error.message
-        : 'Errore sconosciuto durante avvio GitHub Actions.';
+        : 'Errore sconosciuto durante la creazione del job Mac.';
 
-    console.error('[api/monitors/check-all] Errore', message);
+    console.error(
+      '[api/monitors/check-all] Errore',
+      message
+    );
 
     return NextResponse.json(
       {
         ok: false,
         error: message
       },
-      { status: 500 }
+      {
+        status: 500
+      }
     );
   }
 }

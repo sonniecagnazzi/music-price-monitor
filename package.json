@@ -12,7 +12,6 @@
     "start": "next start",
     "lint": "next lint",
     "typecheck": "tsc --noEmit",
-    "monitor": "tsx scripts/run-monitor.ts",
     "monitor:mac": "tsx scripts/run-mac-monitor.ts",
     "mac-runner": "tsx scripts/run-mac-monitor.ts --watch",
     "mac-runner:once": "tsx scripts/run-mac-monitor.ts --job-once"
@@ -20,6 +19,7 @@
   "dependencies": {
     "@supabase/supabase-js": "2.47.10",
     "cheerio": "1.0.0",
+    "chrome-remote-interface": "^0.34.0",
     "next": "14.2.15",
     "nodemailer": "6.9.16",
     "react": "18.3.1",
@@ -27,6 +27,7 @@
     "zod": "3.24.1"
   },
   "devDependencies": {
+    "@types/chrome-remote-interface": "^0.34.0",
     "@types/node": "22.10.5",
     "@types/nodemailer": "6.4.17",
     "@types/react": "18.3.11",
@@ -34,11 +35,9 @@
     "autoprefixer": "10.4.20",
     "eslint": "8.57.1",
     "eslint-config-next": "14.2.15",
-    "playwright": "^1.62.1",
     "postcss": "8.4.49",
     "tailwindcss": "3.4.17",
     "tsx": "4.19.2",
     "typescript": "5.7.2"
-  },
-  "mac-runner": "tsx scripts/run-mac-monitor.ts --watch"
+  }
 }
