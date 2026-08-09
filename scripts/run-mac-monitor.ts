@@ -528,6 +528,12 @@ function buildMacTargetOffer(
 
   if (!url) return null;
 
+  const previousLowest = getNumber(row, 'lowest_best_price');
+  const lowestBestPrice =
+    previousLowest === null || outcome.price < previousLowest
+      ? outcome.price
+      : previousLowest;
+
   const recipient =
     getString(row, 'alert_email') ||
     getString(row, 'recipient') ||
@@ -546,6 +552,7 @@ function buildMacTargetOffer(
     country: getString(row, 'country'),
     genre: getString(row, 'genre') || '',
     price: outcome.price,
+    lowestBestPrice,
     condition: outcome.condition,
     url,
     recipient
@@ -595,24 +602,32 @@ function groupMacOffersByRecipient(
   }, {});
 }
 
+function getMacMailCategoryPrefix(offer: TargetEmailOffer): string {
+  const genre = String(offer.genre || '').trim() || 'Senza genere';
+
+  return `${offer.type} ${genre}`;
+}
+
 async function sendMacSummaryEmails(offers: TargetEmailOffer[]): Promise<number> {
   if (offers.length === 0) return 0;
 
-  const standardOffers = offers.filter((offer) => offer.genre !== 'Alt');
-  const altOffers = offers.filter((offer) => offer.genre === 'Alt');
+  const categoryGroups = offers.reduce<Record<string, TargetEmailOffer[]>>(
+    (accumulator, offer) => {
+      const prefix = getMacMailCategoryPrefix(offer);
+
+      accumulator[prefix] = accumulator[prefix] || [];
+      accumulator[prefix].push(offer);
+
+      return accumulator;
+    },
+    {}
+  );
 
   let sent = 0;
 
-  async function sendGrouped(
-    groupedOffers: TargetEmailOffer[],
-    subjectPrefix?: string
-  ): Promise<number> {
-    if (groupedOffers.length === 0) return 0;
-
-    const sortedOffers = sortMacTargetOffers(groupedOffers);
+  for (const [subjectPrefix, categoryOffers] of Object.entries(categoryGroups)) {
+    const sortedOffers = sortMacTargetOffers(categoryOffers);
     const grouped = groupMacOffersByRecipient(sortedOffers);
-
-    let groupedSent = 0;
 
     for (const [recipient, recipientOffers] of Object.entries(grouped)) {
       if (recipientOffers.length === 0) continue;
@@ -623,17 +638,13 @@ async function sendMacSummaryEmails(offers: TargetEmailOffer[]): Promise<number>
         subjectPrefix
       });
 
-      groupedSent += 1;
+      sent += 1;
     }
-
-    return groupedSent;
   }
-
-  sent += await sendGrouped(standardOffers);
-  sent += await sendGrouped(altOffers, 'ALT');
 
   return sent;
 }
+
 
 function shouldSendSummaryForMode(mode: string): boolean {
   return mode === 'selected' || mode === 'all';

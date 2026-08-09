@@ -40,6 +40,7 @@ type SortKey =
   | 'lowest_best_price';
 
 type MultiFilterKey =
+  | 'target'
   | 'status'
   | 'type'
   | 'is_active'
@@ -91,6 +92,7 @@ const emptyForm: FormState = {
 };
 
 const emptyMultiFilters: MultiFilters = {
+  target: [],
   status: [],
   type: [],
   is_active: [],
@@ -101,9 +103,10 @@ const emptyMultiFilters: MultiFilters = {
   momox_condition: []
 };
 
-const conditionOptions = ['EX', 'VG', 'G'];
+const conditionOptions = ['M', 'NM', 'EX', 'VG', 'G'];
 
 const multiFilterOptions: Record<MultiFilterKey, string[]> = {
+  target: ['In Target', 'In Target Medimops', 'In Target Momox'],
   status: ['In target', 'ok'],
   type: ['CD', 'LP'],
   is_active: ['Sì', 'No'],
@@ -439,6 +442,51 @@ function numberToItalianInput(value: number | null | undefined): string {
 
 function isSiteInTarget(currentPrice: number | null, targetPrice: number | null): boolean {
   return currentPrice !== null && targetPrice !== null && currentPrice <= targetPrice;
+}
+
+function isEligibleTargetCondition(condition: string | null): boolean {
+  return condition === 'NM' || condition === 'EX';
+}
+
+function isStoreCurrentInTarget(
+  currentPrice: number | null,
+  targetPrice: number | null,
+  condition: string | null
+): boolean {
+  return (
+    currentPrice !== null &&
+    targetPrice !== null &&
+    currentPrice <= targetPrice &&
+    isEligibleTargetCondition(condition)
+  );
+}
+
+function isMonitorMedimopsInTarget(monitor: Monitor): boolean {
+  return isStoreCurrentInTarget(
+    monitor.medimops_current_price,
+    monitor.medimops_target_price,
+    monitor.medimops_condition
+  );
+}
+
+function isMonitorMomoxInTarget(monitor: Monitor): boolean {
+  return isStoreCurrentInTarget(
+    monitor.momox_current_price,
+    monitor.momox_target_price,
+    monitor.momox_condition
+  );
+}
+
+function getTargetFilterLabels(monitor: Monitor): string[] {
+  const labels: string[] = [];
+  const medimopsInTarget = isMonitorMedimopsInTarget(monitor);
+  const momoxInTarget = isMonitorMomoxInTarget(monitor);
+
+  if (medimopsInTarget || momoxInTarget) labels.push('In Target');
+  if (medimopsInTarget) labels.push('In Target Medimops');
+  if (momoxInTarget) labels.push('In Target Momox');
+
+  return labels;
 }
 
 function hasAnyUrl(monitor: Monitor): boolean {
@@ -904,7 +952,8 @@ export default function Dashboard() {
       if (saved.multiFilters) {
         setMultiFilters({
           ...emptyMultiFilters,
-          ...saved.multiFilters
+          ...saved.multiFilters,
+          status: []
         });
       }
       if (saved.sortKey !== undefined) setSortKey(saved.sortKey);
@@ -1006,6 +1055,22 @@ export default function Dashboard() {
       window.removeEventListener('music-price-monitor-cart-updated', refreshCartState);
       window.removeEventListener('storage', refreshCartState);
     };
+  }, []);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+
+    const params = new URLSearchParams(window.location.search);
+    const artistFilterFromUrl = params.get('artist');
+
+    if (!artistFilterFromUrl) return;
+
+    setFilters((current) => ({
+      ...current,
+      global: artistFilterFromUrl
+    }));
+
+    window.history.replaceState(null, '', '/');
   }, []);
 
   const activeFilterCount = countActiveFilters(filters, multiFilters);
@@ -1292,6 +1357,12 @@ export default function Dashboard() {
       const urlStatusLabel = getUrlStatusLabel(monitor);
       const bestPrice = getBestPrice(monitor);
 
+      const targetFilterLabels = getTargetFilterLabels(monitor);
+
+      if (
+        multiFilters.target.length > 0 &&
+        !multiFilters.target.some((targetFilter) => targetFilterLabels.includes(targetFilter))
+      ) return false;
       if (multiFilters.status.length > 0 && !multiFilters.status.includes(statusLabel)) return false;
       if (multiFilters.type.length > 0 && !multiFilters.type.includes(monitor.type)) return false;
       if (multiFilters.is_active.length > 0 && !multiFilters.is_active.includes(activeLabel)) return false;
@@ -1920,11 +1991,11 @@ export default function Dashboard() {
             </p>
           </section>
 
-          <section className="mb-4 grid gap-3 xl:grid-cols-[1fr_auto]">
+          <section className="mb-4 grid gap-3 2xl:grid-cols-[360px_1fr]">
             <div className="relative">
               <input
                 className="mpm-focus h-11 w-full rounded-2xl border border-slate-200 bg-white px-12 text-sm font-medium text-slate-700 shadow-sm placeholder:text-slate-400"
-                placeholder="Cerca per artista, album, EAN, label, country..."
+                placeholder="Cerca artista, album, EAN..."
                 value={filters.global || ''}
                 onChange={(event) =>
                   setFilters({ ...filters, global: event.target.value })
@@ -1942,27 +2013,48 @@ export default function Dashboard() {
               </div>
             </div>
 
-            <div className="grid grid-cols-2 gap-3 md:grid-cols-5 xl:flex">
+            <div className="grid grid-cols-2 gap-3 md:grid-cols-4 xl:grid-cols-7">
               <CompactMultiSelectFilter
-                label="Stato"
-                value={multiFilters.status}
-                options={multiFilterOptions.status}
-                isOpen={openMultiFilter === 'status'}
+                label="In Target"
+                value={multiFilters.target}
+                options={multiFilterOptions.target}
+                isOpen={openMultiFilter === 'target'}
                 onToggle={() =>
-                  setOpenMultiFilter(openMultiFilter === 'status' ? null : 'status')
+                  setOpenMultiFilter(openMultiFilter === 'target' ? null : 'target')
                 }
-                onChange={(value) => setMultiFilters({ ...multiFilters, status: value })}
+                onChange={(value) => setMultiFilters({ ...multiFilters, target: value })}
               />
 
               <CompactMultiSelectFilter
-                label="Tipo"
-                value={multiFilters.type}
-                options={multiFilterOptions.type}
-                isOpen={openMultiFilter === 'type'}
+                label="CND Momox"
+                value={multiFilters.momox_condition}
+                options={multiFilterOptions.momox_condition}
+                isOpen={openMultiFilter === 'momox_condition'}
                 onToggle={() =>
-                  setOpenMultiFilter(openMultiFilter === 'type' ? null : 'type')
+                  setOpenMultiFilter(
+                    openMultiFilter === 'momox_condition' ? null : 'momox_condition'
+                  )
                 }
-                onChange={(value) => setMultiFilters({ ...multiFilters, type: value })}
+                onChange={(value) =>
+                  setMultiFilters({ ...multiFilters, momox_condition: value })
+                }
+              />
+
+              <CompactMultiSelectFilter
+                label="CND Medimops"
+                value={multiFilters.medimops_condition}
+                options={multiFilterOptions.medimops_condition}
+                isOpen={openMultiFilter === 'medimops_condition'}
+                onToggle={() =>
+                  setOpenMultiFilter(
+                    openMultiFilter === 'medimops_condition'
+                      ? null
+                      : 'medimops_condition'
+                  )
+                }
+                onChange={(value) =>
+                  setMultiFilters({ ...multiFilters, medimops_condition: value })
+                }
               />
 
               <CompactMultiSelectFilter
@@ -1977,6 +2069,17 @@ export default function Dashboard() {
               />
 
               <CompactMultiSelectFilter
+                label="Tipo"
+                value={multiFilters.type}
+                options={multiFilterOptions.type}
+                isOpen={openMultiFilter === 'type'}
+                onToggle={() =>
+                  setOpenMultiFilter(openMultiFilter === 'type' ? null : 'type')
+                }
+                onChange={(value) => setMultiFilters({ ...multiFilters, type: value })}
+              />
+
+              <CompactMultiSelectFilter
                 label="CNT"
                 value={multiFilters.country}
                 options={countryQuickOptions}
@@ -1988,103 +2091,15 @@ export default function Dashboard() {
               />
 
               <button
-                className="inline-flex h-11 items-center justify-center gap-2 rounded-xl border border-slate-200 bg-white px-4 text-sm font-bold text-slate-700 shadow-sm hover:bg-slate-50"
-                onClick={() => setFiltersOpen(!filtersOpen)}
+                type="button"
+                className="inline-flex h-11 items-center justify-center rounded-xl border border-slate-200 bg-white px-4 text-sm font-bold text-slate-700 shadow-sm hover:bg-slate-50"
+                onClick={clearAllFilters}
               >
-                <FilterIcon />
-                Filtri
+                Pulisci filtri
                 {activeFilterCount > 0 ? ` (${activeFilterCount})` : ''}
               </button>
             </div>
           </section>
-
-          {filtersOpen && (
-            <section className="mpm-card mb-4 rounded-3xl p-4">
-              <div className="mb-3 flex items-center justify-between gap-3">
-                <h3 className="text-sm font-black uppercase tracking-wide text-[#2B403E]">
-                  Filtri avanzati
-                </h3>
-
-                <button
-                  className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm font-bold text-slate-700 hover:bg-slate-50"
-                  onClick={clearAllFilters}
-                >
-                  Pulisci filtri
-                </button>
-              </div>
-
-              <div className="grid gap-3 md:grid-cols-3 lg:grid-cols-6">
-                <CompactMultiSelectFilter
-                  label="Genere"
-                  value={multiFilters.genre}
-                  options={multiFilterOptions.genre}
-                  isOpen={openMultiFilter === 'genre'}
-                  onToggle={() =>
-                    setOpenMultiFilter(openMultiFilter === 'genre' ? null : 'genre')
-                  }
-                  onChange={(value) => setMultiFilters({ ...multiFilters, genre: value })}
-                />
-
-                <CompactMultiSelectFilter
-                  label="Cond. Medimops"
-                  value={multiFilters.medimops_condition}
-                  options={multiFilterOptions.medimops_condition}
-                  isOpen={openMultiFilter === 'medimops_condition'}
-                  onToggle={() =>
-                    setOpenMultiFilter(
-                      openMultiFilter === 'medimops_condition'
-                        ? null
-                        : 'medimops_condition'
-                    )
-                  }
-                  onChange={(value) =>
-                    setMultiFilters({ ...multiFilters, medimops_condition: value })
-                  }
-                />
-
-                <CompactMultiSelectFilter
-                  label="Cond. Momox"
-                  value={multiFilters.momox_condition}
-                  options={multiFilterOptions.momox_condition}
-                  isOpen={openMultiFilter === 'momox_condition'}
-                  onToggle={() =>
-                    setOpenMultiFilter(
-                      openMultiFilter === 'momox_condition' ? null : 'momox_condition'
-                    )
-                  }
-                  onChange={(value) =>
-                    setMultiFilters({ ...multiFilters, momox_condition: value })
-                  }
-                />
-              </div>
-
-              <div className="mt-3 grid gap-2 md:grid-cols-3 lg:grid-cols-6">
-                {[
-                  ['artist', 'Filtro artista'],
-                  ['album', 'Filtro album'],
-                  ['best_price', 'Filtro Best€'],
-                  ['ean_code', 'Filtro EAN'],
-                  ['edition', 'Filtro label'],
-                  ['release_year', 'Filtro anno'],
-                  ['country', 'Filtro country'],
-                  ['medimops_current_price', 'Filtro Medimops €'],
-                  ['momox_current_price', 'Filtro Momox €'],
-                  ['last_checked_at', 'Filtro ultimo rilievo'],
-                  ['last_error', 'Filtro dettaglio errore']
-                ].map(([key, placeholder]) => (
-                  <input
-                    key={key}
-                    className="h-11 rounded-xl border border-slate-200 bg-white px-3 text-sm font-medium outline-none focus:border-[#24BFBF]"
-                    placeholder={placeholder}
-                    value={filters[key] || ''}
-                    onChange={(event) =>
-                      setFilters({ ...filters, [key]: event.target.value })
-                    }
-                  />
-                ))}
-              </div>
-            </section>
-          )}
 
           <section className="mpm-card overflow-hidden rounded-3xl">
             <div className="flex flex-col gap-3 border-b border-slate-200 px-5 py-3 xl:flex-row xl:items-center xl:justify-between">

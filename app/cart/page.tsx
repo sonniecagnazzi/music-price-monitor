@@ -16,6 +16,20 @@ import { formatEuro } from '@/lib/format';
 
 type StoreKey = 'medimops' | 'momox';
 
+type CartSortKey =
+  | 'status'
+  | 'artist'
+  | 'album'
+  | 'country'
+  | 'ean_code'
+  | 'edition'
+  | 'price'
+  | 'finalPrice'
+  | 'condition'
+  | 'rowDiscount'
+  | 'discountedPrice'
+  | 'shippingShare';
+
 type StoreConfig = {
   key: StoreKey;
   label: string;
@@ -352,6 +366,50 @@ function AlbumCell({ value }: { value: string }) {
   );
 }
 
+function CartSortIndicator({ active, ascending }: { active: boolean; ascending: boolean }) {
+  if (!active) return <span className="text-slate-300">↕</span>;
+
+  return <span className="text-[#24BFBF]">{ascending ? '↑' : '↓'}</span>;
+}
+
+function SortableCartHeader({
+  label,
+  sortKey,
+  activeSortKey,
+  sortAsc,
+  onDoubleClick
+}: {
+  label: React.ReactNode;
+  sortKey?: CartSortKey;
+  activeSortKey: CartSortKey | null;
+  sortAsc: boolean;
+  onDoubleClick: (key: CartSortKey) => void;
+}) {
+  if (!sortKey) {
+    return (
+      <th className="whitespace-nowrap border-b border-slate-200 px-3 py-3 text-xs font-bold uppercase tracking-wide text-slate-500">
+        {label}
+      </th>
+    );
+  }
+
+  const active = activeSortKey === sortKey;
+
+  return (
+    <th
+      className="cursor-pointer select-none whitespace-nowrap border-b border-slate-200 px-3 py-3 text-xs font-bold uppercase tracking-wide text-slate-500 hover:bg-slate-50"
+      title="Doppio click: crescente, decrescente, non ordinato"
+      onDoubleClick={() => onDoubleClick(sortKey)}
+    >
+      <span className="inline-flex items-center gap-1">
+        {label}
+        <CartSortIndicator active={active} ascending={sortAsc} />
+      </span>
+    </th>
+  );
+}
+
+
 export default function CartPage() {
   const [items, setItems] = useState<CartItem[]>([]);
   const [monitors, setMonitors] = useState<Monitor[]>([]);
@@ -362,6 +420,8 @@ export default function CartPage() {
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const [detailPopupMonitor, setDetailPopupMonitor] = useState<Monitor | null>(null);
   const [processedAddId, setProcessedAddId] = useState<string | null>(null);
+  const [cartSortKey, setCartSortKey] = useState<CartSortKey | null>(null);
+  const [cartSortAsc, setCartSortAsc] = useState(true);
 
   function refreshItems() {
     setItems(getCartItems({ includeIgnored: true }));
@@ -531,6 +591,68 @@ export default function CartPage() {
 
   const finalTotal = discountedSubtotal + shipping;
 
+  const sortedRows = (() => {
+    if (!cartSortKey) return rows;
+
+    function numberValue(value: number | null | undefined): number {
+      return typeof value === 'number' && Number.isFinite(value)
+        ? value
+        : Number.POSITIVE_INFINITY;
+    }
+
+    function textValue(value: string | null | undefined): string {
+      return String(value || '').toLowerCase();
+    }
+
+    return [...rows].sort((left, right) => {
+      let comparison = 0;
+
+      if (cartSortKey === 'price') {
+        comparison = numberValue(left.price) - numberValue(right.price);
+      } else if (cartSortKey === 'finalPrice') {
+        comparison = numberValue(left.finalPrice) - numberValue(right.finalPrice);
+      } else if (cartSortKey === 'rowDiscount') {
+        comparison = numberValue(left.rowDiscount) - numberValue(right.rowDiscount);
+      } else if (cartSortKey === 'discountedPrice') {
+        comparison = numberValue(left.discountedPrice) - numberValue(right.discountedPrice);
+      } else if (cartSortKey === 'shippingShare') {
+        comparison = numberValue(left.shippingShare) - numberValue(right.shippingShare);
+      } else if (cartSortKey === 'status') {
+        comparison = Number(left.is_ignored) - Number(right.is_ignored);
+      } else if (cartSortKey === 'artist') {
+        comparison = textValue(left.artist).localeCompare(textValue(right.artist), 'it');
+      } else if (cartSortKey === 'album') {
+        comparison = textValue(left.album).localeCompare(textValue(right.album), 'it');
+      } else if (cartSortKey === 'country') {
+        comparison = textValue(left.country).localeCompare(textValue(right.country), 'it');
+      } else if (cartSortKey === 'ean_code') {
+        comparison = textValue(left.ean_code).localeCompare(textValue(right.ean_code), 'it');
+      } else if (cartSortKey === 'edition') {
+        comparison = textValue(left.edition).localeCompare(textValue(right.edition), 'it');
+      } else if (cartSortKey === 'condition') {
+        comparison = textValue(left.condition).localeCompare(textValue(right.condition), 'it');
+      }
+
+      return cartSortAsc ? comparison : -comparison;
+    });
+  })();
+
+  function handleCartHeaderDoubleClick(key: CartSortKey) {
+    if (cartSortKey !== key) {
+      setCartSortKey(key);
+      setCartSortAsc(true);
+      return;
+    }
+
+    if (cartSortAsc) {
+      setCartSortAsc(false);
+      return;
+    }
+
+    setCartSortKey(null);
+    setCartSortAsc(true);
+  }
+
   function removeItem(id: string) {
     removeCartItem(id);
     refreshItems();
@@ -571,7 +693,7 @@ export default function CartPage() {
       'Quota spedizione'
     ];
 
-    const csvRows = rows.map((row) => {
+    const csvRows = sortedRows.map((row) => {
       return [
         activeStoreConfig.label,
         row.is_ignored ? 'Ignorato' : 'Attivo',
@@ -834,24 +956,24 @@ export default function CartPage() {
               <table className="min-w-[1450px] border-collapse text-sm">
                 <thead className="[&_th]:sticky [&_th]:top-0 [&_th]:z-20 [&_th]:bg-white">
                   <tr className="bg-white text-left">
-                    <th className="whitespace-nowrap border-b border-slate-200 px-3 py-3 text-xs font-bold uppercase tracking-wide text-slate-500">Stato</th>
-                    <th className="whitespace-nowrap border-b border-slate-200 px-3 py-3 text-xs font-bold uppercase tracking-wide text-slate-500">Azioni</th>
-                    <th className="whitespace-nowrap border-b border-slate-200 px-3 py-3 text-xs font-bold uppercase tracking-wide text-slate-500">Artista</th>
-                    <th className="whitespace-nowrap border-b border-slate-200 px-3 py-3 text-xs font-bold uppercase tracking-wide text-slate-500">Titolo</th>
-                    <th className="whitespace-nowrap border-b border-slate-200 px-3 py-3 text-xs font-bold uppercase tracking-wide text-slate-500">Country</th>
-                    <th className="whitespace-nowrap border-b border-slate-200 px-3 py-3 text-xs font-bold uppercase tracking-wide text-slate-500">EAN</th>
-                    <th className="whitespace-nowrap border-b border-slate-200 px-3 py-3 text-xs font-bold uppercase tracking-wide text-slate-500">Label</th>
-                    <th className="whitespace-nowrap border-b border-slate-200 px-3 py-3 text-xs font-bold uppercase tracking-wide text-slate-500">Prezzo {activeStoreConfig.label}</th>
-                    <th className="whitespace-nowrap border-b border-slate-200 px-3 py-3 text-xs font-bold uppercase tracking-wide text-slate-500">Prezzo finale</th>
-                    <th className="whitespace-nowrap border-b border-slate-200 px-3 py-3 text-xs font-bold uppercase tracking-wide text-slate-500">Condizione</th>
-                    <th className="whitespace-nowrap border-b border-slate-200 px-3 py-3 text-xs font-bold uppercase tracking-wide text-slate-500">Sconto riga</th>
-                    <th className="whitespace-nowrap border-b border-slate-200 px-3 py-3 text-xs font-bold uppercase tracking-wide text-slate-500">Prezzo scontato</th>
-                    <th className="whitespace-nowrap border-b border-slate-200 px-3 py-3 text-xs font-bold uppercase tracking-wide text-slate-500">Quota spedizione</th>
-                  </tr>
+                      <SortableCartHeader label="Stato" sortKey="status" activeSortKey={cartSortKey} sortAsc={cartSortAsc} onDoubleClick={handleCartHeaderDoubleClick} />
+                      <SortableCartHeader label="Azioni" activeSortKey={cartSortKey} sortAsc={cartSortAsc} onDoubleClick={handleCartHeaderDoubleClick} />
+                      <SortableCartHeader label="Artista" sortKey="artist" activeSortKey={cartSortKey} sortAsc={cartSortAsc} onDoubleClick={handleCartHeaderDoubleClick} />
+                      <SortableCartHeader label="Titolo" sortKey="album" activeSortKey={cartSortKey} sortAsc={cartSortAsc} onDoubleClick={handleCartHeaderDoubleClick} />
+                      <SortableCartHeader label="Country" sortKey="country" activeSortKey={cartSortKey} sortAsc={cartSortAsc} onDoubleClick={handleCartHeaderDoubleClick} />
+                      <SortableCartHeader label="EAN" sortKey="ean_code" activeSortKey={cartSortKey} sortAsc={cartSortAsc} onDoubleClick={handleCartHeaderDoubleClick} />
+                      <SortableCartHeader label="Label" sortKey="edition" activeSortKey={cartSortKey} sortAsc={cartSortAsc} onDoubleClick={handleCartHeaderDoubleClick} />
+                      <SortableCartHeader label={`Prezzo ${activeStoreConfig.label}`} sortKey="price" activeSortKey={cartSortKey} sortAsc={cartSortAsc} onDoubleClick={handleCartHeaderDoubleClick} />
+                      <SortableCartHeader label="Prezzo finale" sortKey="finalPrice" activeSortKey={cartSortKey} sortAsc={cartSortAsc} onDoubleClick={handleCartHeaderDoubleClick} />
+                      <SortableCartHeader label="Condizione" sortKey="condition" activeSortKey={cartSortKey} sortAsc={cartSortAsc} onDoubleClick={handleCartHeaderDoubleClick} />
+                      <SortableCartHeader label="Sconto riga" sortKey="rowDiscount" activeSortKey={cartSortKey} sortAsc={cartSortAsc} onDoubleClick={handleCartHeaderDoubleClick} />
+                      <SortableCartHeader label="Prezzo scontato" sortKey="discountedPrice" activeSortKey={cartSortKey} sortAsc={cartSortAsc} onDoubleClick={handleCartHeaderDoubleClick} />
+                      <SortableCartHeader label="Quota spedizione" sortKey="shippingShare" activeSortKey={cartSortKey} sortAsc={cartSortAsc} onDoubleClick={handleCartHeaderDoubleClick} />
+                    </tr>
                 </thead>
 
                 <tbody>
-                  {rows.map((row) => (
+                  {sortedRows.map((row) => (
                     <tr
                       key={row.cartItem.id}
                       className={`border-b border-slate-100 align-top ${
@@ -934,7 +1056,7 @@ export default function CartPage() {
                     </tr>
                   ))}
 
-                  {rows.length === 0 && (
+                  {sortedRows.length === 0 && (
                     <tr>
                       <td className="p-8 text-center text-slate-500" colSpan={13}>
                         Carrello vuoto.

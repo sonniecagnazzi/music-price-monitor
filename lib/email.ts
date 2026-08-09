@@ -10,6 +10,7 @@ export type TargetEmailOffer = {
   country: string | null;
   genre: string;
   price: number;
+  lowestBestPrice: number | null;
   condition: string;
   url: string;
   recipient: string;
@@ -77,6 +78,13 @@ function buildAppUrl(id: string): string {
 function buildCartUrl(id: string): string {
   const baseUrl = getAppBaseUrl();
   const path = `/cart?add=${encodeURIComponent(id)}`;
+
+  return baseUrl ? `${baseUrl}${path}` : path;
+}
+
+function buildArtistFilterUrl(artist: string): string {
+  const baseUrl = getAppBaseUrl();
+  const path = `/?artist=${encodeURIComponent(artist)}`;
 
   return baseUrl ? `${baseUrl}${path}` : path;
 }
@@ -152,11 +160,14 @@ function buildOfferRows(offers: TargetEmailOffer[]) {
     .map((offer) => {
       const colors = getChannelColor(offer.channel);
       const conditionColors = getConditionEmailColors(offer.condition);
+      const artistUrl = buildArtistFilterUrl(offer.artist);
+      const lowestText =
+        offer.lowestBestPrice === null ? '-' : formatEuro(offer.lowestBestPrice);
 
       return `
         <tr>
           <td style="padding: 12px 10px; border-bottom: 1px solid #e5e7eb;">
-            <a href="${escapeHtml(buildAppUrl(offer.id))}" style="color: #12201f; text-decoration: none; display: block;">
+            <a href="${escapeHtml(offer.url)}" style="color: #12201f; text-decoration: none; display: block;">
               <span style="display: inline-block; min-width: 34px; text-align: center; padding: 4px 8px; border-radius: 999px; background: #f1f5f9; color: #334155; font-size: 12px; font-weight: 800;">
                 ${escapeHtml(offer.type)}
               </span>
@@ -172,19 +183,19 @@ function buildOfferRows(offers: TargetEmailOffer[]) {
           </td>
 
           <td style="padding: 12px 10px; border-bottom: 1px solid #e5e7eb;">
-            <a href="${escapeHtml(buildAppUrl(offer.id))}" style="color: #12201f; text-decoration: none; display: block; font-weight: 800;">
+            <a href="${escapeHtml(artistUrl)}" style="color: #12201f; text-decoration: none; display: block; font-weight: 800;">
               ${escapeHtml(offer.artist)}
             </a>
           </td>
 
           <td style="padding: 12px 10px; border-bottom: 1px solid #e5e7eb;">
-            <a href="${escapeHtml(buildAppUrl(offer.id))}" style="color: #334155; text-decoration: none; display: block;">
+            <a href="${escapeHtml(artistUrl)}" style="color: #334155; text-decoration: none; display: block;">
               ${escapeHtml(offer.title)}
             </a>
           </td>
 
           <td style="padding: 12px 10px; border-bottom: 1px solid #e5e7eb; white-space: nowrap;">
-            <a href="${escapeHtml(buildAppUrl(offer.id))}" style="color: #334155; text-decoration: none; display: block; font-weight: 800;">
+            <a href="${escapeHtml(offer.url)}" style="color: #334155; text-decoration: none; display: block; font-weight: 800;">
               ${escapeHtml(offer.country || '-')}
             </a>
           </td>
@@ -192,6 +203,12 @@ function buildOfferRows(offers: TargetEmailOffer[]) {
           <td style="padding: 12px 10px; border-bottom: 1px solid #e5e7eb; white-space: nowrap;">
             <a href="${escapeHtml(offer.url)}" style="color: #159b77; text-decoration: none; display: block; font-weight: 900;">
               ${escapeHtml(formatEuro(offer.price))}
+            </a>
+          </td>
+
+          <td style="padding: 12px 10px; border-bottom: 1px solid #e5e7eb; white-space: nowrap;">
+            <a href="${escapeHtml(offer.url)}" style="color: #b45309; text-decoration: none; display: block; font-weight: 900;">
+              ${escapeHtml(lowestText)}
             </a>
           </td>
 
@@ -216,6 +233,7 @@ function buildOfferRows(offers: TargetEmailOffer[]) {
     .join('');
 }
 
+
 function buildTextSummary(offers: TargetEmailOffer[]) {
   return offers
     .map((offer) => {
@@ -226,6 +244,7 @@ function buildTextSummary(offers: TargetEmailOffer[]) {
         `${offer.title}`,
         `${offer.country || '-'}`,
         `${formatEuro(offer.price)}`,
+        `Lowest ${offer.lowestBestPrice === null ? '-' : formatEuro(offer.lowestBestPrice)}`,
         `Condizione ${offer.condition}`,
         `${offer.url}`,
         `Carrello ${buildCartUrl(offer.id)}`
@@ -288,7 +307,8 @@ function buildSummaryHtml(offers: TargetEmailOffer[]) {
                     <th align="left" style="padding: 10px; border-bottom: 2px solid #dbe4e2; color: #64748b; font-size: 12px; text-transform: uppercase; letter-spacing: 0.05em;">Titolo</th>
                     <th align="left" style="padding: 10px; border-bottom: 2px solid #dbe4e2; color: #64748b; font-size: 12px; text-transform: uppercase; letter-spacing: 0.05em;">Country</th>
                     <th align="left" style="padding: 10px; border-bottom: 2px solid #dbe4e2; color: #64748b; font-size: 12px; text-transform: uppercase; letter-spacing: 0.05em;">Prezzo</th>
-                    <th align="left" style="padding: 10px; border-bottom: 2px solid #dbe4e2; color: #64748b; font-size: 12px; text-transform: uppercase; letter-spacing: 0.05em;">Condizione</th>
+                    
+                          <th align="left" style="padding: 12px 10px; border-bottom: 2px solid #cbd5e1; color: #475569; font-size: 12px; text-transform: uppercase;">€ Lowest</th><th align="left" style="padding: 10px; border-bottom: 2px solid #dbe4e2; color: #64748b; font-size: 12px; text-transform: uppercase; letter-spacing: 0.05em;">Condizione</th>
                     <th align="center" style="padding: 10px; border-bottom: 2px solid #dbe4e2; color: #64748b; font-size: 12px; text-transform: uppercase; letter-spacing: 0.05em;">🛒</th>
                   </tr>
                 </thead>
