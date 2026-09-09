@@ -440,6 +440,49 @@ function numberToItalianInput(value: number | null | undefined): string {
   return String(value).replace('.', ',');
 }
 
+function csvEscape(value: string | number | null | undefined): string {
+  const text = String(value ?? '');
+
+  if (/[",\n;]/.test(text)) {
+    return `"${text.replace(/"/g, '""')}"`;
+  }
+
+  return text;
+}
+
+function numberToCsvTarget(value: number | null | undefined): string {
+  if (value === null || value === undefined) return '';
+
+  return String(value).replace('.', ',');
+}
+
+function buildYearAndLabelForExport(monitor: Monitor): string {
+  const year =
+    monitor.release_year === null || monitor.release_year === undefined
+      ? ''
+      : String(monitor.release_year);
+
+  const label = String(monitor.edition || '').trim();
+
+  if (year && label) return `${year} - ${label}`;
+  if (year) return year;
+
+  return label;
+}
+
+function getExportTarget(monitor: Monitor): number | null {
+  return (
+    monitor.medimops_target_price ??
+    monitor.momox_target_price ??
+    monitor.amazon_target_price ??
+    null
+  );
+}
+
+function getTodayForExportFilename() {
+  return new Date().toISOString().slice(0, 10);
+}
+
 function isSiteInTarget(currentPrice: number | null, targetPrice: number | null): boolean {
   return currentPrice !== null && targetPrice !== null && currentPrice <= targetPrice;
 }
@@ -1630,6 +1673,190 @@ export default function Dashboard() {
     }
   }
 
+  function isRareMonitor(monitor: Monitor): boolean {
+    const haystack = [
+      monitor.genre,
+      monitor.type,
+      monitor.artist,
+      monitor.album,
+      monitor.edition,
+      monitor.country
+    ]
+      .join(' ')
+      .toLowerCase();
+
+    return haystack.includes('rari') || haystack.includes('rare');
+  }
+
+  async function checkRowsByIds(
+    ids: string[],
+    label: string,
+    confirmMessage: string
+  ) {
+    if (ids.length === 0) {
+      setMessage(`Nessun record trovato per: ${label}.`);
+      return;
+    }
+
+    const confirmed = confirm(confirmMessage);
+
+    if (!confirmed) return;
+
+    setIsCheckMenuOpen(false);
+    setBusy(true);
+    setMessage(`Avvio controllo ${label} su Mac runner (${ids.length})...`);
+
+    try {
+      const response = await fetch('/api/monitors/check-all', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          ids
+        })
+      });
+
+      const json = (await response.json()) as {
+        ok?: boolean;
+        message?: string;
+        error?: string;
+      };
+
+      if (!response.ok) throw new Error(json.error || `Errore avvio controllo ${label}.`);
+
+      setMessage(
+        json.message ||
+          `Controllo ${label} avviato su Mac runner. Aggiorna tra qualche minuto.`
+      );
+    } catch (error) {
+      setMessage(
+        error instanceof Error
+          ? error.message
+          : `Errore durante avvio controllo ${label}.`
+      );
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  function checkAllCdRows() {
+    const ids = monitors
+      .filter((monitor) => monitor.is_active && monitor.type === 'CD')
+      .map((monitor) => monitor.id);
+
+    checkRowsByIds(
+      ids,
+      'tutti i CD',
+      `Vuoi avviare ora il controllo Mac runner per tutti i CD attivi (${ids.length})?`
+    );
+  }
+
+  function checkAllLpRows() {
+    const ids = monitors
+      .filter((monitor) => monitor.is_active && monitor.type === 'LP')
+      .map((monitor) => monitor.id);
+
+    checkRowsByIds(
+      ids,
+      'tutti gli LP',
+      `Vuoi avviare ora il controllo Mac runner per tutti gli LP attivi (${ids.length})?`
+    );
+  }
+
+  function checkAltCdRows() {
+    const ids = monitors
+      .filter(
+        (monitor) =>
+          monitor.is_active &&
+          monitor.type === 'CD' &&
+          String(monitor.genre || '').toLowerCase() === 'alt'
+      )
+      .map((monitor) => monitor.id);
+
+    checkRowsByIds(
+      ids,
+      'Alt CD',
+      `Vuoi avviare ora il controllo Mac runner per tutti gli Alt CD attivi (${ids.length})?`
+    );
+  }
+
+  function checkHmCdRows() {
+    const ids = monitors
+      .filter(
+        (monitor) =>
+          monitor.is_active &&
+          monitor.type === 'CD' &&
+          String(monitor.genre || '').toLowerCase() === 'h&m'
+      )
+      .map((monitor) => monitor.id);
+
+    checkRowsByIds(
+      ids,
+      'H&M CD',
+      `Vuoi avviare ora il controllo Mac runner per tutti gli H&M CD attivi (${ids.length})?`
+    );
+  }
+
+  function checkRareRows() {
+    const ids = monitors
+      .filter((monitor) => monitor.is_active && isRareMonitor(monitor))
+      .map((monitor) => monitor.id);
+
+    checkRowsByIds(
+      ids,
+      'Rari',
+      `Vuoi avviare ora il controllo Mac runner per tutti i record Rari attivi (${ids.length})?`
+    );
+  }
+
+  function exportDashboardImportCsv() {
+    if (monitors.length === 0) {
+      setMessage('Nessun record da esportare.');
+      return;
+    }
+
+    const header = [
+      'Genere',
+      'Tipo',
+      'Artista',
+      'Album',
+      'EAN',
+      'Target',
+      'URL Medimops',
+      'Anno - Label',
+      'Country'
+    ];
+
+    const rows = monitors.map((monitor) => [
+      monitor.genre || '',
+      monitor.type || '',
+      monitor.artist || '',
+      monitor.album || '',
+      monitor.ean_code || '',
+      numberToCsvTarget(getExportTarget(monitor)),
+      monitor.medimops_url || '',
+      buildYearAndLabelForExport(monitor),
+      monitor.country || ''
+    ]);
+
+    const content = [header, ...rows]
+      .map((row) => row.map(csvEscape).join(';'))
+      .join('\n');
+
+    const blob = new Blob([`\uFEFF${content}`], {
+      type: 'text/csv;charset=utf-8'
+    });
+
+    const url = window.URL.createObjectURL(blob);
+    const link = document.createElement('a');
+
+    link.href = url;
+    link.download = `music-price-monitor-export-${getTodayForExportFilename()}.csv`;
+    link.click();
+
+    window.URL.revokeObjectURL(url);
+    setMessage(`Export completato: ${monitors.length} record.`);
+  }
+
   async function checkVisibleRows() {
     if (filtered.length === 0) {
       setMessage('Nessun record visibile da controllare.');
@@ -1845,6 +2072,17 @@ export default function Dashboard() {
 
                 <button
                   type="button"
+                  className="inline-flex h-11 w-11 items-center justify-center rounded-xl border border-slate-200 bg-white text-slate-700 shadow-sm hover:bg-slate-50 disabled:opacity-50"
+                  disabled={busy || monitors.length === 0}
+                  onClick={exportDashboardImportCsv}
+                  title="Esporta CSV formato import"
+                  aria-label="Esporta CSV formato import"
+                >
+                  ↓
+                </button>
+
+                <button
+                  type="button"
                   className="inline-flex h-11 w-11 items-center justify-center rounded-xl border border-slate-200 bg-white text-lg font-black text-slate-700 shadow-sm hover:bg-slate-50 disabled:opacity-50"
                   disabled={busy}
                   onClick={refreshDatagrid}
@@ -1947,7 +2185,7 @@ export default function Dashboard() {
                   </button>
 
                   {isCheckMenuOpen ? (
-                    <div className="absolute right-0 z-30 mt-2 w-56 overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-xl">
+                    <div className="absolute right-0 z-30 mt-2 w-72 overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-xl">
                       <button
                         type="button"
                         className="flex w-full items-center gap-2 px-4 py-3 text-left text-sm font-black text-slate-700 hover:bg-slate-50"
@@ -1965,6 +2203,51 @@ export default function Dashboard() {
                       >
                         <CheckIcon />
                         Controlla selezionati{selectedIds.length > 0 ? ` (${selectedIds.length})` : ''}
+                      </button>
+
+                      <button
+                        type="button"
+                        className="flex w-full items-center gap-2 px-4 py-3 text-left text-sm font-black text-slate-700 hover:bg-slate-50"
+                        onClick={checkAllCdRows}
+                      >
+                        <CheckIcon />
+                        Controlla tutti i CD
+                      </button>
+
+                      <button
+                        type="button"
+                        className="flex w-full items-center gap-2 px-4 py-3 text-left text-sm font-black text-slate-700 hover:bg-slate-50"
+                        onClick={checkAllLpRows}
+                      >
+                        <CheckIcon />
+                        Controlla tutti gli LP
+                      </button>
+
+                      <button
+                        type="button"
+                        className="flex w-full items-center gap-2 px-4 py-3 text-left text-sm font-black text-slate-700 hover:bg-slate-50"
+                        onClick={checkAltCdRows}
+                      >
+                        <CheckIcon />
+                        Controlla tutti gli Alt CD
+                      </button>
+
+                      <button
+                        type="button"
+                        className="flex w-full items-center gap-2 px-4 py-3 text-left text-sm font-black text-slate-700 hover:bg-slate-50"
+                        onClick={checkHmCdRows}
+                      >
+                        <CheckIcon />
+                        Controlla tutti gli H&M CD
+                      </button>
+
+                      <button
+                        type="button"
+                        className="flex w-full items-center gap-2 px-4 py-3 text-left text-sm font-black text-slate-700 hover:bg-slate-50"
+                        onClick={checkRareRows}
+                      >
+                        <CheckIcon />
+                        Controlla solo Rari
                       </button>
                     </div>
                   ) : null}
