@@ -1819,11 +1819,29 @@ export default function Dashboard() {
       'Tipo',
       'Artista',
       'Album',
+      'Servizio 1',
       'EAN',
+      'Servizio 2',
+      'Servizio 3',
+      'Anno - Label',
+      'Country',
       'Target',
       'URL Medimops',
-      'Anno - Label',
-      'Country'
+      'URL Momox',
+      '',
+      '',
+      '',
+      '',
+      '',
+      '',
+      '',
+      '',
+      '',
+      '',
+      '',
+      '',
+      '',
+      ''
     ];
 
     const rows = monitors.map((monitor) => [
@@ -1831,11 +1849,29 @@ export default function Dashboard() {
       monitor.type || '',
       monitor.artist || '',
       monitor.album || '',
+      '',
       monitor.ean_code || '',
+      '',
+      '',
+      buildYearAndLabelForExport(monitor),
+      monitor.country || '',
       numberToCsvTarget(getExportTarget(monitor)),
       monitor.medimops_url || '',
-      buildYearAndLabelForExport(monitor),
-      monitor.country || ''
+      monitor.momox_url || '',
+      '',
+      '',
+      '',
+      '',
+      '',
+      '',
+      '',
+      '',
+      '',
+      '',
+      '',
+      '',
+      '',
+      ''
     ]);
 
     const content = [header, ...rows]
