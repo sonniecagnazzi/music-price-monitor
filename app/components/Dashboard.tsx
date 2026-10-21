@@ -350,14 +350,14 @@ function CompactMultiSelectFilter({
   const labelText = value.length === 0 ? label : value.join(', ');
 
   return (
-    <div className="relative">
+    <div className="relative min-w-0">
       <button
         type="button"
-        className="mpm-focus flex h-11 w-full items-center justify-between gap-2 rounded-xl border border-slate-200 bg-white px-4 text-left text-sm font-semibold text-slate-700 shadow-sm hover:bg-slate-50"
+        className="mpm-focus flex h-11 w-full min-w-0 items-center justify-between gap-1 rounded-xl border border-slate-200 bg-white px-2 text-left text-xs font-semibold text-slate-700 shadow-sm hover:bg-slate-50 xl:text-sm"
         onClick={onToggle}
       >
-        <span className="truncate">{labelText}</span>
-        <ChevronDownIcon />
+        <span className="min-w-0 truncate" title={labelText}>{labelText}</span>
+        <span className="shrink-0"><ChevronDownIcon /></span>
       </button>
 
       {isOpen && (
@@ -950,6 +950,7 @@ export default function Dashboard() {
   const [filters, setFilters] = useState<Record<string, string>>({});
   const [multiFilters, setMultiFilters] =
     useState<MultiFilters>(emptyMultiFilters);
+  const [onlyAvailable, setOnlyAvailable] = useState(false);
   const [sortKey, setSortKey] = useState<SortKey | null>(null);
   const [sortAsc, setSortAsc] = useState(true);
   const [message, setMessage] = useState('Caricamento...');
@@ -986,6 +987,7 @@ export default function Dashboard() {
       const saved = JSON.parse(raw) as {
         filters?: Record<string, string>;
         multiFilters?: MultiFilters;
+        onlyAvailable?: boolean;
         sortKey?: SortKey | null;
         sortAsc?: boolean;
         filtersOpen?: boolean;
@@ -999,6 +1001,7 @@ export default function Dashboard() {
           status: []
         });
       }
+      if (typeof saved.onlyAvailable === 'boolean') setOnlyAvailable(saved.onlyAvailable);
       if (saved.sortKey !== undefined) setSortKey(saved.sortKey);
       if (typeof saved.sortAsc === 'boolean') setSortAsc(saved.sortAsc);
       if (typeof saved.filtersOpen === 'boolean') setFiltersOpen(saved.filtersOpen);
@@ -1014,6 +1017,7 @@ export default function Dashboard() {
         JSON.stringify({
           filters,
           multiFilters,
+          onlyAvailable,
           sortKey,
           sortAsc,
           filtersOpen
@@ -1022,11 +1026,11 @@ export default function Dashboard() {
     } catch {
       // LocalStorage non disponibile: nessun blocco della dashboard.
     }
-  }, [filters, multiFilters, sortKey, sortAsc, filtersOpen]);
+  }, [filters, multiFilters, onlyAvailable, sortKey, sortAsc, filtersOpen]);
 
   useEffect(() => {
     setCurrentPage(1);
-  }, [filters, multiFilters, sortKey, sortAsc]);
+  }, [filters, multiFilters, onlyAvailable, sortKey, sortAsc]);
 
   useEffect(() => {
     if (currentPage < 1) {
@@ -1116,7 +1120,7 @@ export default function Dashboard() {
     window.history.replaceState(null, '', '/');
   }, []);
 
-  const activeFilterCount = countActiveFilters(filters, multiFilters);
+  const activeFilterCount = countActiveFilters(filters, multiFilters) + (onlyAvailable ? 1 : 0);
 
   const countryQuickOptions = useMemo(() => {
     return Array.from(
@@ -1400,6 +1404,9 @@ export default function Dashboard() {
       const urlStatusLabel = getUrlStatusLabel(monitor);
       const bestPrice = getBestPrice(monitor);
 
+      // €Now e' valorizzato solo se esiste un prezzo con condizione NM/EX.
+      if (onlyAvailable && bestPrice === null) return false;
+
       const targetFilterLabels = getTargetFilterLabels(monitor);
 
       if (
@@ -1466,7 +1473,7 @@ export default function Dashboard() {
 
       return compareDefaultOrder(a, b);
     });
-  }, [monitors, filters, multiFilters, sortKey, sortAsc]);
+  }, [monitors, filters, multiFilters, onlyAvailable, sortKey, sortAsc]);
 
   const totalPages = Math.max(1, Math.ceil(filtered.length / DASHBOARD_PAGE_SIZE));
   const safeCurrentPage = Math.min(currentPage, totalPages);
@@ -1988,6 +1995,7 @@ export default function Dashboard() {
   function clearAllFilters() {
     setFilters({});
     setMultiFilters(emptyMultiFilters);
+    setOnlyAvailable(false);
     setOpenMultiFilter(null);
   }
 
@@ -2332,7 +2340,7 @@ export default function Dashboard() {
               </div>
             </div>
 
-            <div className="grid grid-cols-2 gap-3 md:grid-cols-4 xl:grid-cols-7">
+            <div className="grid grid-cols-2 gap-2 sm:grid-cols-4 md:grid-cols-8">
               <CompactMultiSelectFilter
                 label="In Target"
                 value={multiFilters.target}
@@ -2411,7 +2419,21 @@ export default function Dashboard() {
 
               <button
                 type="button"
-                className="inline-flex h-11 items-center justify-center rounded-xl border border-slate-200 bg-white px-4 text-sm font-bold text-slate-700 shadow-sm hover:bg-slate-50"
+                aria-pressed={onlyAvailable}
+                title="Mostra solo i record con un prezzo nella colonna €Now"
+                className={`mpm-focus inline-flex h-11 min-w-0 items-center justify-center overflow-hidden whitespace-nowrap rounded-xl border px-1 text-xs font-bold shadow-sm sm:px-2 xl:text-sm ${
+                  onlyAvailable
+                    ? 'border-[#24BFBF] bg-cyan-50 text-[#087D7D]'
+                    : 'border-slate-200 bg-white text-slate-700 hover:bg-slate-50'
+                }`}
+                onClick={() => setOnlyAvailable((current) => !current)}
+              >
+                {onlyAvailable ? '✓ ' : ''}Solo Disponibili
+              </button>
+
+              <button
+                type="button"
+                className="inline-flex h-11 min-w-0 items-center justify-center overflow-hidden whitespace-nowrap rounded-xl border border-slate-200 bg-white px-1 text-xs font-bold text-slate-700 shadow-sm hover:bg-slate-50 sm:px-2 xl:text-sm"
                 onClick={clearAllFilters}
               >
                 Pulisci filtri
