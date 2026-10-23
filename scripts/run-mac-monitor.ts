@@ -3,7 +3,7 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { stdin as input, stdout as output } from 'node:process';
 import { createInterface } from 'node:readline/promises';
-import { sendTargetSummaryEmail, type TargetEmailOffer } from '@/lib/email';
+import { sendNewLowSummaryEmail, sendSpecialAvailableSummaryEmail, type NewLowEmailOffer, type TargetEmailOffer } from '@/lib/email';
 import { persistentChromeRunner } from './lib/persistent-chrome-runner';
 
 function sleep(ms: number): Promise<void> {
@@ -23,6 +23,18 @@ type ScrapeOutcome = {
   rawCondition: string | null;
   rawPrice: string | null;
   message: string;
+};
+
+type EligibleScrapeOutcome = ScrapeOutcome & {
+  status: 'ok';
+  price: number;
+  condition: string;
+};
+
+type NewLowDetection = {
+  previousLowestBestPrice: number | null;
+  currentBestPrice: number;
+  outcome: EligibleScrapeOutcome;
 };
 
 function loadEnvFile(filePath: string): void {
@@ -240,6 +252,30 @@ function isInTarget(price: number | null, target: number | null, condition: stri
   return price <= target;
 }
 
+function getFreshEligibleOutcomes(
+  medimops: ScrapeOutcome,
+  momox: ScrapeOutcome
+): EligibleScrapeOutcome[] {
+  return [medimops, momox]
+    .filter((item): item is EligibleScrapeOutcome => {
+      return (
+        item.status === 'ok' &&
+        typeof item.price === 'number' &&
+        Number.isFinite(item.price) &&
+        Boolean(item.condition) &&
+        isEligibleCondition(item.condition)
+      );
+    })
+    .sort((left, right) => {
+      const priceDiff = left.price - right.price;
+
+      if (priceDiff !== 0) return priceDiff;
+      if (left.store === right.store) return 0;
+
+      return left.store === 'Medimops' ? -1 : 1;
+    });
+}
+
 function computeLastStatus(
   row: Record<string, unknown>,
   medimops: ScrapeOutcome,
@@ -366,7 +402,7 @@ async function updateMonitorRow(
   row: Record<string, unknown>,
   medimops: ScrapeOutcome,
   momox: ScrapeOutcome
-): Promise<void> {
+): Promise<{ newLowDetection: NewLowDetection | null }> {
   const now = new Date().toISOString();
   const update: Record<string, unknown> = {};
 
@@ -395,14 +431,12 @@ async function updateMonitorRow(
   setIfExists(row, update, 'last_error', errorMessages.length > 0 ? errorMessages.join(' | ') : null);
   setIfExists(row, update, 'updated_at', now);
 
-  const freshEligiblePrices = [medimops, momox]
-    .filter((item) => item.status === 'ok')
-    .filter((item) => isEligibleCondition(item.condition))
-    .map((item) => item.price)
-    .filter((price): price is number => typeof price === 'number' && Number.isFinite(price));
+  let newLowDetection: NewLowDetection | null = null;
+  const freshEligibleOutcomes = getFreshEligibleOutcomes(medimops, momox);
 
-  if (freshEligiblePrices.length > 0 && hasKey(row, 'lowest_best_price')) {
-    const currentFreshBest = Math.min(...freshEligiblePrices);
+  if (freshEligibleOutcomes.length > 0 && hasKey(row, 'lowest_best_price')) {
+    const bestOutcome = freshEligibleOutcomes[0];
+    const currentFreshBest = bestOutcome.price;
     const previousLowest = getNumber(row, 'lowest_best_price');
 
     if (previousLowest === null || currentFreshBest < previousLowest) {
@@ -411,6 +445,12 @@ async function updateMonitorRow(
       if (hasKey(row, 'lowest_best_price_at')) {
         update.lowest_best_price_at = now;
       }
+
+      newLowDetection = {
+        previousLowestBestPrice: previousLowest,
+        currentBestPrice: currentFreshBest,
+        outcome: bestOutcome
+      };
     }
   }
 
@@ -426,6 +466,8 @@ async function updateMonitorRow(
   }
 
   console.log('[mac-monitor] Supabase aggiornato.');
+
+  return { newLowDetection };
 }
 
 function hasArg(name: string): boolean {
@@ -475,7 +517,10 @@ async function fetchAllActiveRows(): Promise<Array<Record<string, unknown>>> {
     throw new Error('Nessun monitor attivo trovato.');
   }
 
-  return rows;
+  return rows.sort((a, b) => {
+    const artistOrder = (getString(a, 'artist') || '').localeCompare(getString(b, 'artist') || '', 'it', { sensitivity: 'base' });
+    return artistOrder || getMonitorDisplayTitle(a).localeCompare(getMonitorDisplayTitle(b), 'it', { sensitivity: 'base' });
+  });
 }
 
 
@@ -484,6 +529,7 @@ type ProcessRowsSummary = {
   completed: number;
   errors: number;
   targetOffers: TargetEmailOffer[];
+  newLowOffers: NewLowEmailOffer[];
 };
 
 function getDefaultRecipient(): string {
@@ -559,6 +605,36 @@ function buildMacTargetOffer(
   };
 }
 
+function buildMacNewLowOffer(
+  row: Record<string, unknown>,
+  detection: NewLowDetection
+): NewLowEmailOffer | null {
+  const isMedimops = detection.outcome.store === 'Medimops';
+  const url = getString(row, isMedimops ? 'medimops_url' : 'momox_url');
+
+  if (!url) return null;
+
+  const recipient =
+    getString(row, 'alert_email') ||
+    getString(row, 'recipient') ||
+    getDefaultRecipient();
+
+  return {
+    id: String(row.id),
+    type: getMonitorType(row),
+    channel: detection.outcome.store,
+    artist: getString(row, 'artist') || 'Artista n/d',
+    title: getMonitorDisplayTitle(row),
+    country: getString(row, 'country'),
+    genre: getString(row, 'genre') || '',
+    price: detection.currentBestPrice,
+    previousLowestBestPrice: detection.previousLowestBestPrice,
+    condition: detection.outcome.condition,
+    url,
+    recipient
+  };
+}
+
 function buildMacTargetOffers(
   row: Record<string, unknown>,
   medimops: ScrapeOutcome,
@@ -569,33 +645,35 @@ function buildMacTargetOffers(
   );
 }
 
-function sortMacTargetOffers(offers: TargetEmailOffer[]): TargetEmailOffer[] {
-  const channelOrder: Record<TargetEmailOffer['channel'], number> = {
+function sortMacOffersByArtist<TOffer extends { channel: 'Medimops' | 'Momox'; artist: string; title: string }>(
+  offers: TOffer[]
+): TOffer[] {
+  const channelOrder: Record<'Medimops' | 'Momox', number> = {
     Medimops: 0,
     Momox: 1
   };
 
   return [...offers].sort((left, right) => {
-    const channelDiff = channelOrder[left.channel] - channelOrder[right.channel];
-
-    if (channelDiff !== 0) return channelDiff;
-
     const artistDiff = left.artist.localeCompare(right.artist, 'it', {
       sensitivity: 'base'
     });
 
     if (artistDiff !== 0) return artistDiff;
 
-    return left.title.localeCompare(right.title, 'it', {
+    const titleDiff = left.title.localeCompare(right.title, 'it', {
       sensitivity: 'base'
     });
+
+    if (titleDiff !== 0) return titleDiff;
+
+    return channelOrder[left.channel] - channelOrder[right.channel];
   });
 }
 
-function groupMacOffersByRecipient(
-  offers: TargetEmailOffer[]
-): Record<string, TargetEmailOffer[]> {
-  return offers.reduce<Record<string, TargetEmailOffer[]>>((accumulator, offer) => {
+function groupMacOffersByRecipient<TOffer extends { recipient: string }>(
+  offers: TOffer[]
+): Record<string, TOffer[]> {
+  return offers.reduce<Record<string, TOffer[]>>((accumulator, offer) => {
     accumulator[offer.recipient] = accumulator[offer.recipient] || [];
     accumulator[offer.recipient].push(offer);
     return accumulator;
@@ -608,46 +686,70 @@ function getMacMailCategoryPrefix(offer: TargetEmailOffer): string {
   return `${offer.type} ${genre}`;
 }
 
-async function sendMacSummaryEmails(offers: TargetEmailOffer[]): Promise<number> {
-  if (offers.length === 0) return 0;
+// Un'unica email, organizzata per genere e poi alfabeticamente per artista e titolo.
+const NEW_LOW_GENRE_ORDER = ['Alt', 'Jazz', 'H&M', 'Rock Pop'];
 
-  const categoryGroups = offers.reduce<Record<string, TargetEmailOffer[]>>(
-    (accumulator, offer) => {
-      const prefix = getMacMailCategoryPrefix(offer);
+function sortNewLowOffersByGenre(offers: NewLowEmailOffer[]): NewLowEmailOffer[] {
+  const alphabetical = sortMacOffersByArtist(offers);
+  const normalizedGenre = (genre: string) => genre.trim().toLocaleLowerCase('it');
 
-      accumulator[prefix] = accumulator[prefix] || [];
-      accumulator[prefix].push(offer);
-
-      return accumulator;
-    },
-    {}
-  );
-
-  let sent = 0;
-
-  for (const [subjectPrefix, categoryOffers] of Object.entries(categoryGroups)) {
-    const sortedOffers = sortMacTargetOffers(categoryOffers);
-    const grouped = groupMacOffersByRecipient(sortedOffers);
-
-    for (const [recipient, recipientOffers] of Object.entries(grouped)) {
-      if (recipientOffers.length === 0) continue;
-
-      await sendTargetSummaryEmail({
-        to: recipient,
-        offers: recipientOffers,
-        subjectPrefix
-      });
-
-      sent += 1;
+  return alphabetical.sort((left, right) => {
+    const leftGenre = normalizedGenre(left.genre);
+    const rightGenre = normalizedGenre(right.genre);
+    const leftRank = NEW_LOW_GENRE_ORDER.findIndex((genre) => normalizedGenre(genre) === leftGenre);
+    const rightRank = NEW_LOW_GENRE_ORDER.findIndex((genre) => normalizedGenre(genre) === rightGenre);
+    const rankDiff = (leftRank < 0 ? NEW_LOW_GENRE_ORDER.length : leftRank) -
+      (rightRank < 0 ? NEW_LOW_GENRE_ORDER.length : rightRank);
+    if (rankDiff !== 0) return rankDiff;
+    if (leftRank < 0 && rightRank < 0) {
+      const genreDiff = leftGenre.localeCompare(rightGenre, 'it', { sensitivity: 'base' });
+      if (genreDiff !== 0) return genreDiff;
     }
-  }
-
-  return sent;
+    return 0; // L'ordinamento alfabetico precedente resta stabile all'interno del genere.
+  });
 }
 
+async function sendMacSpecialAvailableEmail(rows: Array<Record<string, unknown>>): Promise<number> {
+  const offers: NewLowEmailOffer[] = [];
+  for (const row of rows) {
+    if (row.is_special !== true) continue;
+    const candidates = [
+      { store: 'Medimops' as const, price: getNumber(row, 'medimops_current_price'), condition: getString(row, 'medimops_condition'), url: getString(row, 'medimops_url') },
+      { store: 'Momox' as const, price: getNumber(row, 'momox_current_price'), condition: getString(row, 'momox_condition'), url: getString(row, 'momox_url') }
+    ].filter((item) => item.price !== null && isEligibleCondition(item.condition) && Boolean(item.url));
+    candidates.sort((a, b) => (a.price ?? Infinity) - (b.price ?? Infinity));
+    const best = candidates[0];
+    if (!best || best.price === null || !best.condition || !best.url) continue;
+    offers.push({
+      id: String(row.id), type: getMonitorType(row), channel: best.store,
+      artist: getString(row, 'artist') || 'Artista n/d', title: getMonitorDisplayTitle(row),
+      country: getString(row, 'country'), genre: getString(row, 'genre') || '',
+      price: best.price, previousLowestBestPrice: getNumber(row, 'lowest_best_price'),
+      condition: best.condition, url: best.url, recipient: getDefaultRecipient()
+    });
+  }
+  if (offers.length === 0) return 0;
+  const recipient = getDefaultRecipient();
+  if (!recipient) throw new Error('DEFAULT_ALERT_EMAIL mancante per Speciali Disponibili.');
+  await sendSpecialAvailableSummaryEmail({ to: recipient, offers: sortNewLowOffersByGenre(offers) });
+  return 1;
+}
 
-function shouldSendSummaryForMode(mode: string): boolean {
-  return mode === 'selected' || mode === 'all';
+// Le precedenti mail in target per genere sono disattivate.
+// NEW LOW usa un solo destinatario e una sola email per run.
+async function sendMacNewLowSummaryEmails(offers: NewLowEmailOffer[]): Promise<number> {
+  if (offers.length === 0) return 0;
+
+  const recipient = getDefaultRecipient();
+  if (!recipient) {
+    throw new Error('DEFAULT_ALERT_EMAIL mancante: impossibile inviare Nuovo Minimo Storico.');
+  }
+
+  await sendNewLowSummaryEmail({
+    to: recipient,
+    offers: sortNewLowOffersByGenre(offers)
+  });
+  return 1;
 }
 
 async function processRows(
@@ -664,6 +766,7 @@ async function processRows(
   let completed = 0;
   let errors = 0;
   const targetOffers: TargetEmailOffer[] = [];
+  const newLowOffers: NewLowEmailOffer[] = [];
 
   try {
     for (const record of orderedRows) {
@@ -685,17 +788,20 @@ async function processRows(
       console.log(`- ${medimops.message}`);
       console.log(`- ${momox.message}`);
 
-      await updateMonitorRow(record, medimops, momox);
+      const updateResult = await updateMonitorRow(record, medimops, momox);
 
       if (medimops.status === 'error' || momox.status === 'error') {
         errors += 1;
       }
 
-      const rowTargetOffers = buildMacTargetOffers(record, medimops, momox);
 
-      if (rowTargetOffers.length > 0) {
-        console.log(`[mac-monitor] Offerte in target trovate: ${rowTargetOffers.length}`);
-        targetOffers.push(...rowTargetOffers);
+      const rowNewLowOffer = updateResult.newLowDetection
+        ? buildMacNewLowOffer(record, updateResult.newLowDetection)
+        : null;
+
+      if (rowNewLowOffer) {
+        console.log(`[mac-monitor] NEW LOW trovato: ${rowNewLowOffer.artist} - ${rowNewLowOffer.title} (${rowNewLowOffer.price.toFixed(2)} € < ${updateResult.newLowDetection?.previousLowestBestPrice?.toFixed(2) ?? 'nessuno'} €)`);
+        newLowOffers.push(rowNewLowOffer);
       }
 
       completed += 1;
@@ -719,7 +825,7 @@ async function processRows(
     await persistentChromeRunner.disconnect();
   }
 
-  return { completed, errors, targetOffers };
+  return { completed, errors, targetOffers, newLowOffers };
 }
 
 async function runDirectMode(): Promise<void> {
@@ -757,15 +863,15 @@ async function runDirectMode(): Promise<void> {
   console.log(`[mac-monitor] Record da controllare: ${rows.length}`);
 
   const summary = await processRows(rows);
-  const alertsSent = shouldSendSummaryForMode(mode)
-    ? await sendMacSummaryEmails(summary.targetOffers)
-    : 0;
-
+  const alertsSent = 0; // Invii in target disabilitati.
+  const newLowAlertsSent = await sendMacNewLowSummaryEmails(summary.newLowOffers);
   console.log('\n[mac-monitor] Fine.');
   console.log(`[mac-monitor] Record completati: ${summary.completed}`);
   console.log(`[mac-monitor] Record con errori: ${summary.errors}`);
   console.log(`[mac-monitor] Offerte in target: ${summary.targetOffers.length}`);
   console.log(`[mac-monitor] Email riepilogative inviate: ${alertsSent}`);
+  console.log(`[mac-monitor] NEW LOW trovati: ${summary.newLowOffers.length}`);
+  console.log(`[mac-monitor] Email NEW LOW inviate: ${newLowAlertsSent}`);
 }
 
 function getJobMonitorIds(job: Record<string, unknown>): string[] {
@@ -787,7 +893,7 @@ function getJobMonitorIds(job: Record<string, unknown>): string[] {
   return [];
 }
 
-async function processNextPendingJob(): Promise<boolean> {
+async function processNextPendingJob(onRunningChange?: (running: boolean) => void): Promise<boolean> {
   const { data: pendingJob, error: pendingError } = await supabase
     .from('mac_monitor_jobs')
     .select('*')
@@ -836,6 +942,7 @@ async function processNextPendingJob(): Promise<boolean> {
     return false;
   }
 
+  onRunningChange?.(true);
   try {
     const claimed = claimedJob as Record<string, unknown>;
     const monitorIds = getJobMonitorIds(claimed);
@@ -848,15 +955,16 @@ async function processNextPendingJob(): Promise<boolean> {
     console.log(`[mac-runner] Record da controllare: ${rows.length}`);
 
     const summary = await processRows(rows);
-    const alertsSent = shouldSendSummaryForMode(mode)
-      ? await sendMacSummaryEmails(summary.targetOffers)
-      : 0;
+    const alertsSent = 0; // Invii in target disabilitati.
+    const newLowAlertsSent = await sendMacNewLowSummaryEmails(summary.newLowOffers);
 
     const resultSummary = {
       completed: summary.completed,
       errors: summary.errors,
       targetOffers: summary.targetOffers.length,
-      alertsSent
+      alertsSent,
+      newLowOffers: summary.newLowOffers.length,
+      newLowAlertsSent
     };
 
     await supabase
@@ -872,6 +980,8 @@ async function processNextPendingJob(): Promise<boolean> {
     console.log(`[mac-runner] Job completato: ${jobId}`);
     console.log(`[mac-runner] Offerte in target: ${summary.targetOffers.length}`);
     console.log(`[mac-runner] Email riepilogative inviate: ${alertsSent}`);
+    console.log(`[mac-runner] NEW LOW trovati: ${summary.newLowOffers.length}`);
+    console.log(`[mac-runner] Email NEW LOW inviate: ${newLowAlertsSent}`);
 
     return true;
   } catch (error) {
@@ -889,20 +999,89 @@ async function processNextPendingJob(): Promise<boolean> {
     console.error(`[mac-runner] Job in errore: ${message}`);
 
     throw error;
+  } finally {
+    onRunningChange?.(false);
   }
+}
+
+// Local wall-clock scheduling: never creates a Supabase job or persists missed runs.
+const SCHEDULED_HOURS = new Set([9, 14, 19, 22]);
+const SCHEDULE_TIMEZONE = 'Europe/Zagreb';
+
+function currentScheduleSlot(): string | null {
+  const parts = new Intl.DateTimeFormat('en-GB', {
+    timeZone: SCHEDULE_TIMEZONE,
+    year: 'numeric', month: '2-digit', day: '2-digit',
+    hour: '2-digit', minute: '2-digit', second: '2-digit', hourCycle: 'h23'
+  }).formatToParts(new Date());
+  const part = (type: string) => parts.find((item) => item.type === type)?.value || '';
+  if (!SCHEDULED_HOURS.has(Number(part('hour'))) || part('minute') !== '00') return null;
+  // A sleeping Mac waking in the middle of the minute does not catch up.
+  if (Number(part('second')) > 10) return null;
+  return `${part('year')}-${part('month')}-${part('day')} ${part('hour')}:00`;
+}
+
+async function runScheduledFullCheck(slot: string): Promise<void> {
+  console.log(`\n[mac-runner] Controllo automatico ${slot} (${SCHEDULE_TIMEZONE})`);
+  const rows = await fetchAllActiveRows();
+  console.log(`[mac-runner] Record automatici da controllare: ${rows.length}`);
+  const summary = await processRows(rows);
+  const alertsSent = 0; // Invii in target disabilitati.
+  const newLowAlertsSent = await sendMacNewLowSummaryEmails(summary.newLowOffers);
+  const specialEmailsSent = await sendMacSpecialAvailableEmail(await fetchAllActiveRows());
+  console.log(`[mac-runner] Email Speciali Disponibili inviate: ${specialEmailsSent}`);
+  console.log(
+    `[mac-runner] Controllo ${slot} completato: ${summary.completed} record, ${summary.errors} errori, ${alertsSent} email offerte in target, ${newLowAlertsSent} email NEW LOW.`
+  );
 }
 
 async function watchPendingJobs(): Promise<void> {
   console.log('[mac-runner] Avvio runner locale. Premi Ctrl+C per fermarlo.');
   console.log('[mac-runner] Controllo job pending ogni 5 secondi.');
+  console.log('[mac-runner] Controlli automatici 09:00, 14:00, 19:00 e 22:00 (Europe/Zagreb), senza recupero.');
+
+  let busy = false;
+  let pendingSlot: string | null = null;
+  let lastSlot: string | null = null;
+  const checkSchedule = () => {
+    const slot = currentScheduleSlot();
+    if (!slot || slot === lastSlot) return;
+    lastSlot = slot;
+    if (busy || pendingSlot !== null) {
+      console.log(`[mac-runner] SALTATO ${slot}: controllo precedente ancora in corso.`);
+    } else {
+      pendingSlot = slot; // RAM only, removed if a manual job wins the race.
+      console.log(`[mac-runner] Slot automatico ${slot} rilevato.`);
+    }
+  };
+  checkSchedule();
+  const timer = setInterval(checkSchedule, 1000);
+  timer.unref();
 
   while (true) {
     try {
-      const processed = await processNextPendingJob();
+      // Manual jobs retain priority. A scheduled run never waits behind a manual run.
+      const processed = await processNextPendingJob((running) => {
+        busy = running;
+        if (running && pendingSlot) {
+          console.log(`[mac-runner] SALTATO ${pendingSlot}: avviato job manuale.`);
+          pendingSlot = null;
+        }
+      });
+      if (processed) continue;
 
-      if (!processed) {
-        await sleep(5000);
+      const slot = pendingSlot;
+      if (slot) {
+        pendingSlot = null;
+        busy = true;
+        try {
+          await runScheduledFullCheck(slot);
+        } finally {
+          busy = false;
+        }
+        continue;
       }
+      await sleep(5000);
     } catch (error) {
       const message = error instanceof Error ? error.message : 'errore sconosciuto';
       console.error(`[mac-runner] Errore ciclo runner: ${message}`);

@@ -1,25 +1,39 @@
 import nodemailer from 'nodemailer';
 import { env } from '@/lib/env';
 
-export type TargetEmailOffer = {
+export type SummaryEmailChannel = 'Medimops' | 'Momox';
+
+export type SummaryEmailBaseOffer = {
   id: string;
   type: 'CD' | 'LP';
-  channel: 'Medimops' | 'Momox';
+  channel: SummaryEmailChannel;
   artist: string;
   title: string;
   country: string | null;
   genre: string;
   price: number;
-  lowestBestPrice: number | null;
   condition: string;
   url: string;
   recipient: string;
+};
+
+export type TargetEmailOffer = SummaryEmailBaseOffer & {
+  lowestBestPrice: number | null;
+};
+
+export type NewLowEmailOffer = SummaryEmailBaseOffer & {
+  previousLowestBestPrice: number | null;
 };
 
 type SendTargetSummaryEmailOptions = {
   to: string;
   offers: TargetEmailOffer[];
   subjectPrefix?: string;
+};
+
+type SendNewLowSummaryEmailOptions = {
+  to: string;
+  offers: NewLowEmailOffer[];
 };
 
 type SendAlertEmailOptions = {
@@ -30,6 +44,14 @@ type SendAlertEmailOptions = {
   url: string;
   currentPrice: number;
   targetPrice: number;
+};
+
+type SummaryEmailBuildOptions<TOffer extends SummaryEmailBaseOffer> = {
+  title: string;
+  subtitle: string;
+  totalLabel: string;
+  lowestHeader: string;
+  lowestValue: (offer: TOffer) => string;
 };
 
 function getTransporter() {
@@ -66,13 +88,6 @@ function formatEuro(value: number): string {
 
 function getAppBaseUrl(): string {
   return String(process.env.APP_BASE_URL || '').trim().replace(/\/+$/, '');
-}
-
-function buildAppUrl(id: string): string {
-  const baseUrl = getAppBaseUrl();
-  const path = `/?monitor=${encodeURIComponent(id)}`;
-
-  return baseUrl ? `${baseUrl}${path}` : path;
 }
 
 function buildCartUrl(id: string): string {
@@ -139,7 +154,7 @@ function getConditionEmailColors(condition: string) {
   };
 }
 
-function getChannelColor(channel: 'Medimops' | 'Momox') {
+function getChannelColor(channel: SummaryEmailChannel) {
   if (channel === 'Medimops') {
     return {
       background: '#ecfeff',
@@ -155,14 +170,16 @@ function getChannelColor(channel: 'Medimops' | 'Momox') {
   };
 }
 
-function buildOfferRows(offers: TargetEmailOffer[]) {
+function buildSummaryRows<TOffer extends SummaryEmailBaseOffer>(
+  offers: TOffer[],
+  options: SummaryEmailBuildOptions<TOffer>
+) {
   return offers
     .map((offer) => {
       const colors = getChannelColor(offer.channel);
       const conditionColors = getConditionEmailColors(offer.condition);
       const artistUrl = buildArtistFilterUrl(offer.artist);
-      const lowestText =
-        offer.lowestBestPrice === null ? '-' : formatEuro(offer.lowestBestPrice);
+      const lowestText = options.lowestValue(offer);
 
       return `
         <tr>
@@ -233,8 +250,10 @@ function buildOfferRows(offers: TargetEmailOffer[]) {
     .join('');
 }
 
-
-function buildTextSummary(offers: TargetEmailOffer[]) {
+function buildSummaryText<TOffer extends SummaryEmailBaseOffer>(
+  offers: TOffer[],
+  options: SummaryEmailBuildOptions<TOffer>
+) {
   return offers
     .map((offer) => {
       return [
@@ -244,7 +263,7 @@ function buildTextSummary(offers: TargetEmailOffer[]) {
         `${offer.title}`,
         `${offer.country || '-'}`,
         `${formatEuro(offer.price)}`,
-        `Lowest ${offer.lowestBestPrice === null ? '-' : formatEuro(offer.lowestBestPrice)}`,
+        `${options.lowestHeader} ${options.lowestValue(offer)}`,
         `Condizione ${offer.condition}`,
         `${offer.url}`,
         `Carrello ${buildCartUrl(offer.id)}`
@@ -253,7 +272,10 @@ function buildTextSummary(offers: TargetEmailOffer[]) {
     .join('\n');
 }
 
-function buildSummaryHtml(offers: TargetEmailOffer[]) {
+function buildSummaryHtml<TOffer extends SummaryEmailBaseOffer>(
+  offers: TOffer[],
+  options: SummaryEmailBuildOptions<TOffer>
+) {
   const medimopsCount = offers.filter((offer) => offer.channel === 'Medimops').length;
   const momoxCount = offers.filter((offer) => offer.channel === 'Momox').length;
 
@@ -275,11 +297,11 @@ function buildSummaryHtml(offers: TargetEmailOffer[]) {
               </div>
 
               <h1 style="margin: 8px 0 0; font-size: 28px; line-height: 1.2;">
-                Offerte in target trovate
+                ${escapeHtml(options.title)}
               </h1>
 
               <p style="margin: 10px 0 0; color: rgba(255,255,255,0.72); font-size: 15px;">
-                Questo riepilogo contiene solo prezzi sotto target con condizione NM o EX.
+                ${escapeHtml(options.subtitle)}
               </p>
             </div>
 
@@ -294,7 +316,7 @@ function buildSummaryHtml(offers: TargetEmailOffer[]) {
                 </span>
 
                 <span style="display: inline-block; margin-bottom: 8px; padding: 8px 12px; border-radius: 999px; background: #fff7ed; color: #d97825; font-size: 13px; font-weight: 900; border: 1px solid #fed7aa;">
-                  Totale offerte: ${offers.length}
+                  ${escapeHtml(options.totalLabel)}: ${offers.length}
                 </span>
               </div>
 
@@ -307,14 +329,14 @@ function buildSummaryHtml(offers: TargetEmailOffer[]) {
                     <th align="left" style="padding: 10px; border-bottom: 2px solid #dbe4e2; color: #64748b; font-size: 12px; text-transform: uppercase; letter-spacing: 0.05em;">Titolo</th>
                     <th align="left" style="padding: 10px; border-bottom: 2px solid #dbe4e2; color: #64748b; font-size: 12px; text-transform: uppercase; letter-spacing: 0.05em;">Country</th>
                     <th align="left" style="padding: 10px; border-bottom: 2px solid #dbe4e2; color: #64748b; font-size: 12px; text-transform: uppercase; letter-spacing: 0.05em;">Prezzo</th>
-                    
-                          <th align="left" style="padding: 12px 10px; border-bottom: 2px solid #cbd5e1; color: #475569; font-size: 12px; text-transform: uppercase;">€ Lowest</th><th align="left" style="padding: 10px; border-bottom: 2px solid #dbe4e2; color: #64748b; font-size: 12px; text-transform: uppercase; letter-spacing: 0.05em;">Condizione</th>
+                    <th align="left" style="padding: 12px 10px; border-bottom: 2px solid #cbd5e1; color: #475569; font-size: 12px; text-transform: uppercase;">${escapeHtml(options.lowestHeader)}</th>
+                    <th align="left" style="padding: 10px; border-bottom: 2px solid #dbe4e2; color: #64748b; font-size: 12px; text-transform: uppercase; letter-spacing: 0.05em;">Condizione</th>
                     <th align="center" style="padding: 10px; border-bottom: 2px solid #dbe4e2; color: #64748b; font-size: 12px; text-transform: uppercase; letter-spacing: 0.05em;">🛒</th>
                   </tr>
                 </thead>
 
                 <tbody>
-                  ${buildOfferRows(offers)}
+                  ${buildSummaryRows(offers, options)}
                 </tbody>
               </table>
 
@@ -333,6 +355,14 @@ export async function sendTargetSummaryEmail(options: SendTargetSummaryEmailOpti
   if (!options.to || options.offers.length === 0) return;
 
   const transporter = getTransporter();
+  const buildOptions: SummaryEmailBuildOptions<TargetEmailOffer> = {
+    title: 'Offerte in target trovate',
+    subtitle: 'Questo riepilogo contiene solo prezzi sotto target con condizione NM o EX.',
+    totalLabel: 'Totale offerte',
+    lowestHeader: '€ Lowest',
+    lowestValue: (offer) =>
+      offer.lowestBestPrice === null ? '-' : formatEuro(offer.lowestBestPrice)
+  };
 
   await transporter.sendMail({
     from: getFromEmail(),
@@ -340,8 +370,48 @@ export async function sendTargetSummaryEmail(options: SendTargetSummaryEmailOpti
     subject: options.subjectPrefix
       ? `Music Price Monitor ${options.subjectPrefix}: ${options.offers.length} offerte in target`
       : `Music Price Monitor: ${options.offers.length} offerte in target`,
-    text: `Offerte in target trovate:\n\n${buildTextSummary(options.offers)}`,
-    html: buildSummaryHtml(options.offers)
+    text: `Offerte in target trovate:\n\n${buildSummaryText(options.offers, buildOptions)}`,
+    html: buildSummaryHtml(options.offers, buildOptions)
+  });
+}
+
+export async function sendNewLowSummaryEmail(options: SendNewLowSummaryEmailOptions) {
+  if (!options.to || options.offers.length === 0) return;
+
+  const transporter = getTransporter();
+  const buildOptions: SummaryEmailBuildOptions<NewLowEmailOffer> = {
+    title: 'Nuovo Minimo Storico',
+    subtitle:
+      'Dischi con un nuovo minimo storico rilevato durante il controllo (condizione NM o EX).',
+    totalLabel: 'Nuovi minimi',
+    lowestHeader: '€ Minimo precedente',
+    lowestValue: (offer) => offer.previousLowestBestPrice === null ? 'Primo minimo' : formatEuro(offer.previousLowestBestPrice)
+  };
+
+  await transporter.sendMail({
+    from: getFromEmail(),
+    to: options.to,
+    subject: `Music Price Monitor - Nuovo Minimo Storico: ${options.offers.length} dischi`,
+    text: `Nuovo Minimo Storico:\n\n${buildSummaryText(options.offers, buildOptions)}`,
+    html: buildSummaryHtml(options.offers, buildOptions)
+  });
+}
+
+export async function sendSpecialAvailableSummaryEmail(options: { to: string; offers: NewLowEmailOffer[] }) {
+  if (!options.to || options.offers.length === 0) return;
+  const buildOptions: SummaryEmailBuildOptions<NewLowEmailOffer> = {
+    title: 'Speciali Disponibili',
+    subtitle: 'Release speciali con prezzo attuale disponibile e condizione NM o EX.',
+    totalLabel: 'Speciali disponibili',
+    lowestHeader: '€ Lowest',
+    lowestValue: (offer) => offer.previousLowestBestPrice === null ? '-' : formatEuro(offer.previousLowestBestPrice)
+  };
+  await getTransporter().sendMail({
+    from: getFromEmail(),
+    to: options.to,
+    subject: `Music Price Monitor - Speciali Disponibili: ${options.offers.length} dischi`,
+    text: `Speciali Disponibili:\n\n${buildSummaryText(options.offers, buildOptions)}`,
+    html: buildSummaryHtml(options.offers, buildOptions)
   });
 }
 

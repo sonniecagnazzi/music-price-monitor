@@ -353,7 +353,7 @@ function CompactMultiSelectFilter({
     <div className="relative min-w-0">
       <button
         type="button"
-        className="mpm-focus flex h-11 w-full min-w-0 items-center justify-between gap-1 rounded-xl border border-slate-200 bg-white px-2 text-left text-xs font-semibold text-slate-700 shadow-sm hover:bg-slate-50 xl:text-sm"
+        className={`mpm-focus flex h-11 w-full min-w-0 items-center justify-between gap-1 rounded-xl border px-2 text-left text-xs font-semibold shadow-sm xl:text-sm ${value.length > 0 ? 'border-[#24BFBF] bg-emerald-100 text-emerald-900' : 'border-slate-200 bg-white text-slate-700 hover:bg-slate-50'}`}
         onClick={onToggle}
       >
         <span className="min-w-0 truncate" title={labelText}>{labelText}</span>
@@ -951,6 +951,7 @@ export default function Dashboard() {
   const [multiFilters, setMultiFilters] =
     useState<MultiFilters>(emptyMultiFilters);
   const [onlyAvailable, setOnlyAvailable] = useState(false);
+  const [onlySpecial, setOnlySpecial] = useState(false);
   const [sortKey, setSortKey] = useState<SortKey | null>(null);
   const [sortAsc, setSortAsc] = useState(true);
   const [message, setMessage] = useState('Caricamento...');
@@ -988,6 +989,7 @@ export default function Dashboard() {
         filters?: Record<string, string>;
         multiFilters?: MultiFilters;
         onlyAvailable?: boolean;
+        onlySpecial?: boolean;
         sortKey?: SortKey | null;
         sortAsc?: boolean;
         filtersOpen?: boolean;
@@ -1002,6 +1004,7 @@ export default function Dashboard() {
         });
       }
       if (typeof saved.onlyAvailable === 'boolean') setOnlyAvailable(saved.onlyAvailable);
+      if (typeof saved.onlySpecial === 'boolean') setOnlySpecial(saved.onlySpecial);
       if (saved.sortKey !== undefined) setSortKey(saved.sortKey);
       if (typeof saved.sortAsc === 'boolean') setSortAsc(saved.sortAsc);
       if (typeof saved.filtersOpen === 'boolean') setFiltersOpen(saved.filtersOpen);
@@ -1018,6 +1021,7 @@ export default function Dashboard() {
           filters,
           multiFilters,
           onlyAvailable,
+          onlySpecial,
           sortKey,
           sortAsc,
           filtersOpen
@@ -1026,11 +1030,11 @@ export default function Dashboard() {
     } catch {
       // LocalStorage non disponibile: nessun blocco della dashboard.
     }
-  }, [filters, multiFilters, onlyAvailable, sortKey, sortAsc, filtersOpen]);
+  }, [filters, multiFilters, onlyAvailable, onlySpecial, sortKey, sortAsc, filtersOpen]);
 
   useEffect(() => {
     setCurrentPage(1);
-  }, [filters, multiFilters, onlyAvailable, sortKey, sortAsc]);
+  }, [filters, multiFilters, onlyAvailable, onlySpecial, sortKey, sortAsc]);
 
   useEffect(() => {
     if (currentPage < 1) {
@@ -1120,7 +1124,7 @@ export default function Dashboard() {
     window.history.replaceState(null, '', '/');
   }, []);
 
-  const activeFilterCount = countActiveFilters(filters, multiFilters) + (onlyAvailable ? 1 : 0);
+  const activeFilterCount = countActiveFilters(filters, multiFilters) + (onlyAvailable ? 1 : 0) + (onlySpecial ? 1 : 0);
 
   const countryQuickOptions = useMemo(() => {
     return Array.from(
@@ -1406,6 +1410,7 @@ export default function Dashboard() {
 
       // €Now e' valorizzato solo se esiste un prezzo con condizione NM/EX.
       if (onlyAvailable && bestPrice === null) return false;
+      if (onlySpecial && !monitor.is_special) return false;
 
       const targetFilterLabels = getTargetFilterLabels(monitor);
 
@@ -1473,7 +1478,7 @@ export default function Dashboard() {
 
       return compareDefaultOrder(a, b);
     });
-  }, [monitors, filters, multiFilters, onlyAvailable, sortKey, sortAsc]);
+  }, [monitors, filters, multiFilters, onlyAvailable, onlySpecial, sortKey, sortAsc]);
 
   const totalPages = Math.max(1, Math.ceil(filtered.length / DASHBOARD_PAGE_SIZE));
   const safeCurrentPage = Math.min(currentPage, totalPages);
@@ -1992,10 +1997,31 @@ export default function Dashboard() {
     }
   }
 
+  async function toggleSpecial(monitor: Monitor) {
+    setBusy(true);
+    try {
+      const response = await fetch(`/api/monitors/${encodeURIComponent(monitor.id)}/special`, {
+        method: 'PATCH',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ is_special: !monitor.is_special })
+      });
+      const result = (await response.json()) as { error?: string };
+      if (!response.ok) throw new Error(result.error || 'Impossibile aggiornare Speciale.');
+      setActionMenuMonitor(null);
+      await loadData();
+      setMessage(monitor.is_special ? 'Speciale rimosso.' : 'Release segnata come Speciale.');
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : 'Errore aggiornamento Speciale.');
+    } finally {
+      setBusy(false);
+    }
+  }
+
   function clearAllFilters() {
     setFilters({});
     setMultiFilters(emptyMultiFilters);
     setOnlyAvailable(false);
+    setOnlySpecial(false);
     setOpenMultiFilter(null);
   }
 
@@ -2340,7 +2366,7 @@ export default function Dashboard() {
               </div>
             </div>
 
-            <div className="grid grid-cols-2 gap-2 sm:grid-cols-4 md:grid-cols-8">
+            <div className="grid grid-cols-2 gap-2 sm:grid-cols-4 md:grid-cols-9">
               <CompactMultiSelectFilter
                 label="In Target"
                 value={multiFilters.target}
@@ -2423,12 +2449,22 @@ export default function Dashboard() {
                 title="Mostra solo i record con un prezzo nella colonna €Now"
                 className={`mpm-focus inline-flex h-11 min-w-0 items-center justify-center overflow-hidden whitespace-nowrap rounded-xl border px-1 text-xs font-bold shadow-sm sm:px-2 xl:text-sm ${
                   onlyAvailable
-                    ? 'border-[#24BFBF] bg-cyan-50 text-[#087D7D]'
+                    ? 'border-[#24BFBF] bg-emerald-100 text-emerald-900'
                     : 'border-slate-200 bg-white text-slate-700 hover:bg-slate-50'
                 }`}
                 onClick={() => setOnlyAvailable((current) => !current)}
               >
-                {onlyAvailable ? '✓ ' : ''}Solo Disponibili
+                {onlyAvailable ? '✓ ' : ''}Disponibili
+              </button>
+
+              <button
+                type="button"
+                aria-pressed={onlySpecial}
+                title="Mostra solo le release segnate come Speciali"
+                className={`mpm-focus inline-flex h-11 min-w-0 items-center justify-center overflow-hidden whitespace-nowrap rounded-xl border px-1 text-xs font-bold shadow-sm sm:px-2 xl:text-sm ${onlySpecial ? 'border-[#24BFBF] bg-emerald-100 text-emerald-900' : 'border-slate-200 bg-white text-slate-700 hover:bg-slate-50'}`}
+                onClick={() => setOnlySpecial((current) => !current)}
+              >
+                {onlySpecial ? '✓ ' : ''}Speciali
               </button>
 
               <button
@@ -2564,7 +2600,7 @@ export default function Dashboard() {
                             {monitor.type}
                           </span>
                         </td>
-                        <td className="px-3 py-3 font-bold text-[#12201f]">{monitor.artist}</td>
+                        <td className="px-3 py-3 font-bold text-[#12201f]">{monitor.is_special && <span title="Speciale" className="mr-1 text-amber-500">★</span>}{monitor.artist}</td>
                         <td className="px-3 py-3"><AlbumCell value={monitor.album} /></td>
                         <td className="px-3 py-3 text-slate-600">{monitor.country || '-'}</td>
                         <td className="px-3 py-3 font-black text-[#12201f]">
@@ -2766,6 +2802,16 @@ export default function Dashboard() {
                   >
                     <EditIcon />
                     Modifica
+                  </button>
+
+                  <button
+                    type="button"
+                    className="flex w-full items-center gap-3 rounded-2xl px-3 py-3 text-left text-sm font-black text-emerald-800 hover:bg-emerald-50 disabled:opacity-50"
+                    disabled={busy}
+                    onClick={() => { void toggleSpecial(actionMenuMonitor); }}
+                  >
+                    <span aria-hidden="true">★</span>
+                    {actionMenuMonitor.is_special ? 'Rimuovi Speciale' : 'Segna come Speciale'}
                   </button>
 
                   <button

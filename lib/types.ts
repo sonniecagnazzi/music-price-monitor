@@ -50,6 +50,7 @@ export type Monitor = {
 
   alert_email: string | null;
   is_active: boolean;
+  is_special: boolean;
   alert_sent: boolean;
 
   last_checked_at: string | null;
