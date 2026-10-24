@@ -951,6 +951,7 @@ export default function Dashboard() {
   const [multiFilters, setMultiFilters] =
     useState<MultiFilters>(emptyMultiFilters);
   const [onlyAvailable, setOnlyAvailable] = useState(false);
+  const [onlyMinimum, setOnlyMinimum] = useState(false);
   const [onlySpecial, setOnlySpecial] = useState(false);
   const [sortKey, setSortKey] = useState<SortKey | null>(null);
   const [sortAsc, setSortAsc] = useState(true);
@@ -989,6 +990,7 @@ export default function Dashboard() {
         filters?: Record<string, string>;
         multiFilters?: MultiFilters;
         onlyAvailable?: boolean;
+        onlyMinimum?: boolean;
         onlySpecial?: boolean;
         sortKey?: SortKey | null;
         sortAsc?: boolean;
@@ -1004,6 +1006,7 @@ export default function Dashboard() {
         });
       }
       if (typeof saved.onlyAvailable === 'boolean') setOnlyAvailable(saved.onlyAvailable);
+      if (typeof saved.onlyMinimum === 'boolean') setOnlyMinimum(saved.onlyMinimum);
       if (typeof saved.onlySpecial === 'boolean') setOnlySpecial(saved.onlySpecial);
       if (saved.sortKey !== undefined) setSortKey(saved.sortKey);
       if (typeof saved.sortAsc === 'boolean') setSortAsc(saved.sortAsc);
@@ -1021,6 +1024,7 @@ export default function Dashboard() {
           filters,
           multiFilters,
           onlyAvailable,
+          onlyMinimum,
           onlySpecial,
           sortKey,
           sortAsc,
@@ -1030,11 +1034,11 @@ export default function Dashboard() {
     } catch {
       // LocalStorage non disponibile: nessun blocco della dashboard.
     }
-  }, [filters, multiFilters, onlyAvailable, onlySpecial, sortKey, sortAsc, filtersOpen]);
+  }, [filters, multiFilters, onlyAvailable, onlyMinimum, onlySpecial, sortKey, sortAsc, filtersOpen]);
 
   useEffect(() => {
     setCurrentPage(1);
-  }, [filters, multiFilters, onlyAvailable, onlySpecial, sortKey, sortAsc]);
+  }, [filters, multiFilters, onlyAvailable, onlyMinimum, onlySpecial, sortKey, sortAsc]);
 
   useEffect(() => {
     if (currentPage < 1) {
@@ -1124,7 +1128,7 @@ export default function Dashboard() {
     window.history.replaceState(null, '', '/');
   }, []);
 
-  const activeFilterCount = countActiveFilters(filters, multiFilters) + (onlyAvailable ? 1 : 0) + (onlySpecial ? 1 : 0);
+  const activeFilterCount = countActiveFilters(filters, multiFilters) + (onlyAvailable ? 1 : 0) + (onlyMinimum ? 1 : 0) + (onlySpecial ? 1 : 0);
 
   const countryQuickOptions = useMemo(() => {
     return Array.from(
@@ -1410,6 +1414,7 @@ export default function Dashboard() {
 
       // €Now e' valorizzato solo se esiste un prezzo con condizione NM/EX.
       if (onlyAvailable && bestPrice === null) return false;
+      if (onlyMinimum && (bestPrice === null || !isFinitePrice(monitor.lowest_best_price) || !pricesEqual(bestPrice, monitor.lowest_best_price))) return false;
       if (onlySpecial && !monitor.is_special) return false;
 
       const targetFilterLabels = getTargetFilterLabels(monitor);
@@ -1478,7 +1483,7 @@ export default function Dashboard() {
 
       return compareDefaultOrder(a, b);
     });
-  }, [monitors, filters, multiFilters, onlyAvailable, onlySpecial, sortKey, sortAsc]);
+  }, [monitors, filters, multiFilters, onlyAvailable, onlyMinimum, onlySpecial, sortKey, sortAsc]);
 
   const totalPages = Math.max(1, Math.ceil(filtered.length / DASHBOARD_PAGE_SIZE));
   const safeCurrentPage = Math.min(currentPage, totalPages);
@@ -2021,6 +2026,7 @@ export default function Dashboard() {
     setFilters({});
     setMultiFilters(emptyMultiFilters);
     setOnlyAvailable(false);
+    setOnlyMinimum(false);
     setOnlySpecial(false);
     setOpenMultiFilter(null);
   }
@@ -2366,7 +2372,8 @@ export default function Dashboard() {
               </div>
             </div>
 
-            <div className="grid grid-cols-2 gap-2 sm:grid-cols-4 md:grid-cols-9">
+            <div className="w-full overflow-x-auto pb-2">
+              <div className="grid min-w-[1040px] grid-cols-10 gap-1.5">
               <CompactMultiSelectFilter
                 label="In Target"
                 value={multiFilters.target}
@@ -2459,6 +2466,16 @@ export default function Dashboard() {
 
               <button
                 type="button"
+                aria-pressed={onlyMinimum}
+                title="Mostra solo i record con €Now valorizzato e uguale a €Lowest"
+                className={`mpm-focus inline-flex h-11 min-w-0 items-center justify-center overflow-hidden whitespace-nowrap rounded-xl border px-1 text-xs font-bold shadow-sm sm:px-2 xl:text-sm ${onlyMinimum ? 'border-[#24BFBF] bg-emerald-100 text-emerald-900' : 'border-slate-200 bg-white text-slate-700 hover:bg-slate-50'}`}
+                onClick={() => setOnlyMinimum((current) => !current)}
+              >
+                {onlyMinimum ? '✓ ' : ''}Minimo
+              </button>
+
+              <button
+                type="button"
                 aria-pressed={onlySpecial}
                 title="Mostra solo le release segnate come Speciali"
                 className={`mpm-focus inline-flex h-11 min-w-0 items-center justify-center overflow-hidden whitespace-nowrap rounded-xl border px-1 text-xs font-bold shadow-sm sm:px-2 xl:text-sm ${onlySpecial ? 'border-[#24BFBF] bg-emerald-100 text-emerald-900' : 'border-slate-200 bg-white text-slate-700 hover:bg-slate-50'}`}
@@ -2475,6 +2492,7 @@ export default function Dashboard() {
                 Pulisci filtri
                 {activeFilterCount > 0 ? ` (${activeFilterCount})` : ''}
               </button>
+              </div>
             </div>
           </section>
 
