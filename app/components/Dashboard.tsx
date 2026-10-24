@@ -628,11 +628,11 @@ function lowestPriceClass(monitor: Monitor): string {
   const isInTarget = isPriceInAnyTarget(monitor, lowestPrice);
 
   if (isInTarget && pricesEqual(lowestPrice, getBestPrice(monitor))) {
-    return 'text-amber-600 drop-shadow-[0_1px_0_rgba(255,255,255,0.85)]';
+    return 'text-[#E5E000] drop-shadow-[0_1px_0_rgba(255,255,255,0.85)]';
   }
 
   if (isInTarget) {
-    return 'text-[#1fbf92]';
+    return 'text-[#2563EB]';
   }
 
   return 'text-slate-950';
