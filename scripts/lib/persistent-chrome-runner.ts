@@ -24,6 +24,7 @@ type CdpClient = {
     navigate(params: { url: string }): Promise<{
       errorText?: string;
     }>;
+    bringToFront(): Promise<unknown>;
   };
   Runtime: {
     enable(): Promise<unknown>;
@@ -419,6 +420,15 @@ class PersistentChromeRunner {
           throw error;
         }
       }
+    }
+  }
+
+  async bringToFront(): Promise<void> {
+    try {
+      await this.ensureReady();
+      await this.client!.Page.bringToFront();
+    } catch (error) {
+      console.warn(`[mac-browser] Impossibile portare la tab in primo piano: ${String(error)}`);
     }
   }
 

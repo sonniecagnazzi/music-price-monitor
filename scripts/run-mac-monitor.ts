@@ -1,10 +1,9 @@
 import { createClient } from '@supabase/supabase-js';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
-import { stdin as input, stdout as output } from 'node:process';
-import { createInterface } from 'node:readline/promises';
 import { sendNewLowSummaryEmail, sendSpecialAvailableSummaryEmail, type NewLowEmailOffer, type TargetEmailOffer } from '@/lib/email';
 import { persistentChromeRunner } from './lib/persistent-chrome-runner';
+import { notifyCloudflareIntervention } from './lib/cloudflare-intervention';
 
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -305,7 +304,6 @@ function computeLastStatus(
 }
 
 async function scrapeStoreWithChrome(
-  rl: ReturnType<typeof createInterface>,
   store: StoreName,
   url: string | null
 ): Promise<ScrapeOutcome> {
@@ -330,10 +328,37 @@ async function scrapeStoreWithChrome(
     let page = await persistentChromeRunner.readPage();
 
     if (isBlocked(page.title, page.text)) {
-      console.log(`[mac-monitor] ${store}: Cloudflare/verifica rilevata.`);
-      console.log('Completa manualmente in Chrome finché vedi il prezzo reale.');
-      await rl.question('Quando vedi il prezzo nella pagina, premi Invio qui nel Terminale... ');
-      page = await persistentChromeRunner.readPage();
+      console.log(`[mac-monitor] ${store}: Cloudflare/verifica rilevata. Intervento richiesto nel browser.`);
+      // Put the actual CDP tab in front, not a new, independent Chrome tab.
+      await persistentChromeRunner.bringToFront();
+      await notifyCloudflareIntervention(store);
+      console.log(`[mac-monitor] ${store}: scansione sospesa, attendo la verifica in Chrome (nessun Invio necessario).`);
+
+      // The existing browser session is preserved. A challenge may expire;
+      // the user can reload the same page and complete the new challenge.
+      // No timeout, no skipped record, no price update while blocked.
+      let consecutiveReadablePages = 0;
+      while (true) {
+        await sleep(3_000);
+        try {
+          const candidate = await persistentChromeRunner.readPage();
+          const expectedHost = new URL(url).hostname;
+          const actualHost = new URL(candidate.url).hostname;
+          const looksReady = !isBlocked(candidate.title, candidate.text) &&
+            expectedHost === actualHost &&
+            candidate.text.trim().length >= 100;
+
+          consecutiveReadablePages = looksReady ? consecutiveReadablePages + 1 : 0;
+          if (consecutiveReadablePages >= 2) {
+            page = candidate;
+            console.log(`[mac-monitor] ${store}: verifica superata, riprendo il controllo.`);
+            break;
+          }
+        } catch (pollError) {
+          consecutiveReadablePages = 0;
+          console.warn(`[mac-monitor] ${store}: attendo Chrome (${String(pollError)}).`);
+        }
+      }
     }
 
     if (isBlocked(page.title, page.text)) {
@@ -755,7 +780,6 @@ async function sendMacNewLowSummaryEmails(offers: NewLowEmailOffer[]): Promise<n
 async function processRows(
   orderedRows: Array<Record<string, unknown>>
 ): Promise<ProcessRowsSummary> {
-  const rl = createInterface({ input, output });
 
   await persistentChromeRunner.ensureReady();
 
@@ -781,8 +805,8 @@ async function processRows(
       const medimopsUrl = getString(record, 'medimops_url');
       const momoxUrl = getString(record, 'momox_url');
 
-      const medimops = await scrapeStoreWithChrome(rl, 'Medimops', medimopsUrl);
-      const momox = await scrapeStoreWithChrome(rl, 'Momox', momoxUrl);
+      const medimops = await scrapeStoreWithChrome('Medimops', medimopsUrl);
+      const momox = await scrapeStoreWithChrome('Momox', momoxUrl);
 
       console.log('\n[mac-monitor] Risultato record:');
       console.log(`- ${medimops.message}`);
@@ -807,7 +831,6 @@ async function processRows(
       completed += 1;
     }
   } finally {
-    rl.close();
 
     try {
       await persistentChromeRunner.leaveWaiting();
