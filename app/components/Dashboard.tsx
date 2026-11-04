@@ -2,6 +2,13 @@
 
 import { MonitorDetailModal } from './MonitorDetailModal';
 import Link from 'next/link';
+import { createPortal as reactDomCreatePortal } from 'react-dom';
+import type { ReactNode } from 'react';
+
+const createPortal = reactDomCreatePortal as (
+  children: ReactNode,
+  container: Element | DocumentFragment
+) => ReactNode;
 import { useEffect, useMemo, useRef, useState } from 'react';
 import type {
   LastStatus,
@@ -329,6 +336,41 @@ function CompactMultiSelectFilter({
   onChange: (value: string[]) => void;
 }) {
   const [search, setSearch] = useState('');
+  const triggerRef = useRef<HTMLButtonElement>(null);
+  const [popupPosition, setPopupPosition] = useState<{
+    top: number;
+    left: number;
+    width: number;
+  } | null>(null);
+
+  // The filter row scrolls horizontally. Render the popup in document.body
+  // so the scroll container cannot clip it.
+  useEffect(() => {
+    if (!isOpen) {
+      setPopupPosition(null);
+      return;
+    }
+
+    const updatePosition = () => {
+      const trigger = triggerRef.current;
+      if (!trigger) return;
+      const rect = trigger.getBoundingClientRect();
+      const width = Math.min(Math.max(rect.width, 224), window.innerWidth - 16);
+      setPopupPosition({
+        top: rect.bottom + 8,
+        left: Math.max(8, Math.min(rect.left, window.innerWidth - width - 8)),
+        width
+      });
+    };
+
+    updatePosition();
+    window.addEventListener('resize', updatePosition);
+    window.addEventListener('scroll', updatePosition, true);
+    return () => {
+      window.removeEventListener('resize', updatePosition);
+      window.removeEventListener('scroll', updatePosition, true);
+    };
+  }, [isOpen]);
 
   const visibleOptions = useMemo(() => {
     const query = search.trim().toLowerCase();
@@ -352,6 +394,7 @@ function CompactMultiSelectFilter({
   return (
     <div className="relative min-w-0">
       <button
+        ref={triggerRef}
         type="button"
         className={`mpm-focus flex h-11 w-full min-w-0 items-center justify-between gap-1 rounded-xl border px-2 text-left text-xs font-semibold shadow-sm xl:text-sm ${value.length > 0 ? 'border-[#24BFBF] bg-emerald-100 text-emerald-900' : 'border-slate-200 bg-white text-slate-700 hover:bg-slate-50'}`}
         onClick={onToggle}
@@ -360,8 +403,11 @@ function CompactMultiSelectFilter({
         <span className="shrink-0"><ChevronDownIcon /></span>
       </button>
 
-      {isOpen && (
-        <div className="absolute left-0 top-full z-30 mt-2 w-full min-w-56 rounded-2xl border border-slate-200 bg-white p-2 shadow-2xl">
+      {isOpen && popupPosition !== null && createPortal(
+        <div
+          className="fixed z-[100] rounded-2xl border border-slate-200 bg-white p-2 shadow-2xl"
+          style={popupPosition}
+        >
           <input
             className="mb-2 w-full rounded-xl border border-slate-200 p-2 text-sm outline-none focus:border-[#24BFBF]"
             placeholder={`Cerca ${label.toLowerCase()}`}
@@ -400,7 +446,8 @@ function CompactMultiSelectFilter({
               Pulisci
             </button>
           )}
-        </div>
+        </div>,
+        document.body
       )}
     </div>
   );
@@ -2360,6 +2407,17 @@ export default function Dashboard() {
                   setFilters({ ...filters, global: event.target.value })
                 }
               />
+              {(filters.global || '').length > 0 && (
+                <button
+                  type="button"
+                  aria-label="Cancella testo di ricerca"
+                  title="Cancella ricerca"
+                  className="mpm-focus absolute right-4 top-1/2 flex h-7 w-7 -translate-y-1/2 items-center justify-center rounded-full text-slate-500 hover:bg-slate-100 hover:text-slate-800"
+                  onClick={() => setFilters({ ...filters, global: '' })}
+                >
+                  <CloseIcon />
+                </button>
+              )}
               <div className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400">
                 <svg aria-hidden="true" className="h-5 w-5" viewBox="0 0 24 24" fill="none">
                   <path
